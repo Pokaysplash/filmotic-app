@@ -42,10 +42,15 @@ class FilmoticLogo extends StatelessWidget {
             ],
           ),
           child: Center(
-            child: Icon(
-              Icons.play_arrow_rounded,
-              color: Colors.white,
-              size: iconSize * 0.75,
+            child: Text(
+              'F',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: iconSize * 0.66,
+                height: 1.0,
+                letterSpacing: -0.5,
+              ),
             ),
           ),
         ),
