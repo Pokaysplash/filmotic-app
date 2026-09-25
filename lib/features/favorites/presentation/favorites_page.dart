@@ -32,6 +32,7 @@ class GuardadosPageState extends State<GuardadosPage>
   void initState() {
     super.initState();
     GuardadosBus.version.addListener(_onExternalChange);
+    AppDatabase.instance.activeProfileNotifier.addListener(_onExternalChange);
     _load();
   }
 
@@ -43,6 +44,7 @@ class GuardadosPageState extends State<GuardadosPage>
   @override
   void dispose() {
     GuardadosBus.version.removeListener(_onExternalChange);
+    AppDatabase.instance.activeProfileNotifier.removeListener(_onExternalChange);
     super.dispose();
   }
 

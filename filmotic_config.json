@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "ads": {
+    "adsterra_banner_id": "ADSTERRA_SAMPLE_BANNER_ID",
+    "hilltopads_vast_url": "https://hilltopads.example.com/vast/sample.xml"
+  },
+  "sources": {
+    "enabled": [
+      "cinecalidad",
+      "thanhdattoday",
+      "animeflv",
+      "serieskao",
+      "tioplus",
+      "cuevana"
+    ],
+    "disabled": [
+      "pelisplus"
+    ]
+  },
+  "messages": {
+    "maintenance": null,
+    "welcome_banner": null
+  },
+  "min_app_version": "1.0.0"
+}

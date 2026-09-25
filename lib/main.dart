@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'core/services/remote_config_service.dart';
 import 'presentation/mobile/mobile_shell.dart' as mobile;
 import 'presentation/tv/tv_shell.dart' as tv;
 import 'features/downloads/presentation/notification_helper.dart';
@@ -118,8 +120,19 @@ class _SplashScreenState extends State<SplashScreen> {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _bootstrap() async {
+    // Inicializar configuración remota sin bloquear el arranque
+    await RemoteConfigService.instance.initialize();
+
     // Mostrar el logo de carga durante 2 segundos
     await Future.delayed(const Duration(seconds: 2));
+
+    // Verificar si se requiere actualización forzada según min_app_version
+    const currentVersion = '1.0.0';
+    if (RemoteConfigService.instance.isUpdateRequired(currentVersion)) {
+      if (!mounted) return;
+      _showBlockingUpdateDialog(RemoteConfigService.instance.config.minAppVersion);
+      return;
+    }
 
     final prefs = await SharedPreferences.getInstance();
     final savedMode = prefs.getString(kModeKey);
@@ -135,6 +148,56 @@ class _SplashScreenState extends State<SplashScreen> {
     _mode = savedMode;
     await _applyOrientation(savedMode);
     await _goToHome();
+  }
+
+  void _showBlockingUpdateDialog(String minVersion) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          backgroundColor: const Color(0xFF1C1C1E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.system_update_rounded, color: Color(0xFFFF6B35)),
+              SizedBox(width: 10),
+              Text(
+                'Actualización requerida',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'Se requiere la versión $minVersion o superior para continuar usando Filmotic.\n\nPor favor actualiza la aplicación para disfrutar de las últimas mejoras y servidores.',
+            style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B35),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () {
+                launchUrl(
+                  Uri.parse('https://github.com/Filmotic/filmotic/releases/latest'),
+                  mode: LaunchMode.externalApplication,
+                );
+              },
+              child: const Text('Descargar Actualización'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _focusAfterFrame(FocusNode node) {

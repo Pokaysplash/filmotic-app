@@ -22,6 +22,7 @@ import '../../features/content/presentation/content_page.dart';
 import '../../features/downloads/presentation/downloads_page.dart';
 import '../shared/modals/playback_setup_modal.dart';
 import '../../core/constants/versiones.dart'; // ← VersionService
+import '../../core/storage/app_database.dart';
 
 const _kAccentColor = Color(0xFFFF6B35);
 
@@ -91,6 +92,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     GuardadosBus.version.addListener(_onContinueBus);
     DownloadNavBus.version.addListener(_onDownloadNavBus);
+    AppDatabase.instance.activeProfileNotifier.addListener(_onActiveProfileChanged);
     _loadContinueItem();
     _loadDownloadNavSettings();
 
@@ -533,8 +535,19 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
   void dispose() {
     GuardadosBus.version.removeListener(_onContinueBus);
     DownloadNavBus.version.removeListener(_onDownloadNavBus);
+    AppDatabase.instance.activeProfileNotifier.removeListener(_onActiveProfileChanged);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _onActiveProfileChanged() {
+    if (!mounted) return;
+    setState(() {
+      _continueDismissed = false;
+      _homeLoaded = true;
+    });
+    _loadContinueItem();
+    GuardadosBus.bump();
   }
 
   void _onContinueBus() {

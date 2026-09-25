@@ -102,9 +102,8 @@ class _SupabaseSectionState extends State<SupabaseSection> {
           await Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => ProfileSelectionPage(
-                allowDismiss: false,
+                allowDismiss: true,
                 onProfileSelected: () {
-                  Navigator.of(context).pop();
                   _load();
                   _setStatus(
                     'Perfil activado. Guardados en la nube.',
@@ -250,10 +249,7 @@ class _SupabaseSectionState extends State<SupabaseSection> {
       MaterialPageRoute(
         builder: (_) => ProfileSelectionPage(
           allowDismiss: true,
-          onProfileSelected: () {
-            Navigator.of(context).pop();
-            _load();
-          },
+          onProfileSelected: _load,
         ),
       ),
     );

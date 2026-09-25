@@ -1096,11 +1096,8 @@ class _ConfigPageState extends State<ConfigPage> {
                     onTap: () async {
                       await Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => ProfileSelectionPage(
+                          builder: (_) => const ProfileSelectionPage(
                             allowDismiss: true,
-                            onProfileSelected: () {
-                              Navigator.of(context).pop();
-                            },
                           ),
                         ),
                       );

@@ -45,7 +45,7 @@ dependencies:
   flutter_inappwebview: ^6.1.5
   dpad: ^3.0.0
   path: ^1.9.1
-  
+  nsd: ^5.0.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -61,6 +61,7 @@ flutter:
     - assets/images/
     - assets/redes/
     - assets/images/proveedores/
+    - assets/avatars/
 
 flutter_launcher_icons:
   android: true

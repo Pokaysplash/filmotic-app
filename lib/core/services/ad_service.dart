@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'remote_config_service.dart';
+import 'ads_config.example.dart' as fallback_config;
 
 /// Servicio de preparación de publicidad para Filmotic.
 /// Compatible con redes no restrictivas como Adsterra (banners) y HilltopAds (VAST pre-roll).
@@ -11,13 +13,29 @@ class AdService {
   /// Flag general para activar o desactivar publicidad
   bool enabled = false;
 
+  /// Obtiene el ID del banner de Adsterra desde RemoteConfig o configuración local
+  String get adsterraBannerId {
+    final remoteId =
+        RemoteConfigService.instance.config.ads['adsterra_banner_id']?.toString();
+    if (remoteId != null && remoteId.isNotEmpty) return remoteId;
+    return fallback_config.AdsConfig.adsterraBannerId;
+  }
+
+  /// Obtiene la URL de HilltopAds VAST desde RemoteConfig o configuración local
+  String get hilltopadsVastUrl {
+    final remoteUrl =
+        RemoteConfigService.instance.config.ads['hilltopads_vast_url']?.toString();
+    if (remoteUrl != null && remoteUrl.isNotEmpty) return remoteUrl;
+    return fallback_config.AdsConfig.hilltopadsVastUrl;
+  }
+
   /// Control de frecuencia para no saturar al usuario
   DateTime? _lastPreRollShown;
 
   /// Inicializa los SDKs o configuraciones de anuncios (Adsterra / HilltopAds)
   Future<void> initialize() async {
-    // Preparado para inicializar SDKs de Adsterra o HilltopAds
-    debugPrint('[Filmotic AdService] Inicializado en modo pasivo.');
+    debugPrint(
+        '[Filmotic AdService] Inicializado. Banner ID: $adsterraBannerId | VAST: $hilltopadsVastUrl');
   }
 
   /// Muestra anuncio pre-roll (VAST) antes de iniciar reproducción de video si aplica

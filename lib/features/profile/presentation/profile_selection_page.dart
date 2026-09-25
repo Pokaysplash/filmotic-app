@@ -5,18 +5,55 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../presentation/mobile/mobile_shell.dart' as mobile;
 import '../../../presentation/tv/tv_shell.dart' as tv;
+import '../../content/presentation/content_page.dart';
 import 'transfer_screen.dart';
 
 const _kAccent = Color(0xFFFF6B35);
 
 final List<String> kPresetAvatars = [
-  'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-  'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150',
-  'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=150',
-  'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
-  'https://images.unsplash.com/photo-1566492031773-4f4e44671857?w=150',
+  'assets/avatars/avatar_1.png',
+  'assets/avatars/avatar_2.png',
+  'assets/avatars/avatar_3.png',
+  'assets/avatars/avatar_4.png',
+  'assets/avatars/avatar_5.png',
+  'assets/avatars/avatar_6.png',
+  'assets/avatars/avatar_7.png',
+  'assets/avatars/avatar_8.png',
+  'assets/avatars/avatar_9.png',
+  'assets/avatars/avatar_10.png',
 ];
+
+ImageProvider getAvatarImageProvider(String path) {
+  if (path.startsWith('assets/')) {
+    return AssetImage(path);
+  }
+  return NetworkImage(path);
+}
+
+Widget buildAvatarImage(String path, {BoxFit fit = BoxFit.cover, double? width, double? height}) {
+  if (path.startsWith('assets/')) {
+    return Image.asset(
+      path,
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (_, __, ___) => Container(
+        color: const Color(0xFF2A2A38),
+        child: const Icon(Icons.person, color: Colors.white54, size: 44),
+      ),
+    );
+  }
+  return Image.network(
+    path,
+    width: width,
+    height: height,
+    fit: fit,
+    errorBuilder: (_, __, ___) => Container(
+      color: const Color(0xFF2A2A38),
+      child: const Icon(Icons.person, color: Colors.white54, size: 44),
+    ),
+  );
+}
 
 /// Pantalla de selección de perfiles estilo Netflix con soporte Sembast y D-Pad para TV.
 class ProfileSelectionPage extends StatefulWidget {
@@ -116,14 +153,6 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
 
   Future<void> _enterApp() async {
     if (!mounted) return;
-    if (widget.allowDismiss && widget.buildHome == null) {
-      widget.onProfileSelected?.call();
-      if (Navigator.of(context).canPop()) {
-        Navigator.of(context).pop();
-      }
-      return;
-    }
-
     final home = await _resolveHome();
     if (!mounted) return;
 
@@ -151,7 +180,16 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
     }
 
     await AppDatabase.instance.setActiveProfile(profile);
-    widget.onProfileSelected?.call();
+    GuardadosBus.bump();
+
+    if (widget.allowDismiss) {
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+      widget.onProfileSelected?.call();
+      return;
+    }
+
     await _enterApp();
   }
 
@@ -320,7 +358,8 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                             ),
                             child: CircleAvatar(
                               radius: 22,
-                              backgroundImage: NetworkImage(av),
+                              backgroundColor: const Color(0xFF2A2A38),
+                              backgroundImage: getAvatarImageProvider(av),
                             ),
                           ),
                         );
@@ -451,7 +490,8 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                             ),
                             child: CircleAvatar(
                               radius: 20,
-                              backgroundImage: NetworkImage(av),
+                              backgroundColor: const Color(0xFF2A2A38),
+                              backgroundImage: getAvatarImageProvider(av),
                             ),
                           ),
                         );
@@ -791,14 +831,7 @@ class _ProfileCardState extends State<_ProfileCard> {
                           : null,
                     ),
                     clipBehavior: Clip.antiAlias,
-                    child: Image.network(
-                      widget.profile.avatar,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        color: const Color(0xFF2A2A38),
-                        child: const Icon(Icons.person, color: Colors.white54, size: 44),
-                      ),
-                    ),
+                    child: buildAvatarImage(widget.profile.avatar),
                   ),
 
                   // Overlay en modo edición

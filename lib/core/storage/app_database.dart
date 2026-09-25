@@ -69,8 +69,11 @@ class LocalProfile {
         id: map['id']?.toString() ?? '',
         cuentaId: map['cuenta_id']?.toString() ?? '',
         nombre: map['nombre']?.toString() ?? 'Perfil',
-        avatar: map['avatar']?.toString() ??
-            'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde',
+        avatar: (map['avatar'] != null &&
+                (map['avatar'].toString().contains('unsplash.com') ||
+                    map['avatar'].toString().isEmpty))
+            ? 'assets/avatars/avatar_1.png'
+            : (map['avatar']?.toString() ?? 'assets/avatars/avatar_1.png'),
         esInfantil: map['es_infantil'] == true || map['es_infantil'] == 1,
         pin: map['pin']?.toString(),
         createdAt: map['created_at']?.toString() ?? DateTime.now().toIso8601String(),
@@ -163,7 +166,7 @@ class AppDatabase {
         id: defaultProfId,
         cuentaId: defaultAccId,
         nombre: 'Usuario',
-        avatar: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde',
+        avatar: 'assets/avatars/avatar_1.png',
         esInfantil: false,
         pin: null,
         createdAt: DateTime.now().toIso8601String(),

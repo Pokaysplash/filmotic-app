@@ -6,8 +6,27 @@ import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart' as enc;
 import 'package:flutter/foundation.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'package:nsd/nsd.dart';
 import 'package:uuid/uuid.dart';
 import '../storage/app_database.dart';
+
+class DiscoveredFilmoticDevice {
+  final String name;
+  final String ip;
+  final int port;
+  final String? pin;
+  final String? token;
+  final Service rawService;
+
+  DiscoveredFilmoticDevice({
+    required this.name,
+    required this.ip,
+    required this.port,
+    this.pin,
+    this.token,
+    required this.rawService,
+  });
+}
 
 class TransferPayloadInfo {
   final String ip;
@@ -54,6 +73,9 @@ class TransferService {
   static final TransferService instance = TransferService._();
 
   ServerSocket? _serverSocket;
+  Registration? _registration;
+  Discovery? _activeDiscovery;
+
   bool get isServerRunning => _serverSocket != null;
 
   /// Obtiene la IP local en la red WiFi o LAN
@@ -114,8 +136,19 @@ class TransferService {
     }
   }
 
+  static String? _getTxtString(Map<String, Uint8List?>? txt, String key) {
+    if (txt == null) return null;
+    final val = txt[key];
+    if (val == null || val.isEmpty) return null;
+    try {
+      return utf8.decode(val);
+    } catch (_) {
+      return null;
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════
-  // DISPOSITIVO ORIGEN (Servidor TCP)
+  // DISPOSITIVO ORIGEN (Servidor TCP + mDNS)
   // ══════════════════════════════════════════════════════════════
 
   Future<TransferPayloadInfo?> startServer({
@@ -138,7 +171,28 @@ class TransferService {
       _serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, 0);
       final port = _serverSocket!.port;
 
-      onStatus('Servidor iniciado en $ip:$port. Esperando conexión del receptor...');
+      onStatus('Servidor iniciado en $ip:$port. Publicando en red local...');
+
+      // Publicar servicio mDNS _filmotic._tcp con TXT records (PIN, token, IP)
+      try {
+        _registration = await register(
+          Service(
+            name: 'Filmotic-$pin',
+            type: '_filmotic._tcp',
+            port: port,
+            txt: {
+              'pin': Uint8List.fromList(utf8.encode(pin)),
+              'token': Uint8List.fromList(utf8.encode(token)),
+              'ip': Uint8List.fromList(utf8.encode(ip)),
+            },
+          ),
+        );
+        debugPrint('Servicio mDNS _filmotic._tcp publicado con éxito en puerto $port.');
+      } catch (e) {
+        debugPrint('Aviso: No se pudo publicar mDNS (se usará QR): $e');
+      }
+
+      onStatus('Listo en $ip:$port. Esperando conexión del receptor...');
 
       _serverSocket!.listen(
         (socket) async {
@@ -209,7 +263,7 @@ class TransferService {
       }
 
       if (clientPin != expectedPin) {
-        socket.write(jsonEncode({'status': 'error', 'message': 'PIN de 4 dígitos incorrecto.'}) + '\n');
+        socket.write(jsonEncode({'status': 'error', 'message': 'Código PIN incorrecto.'}) + '\n');
         await socket.flush();
         await socket.close();
         onCompleted(false, 'Conexión rechazada: PIN incorrecto.');
@@ -246,6 +300,14 @@ class TransferService {
   }
 
   Future<void> stopServer() async {
+    if (_registration != null) {
+      try {
+        await unregister(_registration!);
+      } catch (e) {
+        debugPrint('Error desregistrando mDNS: $e');
+      }
+      _registration = null;
+    }
     if (_serverSocket != null) {
       await _serverSocket!.close();
       _serverSocket = null;
@@ -253,8 +315,70 @@ class TransferService {
   }
 
   // ══════════════════════════════════════════════════════════════
-  // DISPOSITIVO DESTINO (Cliente TCP)
+  // DISPOSITIVO DESTINO (Cliente TCP + mDNS Discovery)
   // ══════════════════════════════════════════════════════════════
+
+  Future<Discovery?> startDiscoveryDevices({
+    required void Function(List<DiscoveredFilmoticDevice> devices) onUpdate,
+  }) async {
+    await stopDiscoveryDevices();
+    try {
+      final discovery = await startDiscovery(
+        '_filmotic._tcp',
+        autoResolve: true,
+        ipLookupType: IpLookupType.v4,
+      );
+      _activeDiscovery = discovery;
+
+      void updateList() {
+        final list = <DiscoveredFilmoticDevice>[];
+        for (final s in discovery.services) {
+          final pin = _getTxtString(s.txt, 'pin');
+          final token = _getTxtString(s.txt, 'token');
+          String? ip = _getTxtString(s.txt, 'ip');
+          if (ip == null || ip.isEmpty) {
+            if (s.addresses != null && s.addresses!.isNotEmpty) {
+              ip = s.addresses!.first.address;
+            } else if (s.host != null && !s.host!.endsWith('.local')) {
+              ip = s.host;
+            }
+          }
+          final port = s.port ?? 0;
+          final name = s.name ?? 'Filmotic';
+
+          if (ip != null && ip.isNotEmpty && port > 0) {
+            list.add(DiscoveredFilmoticDevice(
+              name: name,
+              ip: ip,
+              port: port,
+              pin: pin,
+              token: token,
+              rawService: s,
+            ));
+          }
+        }
+        onUpdate(list);
+      }
+
+      discovery.addListener(updateList);
+      updateList();
+      return discovery;
+    } catch (e) {
+      debugPrint('Error iniciando mDNS discovery: $e');
+      return null;
+    }
+  }
+
+  Future<void> stopDiscoveryDevices() async {
+    if (_activeDiscovery != null) {
+      try {
+        await stopDiscovery(_activeDiscovery!);
+      } catch (e) {
+        debugPrint('Error deteniendo mDNS discovery: $e');
+      }
+      _activeDiscovery = null;
+    }
+  }
 
   Future<bool> connectAndImport({
     required String ip,

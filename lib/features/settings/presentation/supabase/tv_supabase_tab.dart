@@ -208,11 +208,8 @@ class TvSupabaseTabState extends State<TvSupabaseTab>
       await Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => ProfileSelectionPage(
-            allowDismiss: false,
-            onProfileSelected: () {
-              Navigator.of(context).pop();
-              _load();
-            },
+            allowDismiss: true,
+            onProfileSelected: _load,
           ),
         ),
       );
@@ -225,10 +222,7 @@ class TvSupabaseTabState extends State<TvSupabaseTab>
       MaterialPageRoute(
         builder: (_) => ProfileSelectionPage(
           allowDismiss: true,
-          onProfileSelected: () {
-            Navigator.of(context).pop();
-            _load();
-          },
+          onProfileSelected: _load,
         ),
       ),
     );
@@ -240,10 +234,7 @@ class TvSupabaseTabState extends State<TvSupabaseTab>
       MaterialPageRoute(
         builder: (_) => ProfileSelectionPage(
           allowDismiss: true,
-          onProfileSelected: () {
-            Navigator.of(context).pop();
-            _load();
-          },
+          onProfileSelected: _load,
         ),
       ),
     );

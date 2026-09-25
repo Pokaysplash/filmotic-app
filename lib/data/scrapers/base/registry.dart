@@ -15,6 +15,7 @@ import '../cinecalidad_scraper.dart';
 import '../thanhdattoday_scraper.dart';
 import '../animeflv_scraper.dart';
 import 'buscador.dart';
+import '../../../core/services/remote_config_service.dart';
 /// Todas las fuentes disponibles (listado + búsqueda).
 final List<Fuente> fuentesRegistry = [
   // ── SeriesKao ──────────────────────────────────────────────────────────
@@ -171,12 +172,16 @@ final List<Fuente> fuentesRegistry = [
 ];
 
 /// Fuentes que tienen listado (aparecen en el selector de servicio).
-List<Fuente> get fuentesConListado =>
-    fuentesRegistry.where((f) => f.hasListing).toList();
+List<Fuente> get fuentesConListado => fuentesRegistry
+    .where((f) =>
+        f.hasListing && RemoteConfigService.instance.isSourceEnabled(f.id))
+    .toList();
 
 /// Fuentes que tienen búsqueda (aparecen en el filtro de búsqueda).
-List<Fuente> get fuentesConBusqueda =>
-    fuentesRegistry.where((f) => f.hasSearch).toList();
+List<Fuente> get fuentesConBusqueda => fuentesRegistry
+    .where((f) =>
+        f.hasSearch && RemoteConfigService.instance.isSourceEnabled(f.id))
+    .toList();
 
 /// Busca una fuente por id.
 Fuente? fuenteById(String id) {

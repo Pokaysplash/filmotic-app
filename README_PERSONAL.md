@@ -198,3 +198,96 @@ El sistema se preparó mediante el servicio modular **`AdService`** (`lib/core/s
    - Soporte para anuncios VAST antes de iniciar la reproducción de video.
    - Limitado con control de frecuencia (máximo una vez cada 15 minutos) para evitar saturación y garantizar una excelente experiencia de usuario.
    - Prohibidos terminantemente popunders, banners intrusivos durante la película y redirecciones al hacer clic en controles de video.
+
+---
+
+## 10. Cuatro Mejoras Mayores: Repositorio Privado, P2P con mDNS, Remote Config y Avatares Cartoon
+
+### 10.1 Repositorio GitHub Privado y Gestión de Credenciales
+- **Seguridad y `.gitignore`**:
+  Se configuró `.gitignore` estricto para impedir la subida accidental de información confidencial:
+  - `ads_config.dart` y `**/ads_config.dart` (claves de Adsterra y HilltopAds).
+  - Archivos `.env`, APKs compilados (`*.apk`), archivos de caché y configuración local.
+  - Artefactos de build de Android y Flutter (`build/`, `.dart_tool/`, `android/app/build/`).
+- **Plantilla `ads_config.example.dart`**:
+  Se proporciona `lib/core/services/ads_config.example.dart` con la estructura de configuración necesaria y valores de ejemplo.
+- **Instrucciones para Clonar, Configurar y Compilar**:
+  ```bash
+  # 1. Clonar el repositorio privado
+  git clone <URL_TU_REPOSITORIO_PRIVADO>
+  cd Pelisapp
+
+  # 2. Configurar el archivo de publicidad
+  cp lib/core/services/ads_config.example.dart lib/core/services/ads_config.dart
+  # Edita ads_config.dart con tus IDs de Adsterra o HilltopAds
+
+  # 3. Instalar dependencias
+  flutter pub get
+
+  # 4. Compilar o ejecutar en emulador/dispositivo
+  flutter run
+  # O generar APK de distribución:
+  flutter build apk --release
+  ```
+- **Conectar a un Repositorio Privado**:
+  ```bash
+  git remote add origin git@github.com:<tu-usuario>/<tu-repo-privado>.git
+  git branch -M main
+  git push -u origin main
+  ```
+
+### 10.2 P2P Simplificado con mDNS + Código PIN de 6 Dígitos
+Ubicación: `lib/core/network/transfer_service.dart` y `lib/features/profile/presentation/transfer_screen.dart`
+
+- **Anuncio en Red Local (Emisor / Origen)**:
+  - Al iniciar compartir, además de levantar el `ServerSocket` TCP en un puerto dinámico, publica un servicio mDNS con el tipo `_filmotic._tcp` usando el paquete `nsd: ^5.0.1`.
+  - El anuncio incluye atributos TXT:
+    - `pin`: Código de verificación de 6 dígitos generado aleatoriamente.
+    - `token`: Identificador de sesión UUID v4.
+    - `ip`: Dirección IP local asignada.
+- **Receptor / Destino**:
+  1. **"Buscar dispositivos en mi red" (Botón Principal)**: Realiza descubrimiento automático mDNS en la red Wi-Fi/LAN y presenta una lista de dispositivos Filmotic disponibles con un solo toque para enlazar sin necesidad de copiar IPs ni puertos.
+  2. **"Escanear QR" (Opción Secundaria - Fallback)**: Conserva el escáner de cámara nativo (`MobileScanner`) para redes complejas con aislamiento de clientes (AP isolation) donde mDNS esté restringido.
+  3. **"Introducir código de 6 dígitos" (Opción Terciaria)**: Permite ingresar el PIN de 6 dígitos que se visualiza en la pantalla del emisor; el cliente resuelve automáticamente el dispositivo emisor asociado a dicho PIN en mDNS y establece la conexión TCP cifrada con AES.
+
+### 10.3 Remote Config Dinámico sin Recompilar
+Ubicación: `lib/core/services/remote_config_service.dart` y archivo plantilla `filmotic_config.json`
+
+- **Descarga y Caché Local**:
+  - Al iniciar la aplicación, intenta descargar la configuración remota desde una URL centralizada (por defecto configurable en GitHub Raw o CDN privado).
+  - Almacena la configuración en la base de datos local **Sembast** con un **TTL de 24 horas**. Si no hay conexión o falla la descarga, utiliza la copia en caché o los valores predeterminados hardcodeados de emergencia.
+- **Estructura del JSON (`filmotic_config.json`)**:
+  ```json
+  {
+    "version": 1,
+    "ads": {
+      "adsterra_banner_id": "TU_BANNER_ID",
+      "hilltopads_vast_url": "https://..."
+    },
+    "sources": {
+      "enabled": ["cinecalidad", "thanhdattoday", "animeflv", "serieskao", "tioplus"],
+      "disabled": ["pelisplus"]
+    },
+    "messages": {
+      "maintenance": null,
+      "welcome_banner": null
+    },
+    "min_app_version": "1.0.0"
+  }
+  ```
+- **Integración con Componentes**:
+  - `AdService`: Obtiene dinámicamente los IDs publicitarios desde `RemoteConfigService.instance`.
+  - `registry.dart`: Filtra las fuentes activas en tiempo de ejecución consultando `isSourceEnabled(f.id)`.
+  - `main.dart`: Compara `min_app_version` con la versión instalada. Si es mayor, despliega un diálogo modal bloqueante invitando al usuario a actualizar con botón directo al APK.
+
+### 10.4 Avatares Cartoon y Corrección de Pantalla Negra al Cambiar Perfil
+- **Galería de Avatares Cartoon Locales**:
+  - Se añadieron 10 avatares cartoon de alta resolución en formato PNG en `assets/avatars/` (`avatar_1.png` a `avatar_10.png`) basados en DiceBear Adventurer.
+  - No dependen de conexión a internet para renderizarse inmediatamente.
+  - La base de datos y la UI (`ProfileSelectionPage`) migran automáticamente cualquier URL antigua a los avatares locales, permitiendo personalizar perfiles con una cuadrícula visual y moderna.
+- **Corrección del Bug de Pantalla Negra (Fix Técnico)**:
+  - **Causa Raíz**: En `ProfileSelectionPage`, cuando `allowDismiss` era verdadero, se ejecutaba `widget.onProfileSelected?.call()` (el cual ya contenía un `Navigator.of(context).pop()`) e inmediatamente después se volvía a llamar a `Navigator.of(context).pop()` dentro de `_enterApp()`. Esta doble expulsión desmontaba tanto el modal de perfiles como el shell principal (`MobileShell`), dejando al usuario viendo el canvas negro por defecto de la ventana de Flutter. Además, las pantallas dependientes no escuchaban reactivamente el cambio de perfil.
+  - **Solución Implementada**:
+    1. Se eliminaron las llamadas duplicadas a `Navigator.pop()` en los callbacks de `settings_page.dart`, `profile_page.dart`, `tv_supabase_tab.dart` y `supabase_section.dart`, dejando que `ProfileSelectionPage._enterApp()` controle de forma estricta y única el cierre del diálogo.
+    2. Se conectó `AppDatabase.instance.activeProfileNotifier` con listeners reactivos en `MobileShell` y en `GuardadosPage` (`favorites_page.dart`), de modo que al conmutar de perfil se limpien y recarguen de inmediato los favoritos, el historial y las recomendaciones del nuevo perfil sin dejar estados inconsistentes ni pantallas negras.
+

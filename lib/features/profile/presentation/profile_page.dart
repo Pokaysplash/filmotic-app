@@ -296,10 +296,7 @@ class PerfilPageState extends State<PerfilPage>
                                     MaterialPageRoute(
                                       builder: (_) => ProfileSelectionPage(
                                         allowDismiss: true,
-                                        onProfileSelected: () {
-                                          Navigator.of(context).pop();
-                                          refresh();
-                                        },
+                                        onProfileSelected: refresh,
                                       ),
                                     ),
                                   );
