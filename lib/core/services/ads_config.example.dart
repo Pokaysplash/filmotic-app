@@ -1,6 +1,7 @@
 /// Plantilla de configuración de publicidad para Filmotic.
 /// Duplicar este archivo como `ads_config.dart` e ingresar los IDs reales.
 /// Este archivo NO debe contener credenciales de producción.
+library;
 
 class AdsConfig {
   /// ID o Tag del Banner de Adsterra (ej. 320x50)

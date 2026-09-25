@@ -1,118 +1,127 @@
 import 'package:flutter/material.dart';
 import 'remote_config_service.dart';
-import 'ads_config.example.dart' as fallback_config;
+import 'ad_widgets.dart';
 
-/// Servicio de preparación de publicidad para Filmotic.
-/// Compatible con redes no restrictivas como Adsterra (banners) y HilltopAds (VAST pre-roll).
-/// No utiliza Google AdMob debido a restricciones de contenido.
+/// Servicio de gestión y renderizado de publicidad para Filmotic.
+/// Integra banners y anuncios nativos de Adsterra mediante WebViews locales aislados.
+/// Respeta la política estricta de CERO publicidad intrusiva durante la reproducción.
 class AdService {
   static final AdService _instance = AdService._internal();
+  static AdService get instance => _instance;
   factory AdService() => _instance;
   AdService._internal();
 
-  /// Flag general para activar o desactivar publicidad
-  bool enabled = false;
+  /// Flag general para activar o pausar publicidad (activo por defecto con Adsterra)
+  bool enabled = true;
 
-  /// Obtiene el ID del banner de Adsterra desde RemoteConfig o configuración local
-  String get adsterraBannerId {
-    final remoteId =
-        RemoteConfigService.instance.config.ads['adsterra_banner_id']?.toString();
-    if (remoteId != null && remoteId.isNotEmpty) return remoteId;
-    return fallback_config.AdsConfig.adsterraBannerId;
+  /// Clave del Banner 320x50 de Adsterra
+  String get adsterraBannerKey {
+    final ads = RemoteConfigService.instance.config.ads;
+    final key = ads['adsterra_banner_key']?.toString() ??
+        ads['adsterra_banner_id']?.toString() ??
+        '';
+    if (key.isNotEmpty && key != 'PENDIENTE') return key;
+    return 'b40d7be87e3186a983946460caa04802';
   }
 
-  /// Obtiene la URL de HilltopAds VAST desde RemoteConfig o configuración local
+  /// ID del contenedor del Native Banner de Adsterra
+  String get adsterraNativeContainerId {
+    final ads = RemoteConfigService.instance.config.ads;
+    final id = ads['adsterra_native_container_id']?.toString() ?? '';
+    if (id.isNotEmpty && id != 'PENDIENTE') return id;
+    return 'container-512fc1ea8b3c9db09a992edbaf608772';
+  }
+
+  /// URL del script del Native Banner de Adsterra
+  String get adsterraNativeScriptUrl {
+    final ads = RemoteConfigService.instance.config.ads;
+    final url = ads['adsterra_native_script_url']?.toString() ?? '';
+    if (url.isNotEmpty && url != 'PENDIENTE') return url;
+    return 'https://pl31504029.profitableratecpmnetwork.com/512fc1ea8b3c9db09a992edbaf608772/invoke.js';
+  }
+
+  /// URL de HilltopAds VAST (preparado para VAST pre-roll)
   String get hilltopadsVastUrl {
-    final remoteUrl =
-        RemoteConfigService.instance.config.ads['hilltopads_vast_url']?.toString();
-    if (remoteUrl != null && remoteUrl.isNotEmpty) return remoteUrl;
-    return fallback_config.AdsConfig.hilltopadsVastUrl;
+    final ads = RemoteConfigService.instance.config.ads;
+    final remoteUrl = ads['hilltopads_vast_url']?.toString();
+    if (remoteUrl != null && remoteUrl.isNotEmpty && remoteUrl != 'PENDIENTE') {
+      return remoteUrl;
+    }
+    return '';
   }
 
-  /// Control de frecuencia para no saturar al usuario
   DateTime? _lastPreRollShown;
 
-  /// Inicializa los SDKs o configuraciones de anuncios (Adsterra / HilltopAds)
+  /// Inicialización del servicio
   Future<void> initialize() async {
     debugPrint(
-        '[Filmotic AdService] Inicializado. Banner ID: $adsterraBannerId | VAST: $hilltopadsVastUrl');
+        '[Filmotic AdService] Inicializado con Adsterra. Banner Key: $adsterraBannerKey | Native Container: $adsterraNativeContainerId');
   }
 
-  /// Muestra anuncio pre-roll (VAST) antes de iniciar reproducción de video si aplica
+  /// Construye el widget de Banner 320x50 para la parte inferior del catálogo o detalle
+  Widget buildBanner({EdgeInsetsGeometry? margin}) {
+    if (!enabled) return const SizedBox.shrink();
+
+    final key = adsterraBannerKey;
+    if (key.isEmpty || key == 'PENDIENTE') {
+      return const SizedBox.shrink();
+    }
+
+    return AdsterraBannerWidget(
+      bannerKey: key,
+      margin: margin,
+    );
+  }
+
+  /// Construye el widget Native Banner camuflado como tarjeta dentro del catálogo
+  Widget buildNativeBanner({
+    double height = 250,
+    EdgeInsetsGeometry? margin,
+  }) {
+    if (!enabled) return const SizedBox.shrink();
+
+    final containerId = adsterraNativeContainerId;
+    final scriptUrl = adsterraNativeScriptUrl;
+
+    if (containerId.isEmpty ||
+        containerId == 'PENDIENTE' ||
+        scriptUrl.isEmpty ||
+        scriptUrl == 'PENDIENTE') {
+      return const SizedBox.shrink();
+    }
+
+    return AdsterraNativeBannerWidget(
+      containerId: containerId,
+      scriptUrl: scriptUrl,
+      height: height,
+      margin: margin,
+    );
+  }
+
+  /// Método retrocompatible con llamadas previas
+  static Widget buildBannerAdSlot({
+    EdgeInsetsGeometry margin = const EdgeInsets.symmetric(vertical: 8),
+  }) {
+    return _instance.buildBanner(margin: margin);
+  }
+
+  /// Método retrocompatible con llamadas previas
+  static Widget buildNativeCardSlot() {
+    return _instance.buildNativeBanner();
+  }
+
+  /// Control opcional de anuncios pre-roll (cero anuncios dentro de reproducción)
   Future<void> showPreRollAd(BuildContext context) async {
-    if (!enabled) return;
+    final vastUrl = hilltopadsVastUrl;
+    if (!enabled || vastUrl.isEmpty || vastUrl == 'PENDIENTE') return;
 
     final now = DateTime.now();
     if (_lastPreRollShown != null &&
         now.difference(_lastPreRollShown!).inMinutes < 15) {
-      // Evitar mostrar anuncio si ya se vio uno hace menos de 15 minutos
       return;
     }
 
     _lastPreRollShown = now;
-    debugPrint('[Filmotic AdService] Solicitando VAST Pre-roll (HilltopAds)...');
-    // En producción se cargará la URL de VAST / WebView o reproductor pre-roll
-  }
-
-  /// Widget de Banner 320x50 discreto para la parte inferior del catálogo o ficha
-  static Widget buildBannerAdSlot({
-    EdgeInsetsGeometry margin = const EdgeInsets.symmetric(vertical: 8),
-  }) {
-    // Reserva de espacio discreto (320x50)
-    return Container(
-      margin: margin,
-      alignment: Alignment.center,
-      child: Container(
-        width: 320,
-        height: 50,
-        decoration: BoxDecoration(
-          color: const Color(0xFF141414),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.white10),
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.ads_click_rounded, size: 18, color: Colors.white24),
-            const SizedBox(width: 8),
-            Text(
-              'Espacio Publicitario Reservado',
-              style: TextStyle(
-                color: Colors.white24,
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Widget de tarjeta nativa discreta para filas de catálogo
-  static Widget buildNativeCardSlot() {
-    return Container(
-      width: 130,
-      margin: const EdgeInsets.only(right: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF181818),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.campaign_outlined, color: Colors.white30, size: 28),
-            const SizedBox(height: 6),
-            Text(
-              'Publicidad',
-              style: TextStyle(color: Colors.white30, fontSize: 11),
-            ),
-          ],
-        ),
-      ),
-    );
+    debugPrint('[Filmotic AdService] Solicitando VAST Pre-roll...');
   }
 }

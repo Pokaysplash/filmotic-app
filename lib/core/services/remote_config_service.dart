@@ -121,8 +121,10 @@ class FilmoticRemoteConfig {
   static FilmoticRemoteConfig get defaults => FilmoticRemoteConfig(
         version: 1,
         ads: {
-          'adsterra_banner_id': 'ADSTERRA_DEFAULT_320x50',
-          'hilltopads_vast_url': 'https://hilltopads.example.com/vast/sample.xml',
+          'adsterra_banner_key': 'b40d7be87e3186a983946460caa04802',
+          'adsterra_native_container_id': 'container-512fc1ea8b3c9db09a992edbaf608772',
+          'adsterra_native_script_url': 'https://pl31504029.profitableratecpmnetwork.com/512fc1ea8b3c9db09a992edbaf608772/invoke.js',
+          'hilltopads_vast_url': 'PENDIENTE',
         },
         enabledSources: [
           'cinecalidad',

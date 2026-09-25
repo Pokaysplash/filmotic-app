@@ -186,18 +186,33 @@ La aplicación ha sido completamente transformada en **Filmotic**, estableciendo
 - **Barra de Búsqueda Scrollable**: Chips de filtro con scroll horizontal fluido para evitar cortes o superposición de texto en pantallas compactas.
 - **Detección de Idioma y Botón de Audífonos**: Botón de audífonos (`Icons.headphones_rounded`) en el reproductor que despliega los idiomas de audio disponibles en los servidores del contenido y conmuta de servidor automáticamente conservando con precisión la posición de reproducción (`seekTo`).
 
-### Preparación de Publicidad (Sin Google AdMob)
-> **POLÍTICA ESTRICTA**: No se utiliza Google AdMob debido a que las políticas de Google prohíben contenido con derechos de autor y suspenden cuentas de inmediato.
+### Integración Real de Publicidad con WebView (Adsterra)
+> **POLÍTICA ESTRICTA**: No se utiliza Google AdMob debido a que las políticas de Google prohíben contenido con derechos de autor y suspenden cuentas de inmediato. CERO anuncios durante la reproducción de video.
 
-El sistema se preparó mediante el servicio modular **`AdService`** (`lib/core/services/ad_service.dart`) optimizado para redes de streaming compatibles:
-1. **Adsterra (Banners Discretos)**:
-   - Formato estándar de banner 320x50 ubicado exclusivamente en la parte inferior del catálogo y al final de la ficha de contenido.
-   - Espacio pre-reservado con contenedor elegante que no rompe el diseño ni genera *Cumulative Layout Shift* (CLS).
-   - Prohibido terminantemente mostrar banners flotantes sobre el reproductor o tapando los controles.
-2. **HilltopAds (Video VAST Pre-roll)**:
-   - Soporte para anuncios VAST antes de iniciar la reproducción de video.
-   - Limitado con control de frecuencia (máximo una vez cada 15 minutos) para evitar saturación y garantizar una excelente experiencia de usuario.
-   - Prohibidos terminantemente popunders, banners intrusivos durante la película y redirecciones al hacer clic en controles de video.
+La monetización se implementó mediante **WebViews locales aislados** (`flutter_inappwebview`) para máxima fiabilidad y control sobre los scripts de Adsterra, sin requerir SDKs externos desactualizados:
+
+1. **Adsterra Banner 320x50 (`AdsterraBannerWidget`)**:
+   - Carga un HTML inline con fondo transparente (`transparentBackground: true`), sin barras de desplazamiento y con interceptación de clics (`shouldOverrideUrlLoading`) para abrir los enlaces publicitarios en el navegador externo del sistema (`LaunchMode.externalApplication`).
+   - Ubicación: Al final del `ListView` principal del Home (`home_page.dart`) con márgenes laterales de 16px, y al pie de la ficha de contenido (`content_page.dart`).
+   - **Key aprobada**: `b40d7be87e3186a983946460caa04802`.
+
+2. **Adsterra Native Banner (`AdsterraNativeBannerWidget`)**:
+   - Widget camuflado como una tarjeta elegante más del catálogo con radio de borde de 14px, fondo oscuro (`#16161A`) y altura de 250px.
+   - Ubicación: Insertado estratégicamente entre secciones del catálogo (después de "Populares", cada 5-6 filas), manteniendo solo uno por pantalla.
+   - **Container ID**: `container-512fc1ea8b3c9db09a992edbaf608772`.
+   - **Script URL**: `https://pl31504029.profitableratecpmnetwork.com/512fc1ea8b3c9db09a992edbaf608772/invoke.js`.
+
+3. **Gestión Remota desde `filmotic_config.json`**:
+   Las claves y URLs pueden cambiarse o pausarse en tiempo real sin recompilar la app editando la sección `"ads"` en GitHub:
+   ```json
+   "ads": {
+     "adsterra_banner_key": "b40d7be87e3186a983946460caa04802",
+     "adsterra_native_container_id": "container-512fc1ea8b3c9db09a992edbaf608772",
+     "adsterra_native_script_url": "https://pl31504029.profitableratecpmnetwork.com/512fc1ea8b3c9db09a992edbaf608772/invoke.js",
+     "hilltopads_vast_url": "PENDIENTE"
+   }
+   ```
+   - Si algún valor es `""` o `"PENDIENTE"`, `AdService` retorna un `SizedBox.shrink()` invisible sin romper el layout ni generar espacios en blanco vacíos.
 
 ---
 
@@ -346,7 +361,9 @@ Estructura completa con sección `"app"`:
 {
   "version": 1,
   "ads": {
-    "adsterra_banner_id": "PENDIENTE",
+    "adsterra_banner_key": "b40d7be87e3186a983946460caa04802",
+    "adsterra_native_container_id": "container-512fc1ea8b3c9db09a992edbaf608772",
+    "adsterra_native_script_url": "https://pl31504029.profitableratecpmnetwork.com/512fc1ea8b3c9db09a992edbaf608772/invoke.js",
     "hilltopads_vast_url": "PENDIENTE"
   },
   "sources": {

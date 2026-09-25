@@ -496,10 +496,23 @@ class _HomePageState extends State<HomePage>
                   ? _itemsOf('popular_movies')
                   : _itemsOf('popular_tv'),
             ),
+            // Anuncio nativo camuflado entre secciones del catálogo (5-6 filas)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: AdService.instance.buildNativeBanner(
+                  height: 250,
+                  margin: EdgeInsets.zero,
+                ),
+              ),
+            ),
             if (_genreSliders.isNotEmpty) ..._buildGenreSection(),
             SliverToBoxAdapter(
-              child: AdService.buildBannerAdSlot(
-                margin: const EdgeInsets.only(top: 8, bottom: 16),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: AdService.instance.buildBanner(
+                  margin: const EdgeInsets.only(top: 8, bottom: 20),
+                ),
               ),
             ),
             SliverToBoxAdapter(
