@@ -10,9 +10,11 @@ import '../../player/presentation/player_page.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_home_mobile_api.dart';
 import '../../content/presentation/content_options_modal.dart'; // ← modal de opciones
 
-const kAccentColor = Colors.purpleAccent;
+import '../../../core/services/ad_service.dart';
+
+const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
-const kCardBg = Color(0xFF1a1a2e);
+const kCardBg = Color(0xFF1C1C1E);
 const kSectionTitleStyle = TextStyle(
   fontFamily: 'sans-serif',
   color: Colors.white,
@@ -495,6 +497,11 @@ class _HomePageState extends State<HomePage>
                   : _itemsOf('popular_tv'),
             ),
             if (_genreSliders.isNotEmpty) ..._buildGenreSection(),
+            SliverToBoxAdapter(
+              child: AdService.buildBannerAdSlot(
+                margin: const EdgeInsets.only(top: 8, bottom: 16),
+              ),
+            ),
             SliverToBoxAdapter(
               child: SizedBox(
                 height: MediaQuery.paddingOf(context).bottom + 72,

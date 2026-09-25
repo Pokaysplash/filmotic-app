@@ -23,4 +23,23 @@ plugins {
     id("org.jetbrains.kotlin.android") version "2.3.20" apply false
 }
 
+// Parche automático de compatibilidad AGP 9+ para plugins de Flutter (flutter_inappwebview_android)
+run {
+    try {
+        val pubCache = System.getenv("PUB_CACHE") ?: "${System.getProperty("user.home")}/.pub-cache"
+        val hostedDir = file("$pubCache/hosted/pub.dev")
+        if (hostedDir.exists()) {
+            hostedDir.listFiles()?.filter { it.name.startsWith("flutter_inappwebview_android") }?.forEach { pluginDir ->
+                val bg = file("${pluginDir.absolutePath}/android/build.gradle")
+                if (bg.exists()) {
+                    val content = bg.readText()
+                    if (content.contains("proguard-android.txt")) {
+                        bg.writeText(content.replace("proguard-android.txt", "proguard-android-optimize.txt"))
+                    }
+                }
+            }
+        }
+    } catch (_: Exception) {}
+}
+
 include(":app")

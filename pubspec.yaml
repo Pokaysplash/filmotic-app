@@ -38,6 +38,13 @@ dependencies:
   supabase_flutter: ^2.8.0
   timezone: ^0.9.4        
   flutter_foreground_task: ^8.14.0
+  sembast: ^3.8.11
+  network_info_plus: ^8.2.1
+  mobile_scanner: ^7.4.2
+  youtube_player_iframe: ^5.2.0
+  flutter_inappwebview: ^6.1.5
+  dpad: ^3.0.0
+  path: ^1.9.1
   
 dev_dependencies:
   flutter_test:

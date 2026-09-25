@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../../core/services/ad_service.dart';
 import '../../servers/presentation/servers_modal.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_content.dart';
 import '../../player/presentation/player_controller.dart';
@@ -16,9 +17,9 @@ import '../../../supabase/guardados_service.dart';
 import 'widgets/tmdb_upcoming_service.dart';
 import 'widgets/upcoming_episodes_modal.dart';
 
-const kAccentColor = Color(0xFFE50914);
+const kAccentColor = Color(0xFFFF6B35);
 const kPurpleSeason = Color(0xFFC026FF);
-const kOrangeVer = Color(0xFFFF6B00);
+const kOrangeVer = Color(0xFFFF6B35);
 const kDownloadGreen = Color(0xFF22C55E);
 
 class GuardadosBus {
@@ -433,6 +434,125 @@ class _PageContenidoState extends State<PageContenido>
     return '${two(d.inMinutes.remainder(60))}:${two(d.inSeconds.remainder(60))}';
   }
 
+  bool _camNoticeShown = false;
+
+  Future<void> _checkCamAndPlay({int? temporada, int? capitulo}) async {
+    final yearStr = _data?['year']?.toString() ?? _data?['release_date']?.toString() ?? '';
+    final itemYear = int.tryParse(RegExp(r'\d{4}').firstMatch(yearStr)?.group(0) ?? '') ?? 0;
+    final currentYear = DateTime.now().year;
+    final isRecent = itemYear >= (currentYear - 1);
+    final title = (_data?['title']?.toString() ?? '').toUpperCase();
+    final isCam = title.contains('CAM') || title.contains('TS') || title.contains('TELESYNC');
+
+    if ((isRecent || isCam) && !_camNoticeShown) {
+      _camNoticeShown = true;
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1F1F1F),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFFF6B35)),
+              SizedBox(width: 8),
+              Text(
+                'Aviso de Calidad',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Esta película puede estar en calidad CAM. En cuanto haya una versión HD disponible, se actualizará automáticamente.',
+            style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.white60)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B35),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text(
+                'Entendido y Reproducir',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+
+    _openServidores(temporada: temporada, capitulo: capitulo);
+  }
+
+  void _showMoreOptionsBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF181818),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                ListTile(
+                  leading: Icon(
+                    _isSaved ? Icons.check_circle_rounded : Icons.add_circle_outline_rounded,
+                    color: _isSaved ? const Color(0xFFFF6B35) : Colors.white70,
+                  ),
+                  title: Text(
+                    _isSaved ? 'Quitar de favoritos' : 'Agregar a favoritos',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _toggleSaved();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.refresh_rounded, color: Colors.white70),
+                  title: const Text('Recargar información', style: TextStyle(color: Colors.white)),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _fetchContent();
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.info_outline_rounded, color: Colors.white70),
+                  title: const Text('Información del contenido', style: TextStyle(color: Colors.white)),
+                  subtitle: Text('TMDB ID: $_resolvedTmdbId', style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                  onTap: () => Navigator.pop(ctx),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // ── Reproducir ────────────────────────────────────────────────────────────
   Future<void> _openServidores({
     int? temporada,
@@ -741,42 +861,6 @@ class _PageContenidoState extends State<PageContenido>
     }
   }
 
-  Future<void> _openLetterboxd() async {
-    if (_data == null) return;
-
-    String? imdbId = _data!['imdb_id']?.toString();
-    if (imdbId == null || imdbId.isEmpty) {
-      imdbId = _data!['external_ids']?['imdb_id']?.toString();
-    }
-    if (imdbId == null || imdbId.isEmpty) {
-      imdbId = _data!['imdb_data']?['imdbID']?.toString();
-    }
-
-    if (imdbId == null || imdbId.isEmpty) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se encontró ID de IMDb'),
-            duration: Duration(seconds: 2),
-            backgroundColor: Color(0xFF1a1a1a),
-          ),
-        );
-      }
-      return;
-    }
-
-    final url = 'https://letterboxd.com/imdb/$imdbId';
-    try {
-      final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        await launchUrl(uri);
-      }
-    } catch (e) {
-      debugPrint('Error opening Letterboxd: $e');
-    }
-  }
 
   // ── Recordatorios de capítulos por estrenar ─────────────────────────────
   Future<void> _checkAiring() async {
@@ -1174,7 +1258,6 @@ class _PageContenidoState extends State<PageContenido>
                             icon: Icons.notifications_none_rounded,
                             onPressed: _openUpcomingReminders,
                           ),
-                        if (isMovie) _buildLetterboxdButton(),
                       ],
                     ),
                   ),
@@ -1212,53 +1295,19 @@ class _PageContenidoState extends State<PageContenido>
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                        if (isMovie && _isMovieDownloaded) ...[
-                          const SizedBox(height: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: kDownloadGreen.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: kDownloadGreen.withValues(alpha: 0.5),
-                              ),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.download_done_rounded,
-                                  color: kDownloadGreen,
-                                  size: 16,
-                                ),
-                                SizedBox(width: 6),
-                                Text(
-                                  'Descargada',
-                                  style: TextStyle(
-                                    color: kDownloadGreen,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
                         const SizedBox(height: 22),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            SizedBox(
-                              width: 200,
+                            // Botón principal de Reproducir
+                            Expanded(
+                              flex: 3,
                               child: GestureDetector(
                                 onTap: _playLoading
                                     ? null
                                     : () {
                                         if (isMovie) {
-                                          _openServidores();
+                                          _checkCamAndPlay();
                                         } else {
                                           final temp = hasEpisodeProgress
                                               ? bestTemp
@@ -1273,37 +1322,44 @@ class _PageContenidoState extends State<PageContenido>
                                                               as int? ??
                                                           1)
                                                     : 1);
-                                          _openServidores(
+                                          _checkCamAndPlay(
                                             temporada: temp,
                                             capitulo: cap,
                                           );
                                         }
                                       },
                                 child: Container(
-                                  height: 52,
+                                  height: 50,
                                   decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(30),
+                                    color: const Color(0xFFFF6B35),
+                                    borderRadius: BorderRadius.circular(25),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: const Color(0xFFFF6B35).withValues(alpha: 0.35),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 3),
+                                      ),
+                                    ],
                                   ),
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       if (_playLoading)
                                         const SizedBox(
-                                          width: 20,
-                                          height: 20,
+                                          width: 18,
+                                          height: 18,
                                           child: CircularProgressIndicator(
-                                            strokeWidth: 2.4,
-                                            color: Colors.black87,
+                                            strokeWidth: 2.2,
+                                            color: Colors.white,
                                           ),
                                         )
                                       else
                                         const Icon(
                                           Icons.play_arrow_rounded,
-                                          color: Colors.black,
-                                          size: 28,
+                                          color: Colors.white,
+                                          size: 26,
                                         ),
-                                      const SizedBox(width: 8),
+                                      const SizedBox(width: 6),
                                       Flexible(
                                         child: Text(
                                           _playLoading
@@ -1312,7 +1368,7 @@ class _PageContenidoState extends State<PageContenido>
                                           maxLines: 1,
                                           overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
-                                            color: Colors.black,
+                                            color: Colors.white,
                                             fontSize: 14,
                                             fontWeight: FontWeight.w700,
                                           ),
@@ -1324,61 +1380,78 @@ class _PageContenidoState extends State<PageContenido>
                               ),
                             ),
                             const SizedBox(width: 10),
-                            SizeTransition(
-                              sizeFactor: _scaleAnim,
-                              axis: Axis.horizontal,
-                              axisAlignment: -1,
-                              child: FadeTransition(
-                                opacity: _fadeAnim,
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    _buildCircleAction(
-                                      icon: _isSaved
-                                          ? Icons.check_circle
-                                          : Icons.check_circle_outline,
-                                      isActive: _isSaved,
-                                      activeColor: Colors.greenAccent,
-                                      onTap: _toggleSaved,
+                            // Botón B.5: + Agregar a favoritos / ✓ En favoritos
+                            Expanded(
+                              flex: 2,
+                              child: GestureDetector(
+                                onTap: _toggleSaved,
+                                child: Container(
+                                  height: 50,
+                                  decoration: BoxDecoration(
+                                    color: _isSaved
+                                        ? const Color(0xFFFF6B35).withValues(alpha: 0.2)
+                                        : Colors.white.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(25),
+                                    border: Border.all(
+                                      color: _isSaved
+                                          ? const Color(0xFFFF6B35)
+                                          : Colors.white.withValues(alpha: 0.2),
+                                      width: 1.2,
                                     ),
-                                    if (isMovie && _enableDownloads) ...[
-                                      const SizedBox(width: 8),
-                                      _buildCircleAction(
-                                        icon: _isMovieDownloaded
-                                            ? Icons.download_done_rounded
-                                            : Icons.download_rounded,
-                                        isActive: _isMovieDownloaded,
-                                        activeColor: kDownloadGreen,
-                                        onTap: () => _startDownload(),
+                                  ),
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        _isSaved
+                                            ? Icons.check_rounded
+                                            : Icons.add_rounded,
+                                        color: _isSaved
+                                            ? const Color(0xFFFF6B35)
+                                            : Colors.white,
+                                        size: 20,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Flexible(
+                                        child: Text(
+                                          _isSaved
+                                              ? 'Favorito'
+                                              : 'Favoritos',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: _isSaved
+                                                ? const Color(0xFFFF6B35)
+                                                : Colors.white,
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                       ),
                                     ],
-                                    const SizedBox(width: 8),
-                                  ],
+                                  ),
                                 ),
                               ),
                             ),
+                            const SizedBox(width: 10),
+                            // Botón B.3: Menú 3 puntos (Abre bottom sheet modal)
                             GestureDetector(
-                              onTap: _toggleOptions,
-                              child: AnimatedContainer(
-                                duration: const Duration(milliseconds: 250),
-                                width: 52,
-                                height: 52,
+                              onTap: _showMoreOptionsBottomSheet,
+                              child: Container(
+                                width: 50,
+                                height: 50,
                                 decoration: BoxDecoration(
-                                  color: _showOptions
-                                      ? Colors.white
-                                      : Colors.white.withValues(alpha: 0.12),
+                                  color: Colors.white.withValues(alpha: 0.12),
                                   shape: BoxShape.circle,
                                   border: Border.all(
                                     color: Colors.white.withValues(alpha: 0.15),
                                     width: 1,
                                   ),
                                 ),
-                                child: Icon(
-                                  Icons.more_vert,
-                                  color: _showOptions
-                                      ? Colors.black
-                                      : Colors.white,
-                                  size: 24,
+                                child: const Icon(
+                                  Icons.more_vert_rounded,
+                                  color: Colors.white,
+                                  size: 22,
                                 ),
                               ),
                             ),
@@ -1597,7 +1670,7 @@ class _PageContenidoState extends State<PageContenido>
                   if (videos.isNotEmpty) ...[
                     const SizedBox(height: 28),
                     const Text(
-                      'Videos',
+                      'Trailers',
                       style: TextStyle(
                         color: Colors.white,
                         fontSize: 18,
@@ -2108,6 +2181,9 @@ class _PageContenidoState extends State<PageContenido>
                       ),
                     ),
                   ],
+                  AdService.buildBannerAdSlot(
+                    margin: const EdgeInsets.symmetric(vertical: 16),
+                  ),
                   const SizedBox(height: 24),
                 ],
               ),
@@ -2151,24 +2227,6 @@ class _PageContenidoState extends State<PageContenido>
     );
   }
 
-  Widget _buildLetterboxdButton() {
-    return Padding(
-      padding: const EdgeInsets.only(right: 4.0),
-      child: IconButton(
-        icon: Image.asset(
-          'assets/images/letterboxd.png',
-          width: 36,
-          height: 36,
-          errorBuilder: (context, error, stackTrace) {
-            return const Icon(Icons.movie, color: Colors.white70, size: 28);
-          },
-        ),
-        onPressed: _openLetterboxd,
-        tooltip: 'Abrir en Letterboxd',
-        style: IconButton.styleFrom(padding: const EdgeInsets.all(8)),
-      ),
-    );
-  }
 
   Widget _buildCircleAction({
     required IconData icon,

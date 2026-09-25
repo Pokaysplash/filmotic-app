@@ -91,26 +91,6 @@ class _ConfigPageState extends State<ConfigPage> {
 
   int get _fuentesActivas => _sourceEnabled.values.where((v) => v).length;
 
-  static const _socials = <_SocialItem>[
-    _SocialItem(
-      name: 'Instagram',
-      url: 'https://instagram.com/lol_oficialapp',
-      color: Color(0xFFE1306C),
-      asset: 'assets/redes/instagram.png',
-    ),
-    _SocialItem(
-      name: 'Telegram',
-      url: 'https://t.me/lol_oficialapp',
-      color: Color(0xFF0088CC),
-      asset: 'assets/redes/telegram.png',
-    ),
-    _SocialItem(
-      name: 'GitHub',
-      url: 'https://github.com/lol-oficialapp',
-      color: Color(0xFF8B949E),
-      asset: 'assets/redes/github.png',
-    ),
-  ];
 
   @override
   void initState() {
@@ -383,39 +363,6 @@ class _ConfigPageState extends State<ConfigPage> {
     DownloadNavBus.bump();
   }
 
-  Future<void> _setShowDownloadButtonMain(bool value) async {
-    if (!mounted) return;
-    setState(() => _showDownloadButtonMain = value);
-    await _saveBool('show_download_button_main', value);
-    DownloadNavBus.bump();
-  }
-
-  Future<void> _setAutoDirectDownload(bool value) async {
-    if (value) {
-      final ok = await _confirmDialog(
-        title: 'Descarga directa automática',
-        body:
-            'Al activar, cuando haya un enlace directo disponible se iniciará la descarga automáticamente sin pedir confirmación.\n\n¿Deseas continuar?',
-      );
-      if (ok != true) return;
-    }
-    if (!mounted) return;
-    setState(() => _autoDirectDownload = value);
-    await _saveBool('auto_direct_download', value);
-  }
-
-  Future<void> _setDownloadLanguage(IdiomaPred idioma) async {
-    if (!mounted) return;
-    setState(() => _downloadLanguage = idioma);
-    await _saveString('download_language', idioma.code);
-  }
-
-  Future<void> _setMaxConcurrentDownloads(int value) async {
-    final v = value.clamp(1, 5);
-    if (!mounted) return;
-    setState(() => _maxConcurrentDownloads = v);
-    await _saveInt('max_concurrent_downloads', v);
-  }
 
   Future<void> _setTmdbEnrichment(bool value) async {
     if (!mounted) return;
@@ -630,54 +577,6 @@ class _ConfigPageState extends State<ConfigPage> {
     );
   }
 
-  Future<void> _clearHistorial() => _clearByPrefix([
-        'cachePlayer_',
-        'cachePlayerRapido_',
-        'historial_',
-      ], 'Historial borrado');
-
-  Future<void> _clearGuardados() =>
-      _clearByPrefix(['guardados_items', 'guardados_'], 'Guardados borrados');
-
-  Future<void> _clearCacheServidores() =>
-      _clearByPrefix(['serv_cache_'], 'Caché de servidores borrada');
-
-  Future<void> _clearTodo() async {
-    final ok = await _confirmDialog(
-      title: 'Borrar todo',
-      body:
-          'Se eliminará historial, guardados, datos de reproducción y caché de servidores.\n\nLas configuraciones se conservan.',
-      confirmLabel: 'Borrar todo',
-      accent: Colors.redAccent,
-    );
-    if (ok != true) return;
-    await _clearByPrefix([
-      'cachePlayer_',
-      'cachePlayerRapido_',
-      'historial_',
-      'guardados_items',
-      'guardados_',
-      'serv_cache_',
-    ], 'Caché completa borrada');
-  }
-
-  Future<void> _openSocial(String url) async {
-    final uri = Uri.parse(url);
-    try {
-      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!ok) await launchUrl(uri);
-    } catch (e) {
-      debugPrint('Error abriendo social: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se pudo abrir el enlace'),
-            backgroundColor: Color(0xFF1a1a1a),
-          ),
-        );
-      }
-    }
-  }
 
   // ==================== VERSIÓN (VersionService) ====================
   Future<void> _checkVersion() async {
@@ -853,34 +752,6 @@ class _ConfigPageState extends State<ConfigPage> {
     );
   }
 
-  Widget _buildSocialRow() {
-    return Padding(
-      padding: const EdgeInsets.only(top: 4, bottom: 16),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          for (var i = 0; i < _socials.length; i++) ...[
-            if (i > 0) const SizedBox(width: 28),
-            GestureDetector(
-              onTap: () => _openSocial(_socials[i].url),
-              behavior: HitTestBehavior.opaque,
-              child: Image.asset(
-                _socials[i].asset,
-                width: 36,
-                height: 36,
-                fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Icon(
-                  Icons.link_rounded,
-                  color: _socials[i].color,
-                  size: 32,
-                ),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
 
   Widget _buildSectionCard({
     required String title,
@@ -1217,79 +1088,34 @@ class _ConfigPageState extends State<ConfigPage> {
                 ),
                 padding: EdgeInsets.fromLTRB(16, 8, 16, listBottomPad),
                 children: [
-                  _buildSocialRow(),
-                  if (_supabaseActive) ...[
-                    const SizedBox(height: 8),
-                    _buildSectionCard(
-                      title: 'Cambiar perfil',
-                      subtitle: _supabaseUserName != null
-                          ? 'Perfil activo: $_supabaseUserName'
-                          : 'Elige otro perfil de Supabase',
-                      icon: Icons.switch_account_rounded,
-                      accent: const Color(0xFF3ECF8E),
-                      onTap: () async {
-                        await Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => ProfileSelectionPage(
-                              allowDismiss: true,
-                              onProfileSelected: () {
-                                Navigator.of(context).pop();
-                              },
-                            ),
+                  _buildSectionCard(
+                    title: 'Cambiar perfil',
+                    subtitle: 'Gestiona o cambia de perfil local',
+                    icon: Icons.account_circle_rounded,
+                    accent: const Color(0xFFFF6B35),
+                    onTap: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProfileSelectionPage(
+                            allowDismiss: true,
+                            onProfileSelected: () {
+                              Navigator.of(context).pop();
+                            },
                           ),
-                        );
-                        await _loadAllSettings();
-                      },
-                    ),
-                  ],
-                  _buildVersionCard(),
+                        ),
+                      );
+                      await _loadAllSettings();
+                    },
+                  ),
                   const SizedBox(height: 8),
                   _buildSectionCard(
-                    title: 'Contenido',
-                    subtitle:
-                        'General, idioma de metadatos y secciones del home',
-                    icon: Icons.movie_filter_rounded,
-                    accent: const Color(0xFF8B5CF6),
-                    onTap: () => _openSection(
-                      title: 'Contenido',
-                      icon: Icons.movie_filter_rounded,
-                      accent: const Color(0xFF8B5CF6),
-                      builder: (refresh) => Column(
-                        children: ContenidoSection(
-                          refresh: refresh,
-                          tmdbEnrichment: _tmdbEnrichment,
-                          allowAdultContent: _allowAdultContent,
-                          showUnreleased: _showUnreleased,
-                          showSeasonSpecials: _showSeasonSpecials,
-                          showUnreleasedEpisodes: _showUnreleasedEpisodes,
-                          regionalFilter: _regionalFilter,
-                          spanishLatino: _spanishLatino,
-                          spanishCastellano: _spanishCastellano,
-                          english: _english,
-                          disableNonLatinTitles: _disableNonLatinTitles,
-                          homeSessions: _homeSessions,
-                          homeFeaturedMovies: _homeFeaturedMovies,
-                          homePopularMovies: _homePopularMovies,
-                          homePopularSeries: _homePopularSeries,
-                          homeYearMovies: _homeYearMovies,
-                          homeFeaturedSeries: _homeFeaturedSeries,
-                          homeYearSeries: _homeYearSeries,
-                          homeTrendingMovies: _homeTrendingMovies,
-                          homeTrendingSeries: _homeTrendingSeries,
-                          homeLatest: _homeLatest,
-                          onChanged: _onContenidoChanged,
-                        ).build(),
-                      ),
-                    ),
-                  ),
-                  _buildSectionCard(
                     title: 'Apariencia',
-                    subtitle: 'Vista TV y modo de interfaz',
-                    icon: Icons.palette_rounded,
+                    subtitle: 'Modo de interfaz y vista Android TV',
+                    icon: Icons.tv_rounded,
                     accent: const Color(0xFF0EA5E9),
                     onTap: () => _openSection(
                       title: 'Apariencia',
-                      icon: Icons.palette_rounded,
+                      icon: Icons.tv_rounded,
                       accent: const Color(0xFF0EA5E9),
                       builder: (refresh) => Column(
                         children: AparienciaSection(
@@ -1298,16 +1124,17 @@ class _ConfigPageState extends State<ConfigPage> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 8),
                   _buildSectionCard(
-                    title: 'Fuentes',
+                    title: 'Reproducción e Idioma',
                     subtitle:
-                        'Selección automática, servidores y fuentes de video',
-                    icon: Icons.stream_rounded,
-                    accent: const Color(0xFFA855F7),
+                        'Calidad de reproducción, servidores e idioma predeterminado',
+                    icon: Icons.play_circle_fill_rounded,
+                    accent: const Color(0xFFFF6B35),
                     onTap: () => _openSection(
-                      title: 'Fuentes',
-                      icon: Icons.stream_rounded,
-                      accent: const Color(0xFFA855F7),
+                      title: 'Reproducción e Idioma',
+                      icon: Icons.play_circle_fill_rounded,
+                      accent: const Color(0xFFFF6B35),
                       builder: (refresh) => FuentesSection(
                         verificarServidores: _verificarServidores,
                         unServidorPorIdioma: _unServidorPorIdioma,
@@ -1360,109 +1187,8 @@ class _ConfigPageState extends State<ConfigPage> {
                       ),
                     ),
                   ),
-                  _buildSectionCard(
-                    title: 'Player',
-                    subtitle: 'Subtítulos, tamaño, altura y descarga',
-                    icon: Icons.play_circle_outline_rounded,
-                    accent: const Color(0xFF06B6D4),
-                    onTap: () => _openSection(
-                      title: 'Player',
-                      icon: Icons.play_circle_outline_rounded,
-                      accent: const Color(0xFF06B6D4),
-                      builder: (refresh) => Column(
-                        children: PlayerSection(
-                          refresh: refresh,
-                          subsAlInicio: _subsAlInicio,
-                          subSize: _subSize,
-                          subHeight: _subHeight,
-                          idmDownloadEnabled: _idmDownloadEnabled,
-                          onSubsChanged: (v) => _setSubsAlInicio(v),
-                          onSubSizeChanged: (v) => _setSubSize(v),
-                          onSubHeightChanged: (v) => _setSubHeight(v),
-                          onIdmChanged: (v) => _setIdmDownloadEnabled(v),
-                        ).build(),
-                      ),
-                    ),
-                  ),
-                  _buildSectionCard(
-                    title: 'Descargas',
-                    subtitle:
-                        'Habilitar, menú, automática, simultáneas e idioma',
-                    icon: Icons.download_rounded,
-                    accent: const Color(0xFF22C55E),
-                    onTap: () => _openSection(
-                      title: 'Descargas',
-                      icon: Icons.download_rounded,
-                      accent: const Color(0xFF22C55E),
-                      builder: (refresh) => DescargasSection(
-                        enableDownloads: _enableDownloads,
-                        showDownloadButtonMain: _showDownloadButtonMain,
-                        autoDirectDownload: _autoDirectDownload,
-                        downloadLanguage: _downloadLanguage,
-                        maxConcurrentDownloads: _maxConcurrentDownloads,
-                        onEnableDownloadsChanged: (v) {
-                          _setEnableDownloads(v).then((_) => refresh());
-                        },
-                        onShowDownloadButtonMainChanged: (v) {
-                          _setShowDownloadButtonMain(v).then((_) => refresh());
-                        },
-                        onAutoDirectDownloadChanged: (v) {
-                          _setAutoDirectDownload(v).then((_) => refresh());
-                        },
-                        onDownloadLanguageChanged: (v) {
-                          _setDownloadLanguage(v).then((_) => refresh());
-                        },
-                        onMaxConcurrentDownloadsChanged: (v) {
-                          _setMaxConcurrentDownloads(v).then((_) => refresh());
-                        },
-                      ),
-                    ),
-                  ),
-                  _buildSectionCard(
-                    title: 'Notificaciones',
-                    subtitle:
-                        'Avisos de estrenos, hora y prueba',
-                    icon: Icons.notifications_active_rounded,
-                    accent: const Color(0xFFFF6B00),
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const NotificationsSectionPage(),
-                        ),
-                      );
-                    },
-                  ),
-                  _buildSectionCard(
-                    title: 'Supabase',
-                    subtitle: 'Sincronizar perfiles y guardados en la nube',
-                    icon: Icons.cloud_sync_rounded,
-                    accent: const Color(0xFF3ECF8E),
-                    onTap: () => _openSection(
-                      title: 'Supabase',
-                      icon: Icons.cloud_sync_rounded,
-                      accent: const Color(0xFF3ECF8E),
-                      builder: (refresh) => const SupabaseSection(),
-                    ),
-                  ),
-                  _buildSectionCard(
-                    title: 'Caché',
-                    subtitle: 'Historial, guardados y servidores',
-                    icon: Icons.storage_rounded,
-                    accent: Colors.redAccent,
-                    onTap: () => _openSection(
-                      title: 'Caché',
-                      icon: Icons.storage_rounded,
-                      accent: Colors.redAccent,
-                      builder: (refresh) => Column(
-                        children: CacheSection(
-                          onClearHistorial: _clearHistorial,
-                          onClearGuardados: _clearGuardados,
-                          onClearCacheServidores: _clearCacheServidores,
-                          onClearTodo: _clearTodo,
-                        ).build(),
-                      ),
-                    ),
-                  ),
+                  const SizedBox(height: 8),
+                  _buildVersionCard(),
                 ],
               ),
             ),
@@ -1471,19 +1197,6 @@ class _ConfigPageState extends State<ConfigPage> {
 }
 
 
-class _SocialItem {
-  final String name;
-  final String url;
-  final Color color;
-  final String asset;
-
-  const _SocialItem({
-    required this.name,
-    required this.url,
-    required this.color,
-    required this.asset,
-  });
-}
 
 class _ConfigSectionPage extends StatelessWidget {
   final String title;

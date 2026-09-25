@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../../core/storage/app_database.dart';
 
 import '../../content/presentation/content_page.dart';
 import '../../servers/presentation/servers_modal.dart';
@@ -61,8 +62,8 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  static const Color accentOrange = Color(0xFFFF6B00);
-  static const Color netflixRed = Color(0xFFE50914);
+  static const Color accentOrange = Color(0xFFFF6B35);
+  static const Color netflixRed = Color(0xFFFF6B35);
 
   /// Contador de players activos: solo restauramos orientación
   /// cuando el ÚLTIMO player se cierra (evita vertical al pushReplacement).
@@ -338,6 +339,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
       'timestamp': DateTime.now().toIso8601String(),
     };
     await prefs.setString(_getCacheKey(), jsonEncode(full));
+
+    // Guardar en Sembast según el perfil activo
+    AppDatabase.instance.saveHistory(
+      contenidoId: _resolvedId,
+      episodioId: widget.temporada != null && widget.capitulo != null
+          ? 'T${widget.temporada}_C${widget.capitulo}'
+          : 'movie',
+      progresoSegundos: pos,
+      duracionTotal: _controller.value.duration.inSeconds,
+      temporada: widget.temporada,
+      capitulo: widget.capitulo,
+      titulo: _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
+      poster: backdrop,
+      tipo: _mediaType,
+      videoUrl: _activeUrl.isNotEmpty ? _activeUrl : widget.videoUrl,
+      tmdbId: widget.tmdbId ?? _resolvedId,
+    );
 
     final rapido = {
       'idcontenido': _resolvedId,
@@ -797,6 +815,186 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ? 'Ningún servidor funcionó.\n$reason'
           : 'Ningún servidor disponible para este contenido.';
     });
+  }
+
+  String _langLabel(String raw) {
+    final s = raw.toLowerCase().trim();
+    if (s.contains('lat') || s == 'es_mx') return 'Español Latino';
+    if (s.contains('cast') || s == 'es_es' || s.contains('esp')) return 'Español Castellano';
+    if (s.contains('sub') || s.contains('jap') || s.contains('vose')) return 'Subtitulado';
+    if (s.contains('ing') || s.contains('eng') || s == 'en') return 'Inglés';
+    if (s.isEmpty) return 'Desconocido';
+    return s[0].toUpperCase() + s.substring(1);
+  }
+
+  Future<void> _showAudioLanguageSelector() async {
+    _hideControlsTimer?.cancel();
+
+    if (_fallbackServers.isEmpty) {
+      await _prepareFallbackServers(_activeUrl);
+    }
+
+    final Map<String, List<Map<String, dynamic>>> byLang = {};
+    for (final srv in _fallbackServers) {
+      final rawLang = srv['idioma']?.toString() ?? '';
+      final label = _langLabel(rawLang);
+      byLang.putIfAbsent(label, () => []).add(srv);
+    }
+
+    if (byLang.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No hay información de idiomas adicionales'),
+            backgroundColor: Color(0xFF1a1a1a),
+          ),
+        );
+      }
+      _scheduleHideControls();
+      return;
+    }
+
+    final currentLangLabel = _langLabel(_idioma);
+
+    if (!mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF181818),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.85,
+            ),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: Colors.white24,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const Row(
+                    children: [
+                      Icon(Icons.headphones_rounded, color: Color(0xFFFF6B35), size: 22),
+                      SizedBox(width: 8),
+                      Text(
+                        'Idioma de Audio del Servidor',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  ...byLang.entries.map((entry) {
+                    final isSelected = entry.key == currentLangLabel;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        tileColor: isSelected
+                            ? const Color(0xFFFF6B35).withValues(alpha: 0.15)
+                            : Colors.white.withValues(alpha: 0.04),
+                        leading: Icon(
+                          isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                          color: isSelected ? const Color(0xFFFF6B35) : Colors.white54,
+                        ),
+                        title: Text(
+                          entry.key,
+                          style: TextStyle(
+                            color: isSelected ? const Color(0xFFFF6B35) : Colors.white,
+                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                          ),
+                        ),
+                        subtitle: Text(
+                          '${entry.value.length} servidor(es) disponibles',
+                          style: const TextStyle(color: Colors.white38, fontSize: 12),
+                        ),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          if (!isSelected) {
+                            _switchToServerLanguage(entry.value.first);
+                          }
+                        },
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    _scheduleHideControls();
+  }
+
+  Future<void> _switchToServerLanguage(Map<String, dynamic> targetServer) async {
+    final targetPosition = _controllerReady ? _controller.value.position : _currentPosition;
+    final wasPlaying = _isPlaying;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    try {
+      final playable = await _serverLoader.tryResolveServer(
+        targetServer,
+        context: mounted ? context : null,
+      );
+
+      if (playable != null && playable.url.isNotEmpty) {
+        _activeUrl = playable.url;
+        _idioma = playable.idioma;
+        await _startControllerWithUrl(playable.url, playable.headers);
+        if (_controllerReady) {
+          await _controller.seekTo(targetPosition);
+          if (wasPlaying) {
+            await _controller.play();
+          }
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No se pudo conectar al servidor en este idioma'),
+              backgroundColor: Color(0xFF1a1a1a),
+            ),
+          );
+        }
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al cambiar de servidor: $e'),
+            backgroundColor: const Color(0xFF1a1a1a),
+          ),
+        );
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   // ─── Subtítulos originales (fallback) ───────────────────────────────────
@@ -1932,6 +2130,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ],
                     ),
                   ),
+                  // ── Distribuido por Filmotic ──
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black54,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: const Color(0xFFFF6B35).withValues(alpha: 0.4)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.movie_rounded, color: Color(0xFFFF6B35), size: 12),
+                        SizedBox(width: 4),
+                        Text(
+                          'Distribuido por Filmotic',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                   ClipOval(
                     child: CachedNetworkImage(
                       imageUrl: _idiomaFlagUrl(),
@@ -1948,7 +2171,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
+                  // ── BOTÓN AUDÍFONOS (Selector de idioma de audio del servidor) ──
+                  IconButton(
+                    icon: const Icon(Icons.headphones_rounded, color: Colors.white, size: 22),
+                    tooltip: 'Idioma de audio del servidor',
+                    onPressed: _showAudioLanguageSelector,
+                  ),
+                  const SizedBox(width: 4),
                   // ── BOTÓN CAST ──────────────────────────────────
                   CastButton(
                     videoUrl: _activeUrl.isNotEmpty

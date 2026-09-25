@@ -8,7 +8,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../content/presentation/tv_content_page.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_home_api.dart';
-const kAccentColor = Color(0xFFE50914);
+const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
 
 class HomePage extends StatefulWidget {

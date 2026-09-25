@@ -11,6 +11,9 @@ import '../home/serieskao_scraper.dart';
 import '../home/tioplus_scraper.dart';
 import '../home/cuevana_scraper.dart';
 import '../home/pelisplus_scraper.dart';
+import '../cinecalidad_scraper.dart';
+import '../thanhdattoday_scraper.dart';
+import '../animeflv_scraper.dart';
 import 'buscador.dart';
 /// Todas las fuentes disponibles (listado + búsqueda).
 final List<Fuente> fuentesRegistry = [
@@ -104,6 +107,66 @@ final List<Fuente> fuentesRegistry = [
     hasListing: false,
     hasSearch: true,
     search: BuscadorScraper.searchCineHax,
+  ),
+
+  // ── Cinecalidad ────────────────────────────────────────────────────────
+  Fuente(
+    id: 'cinecalidad',
+    label: 'Cinecalidad',
+    tipos: CinecalidadScraper.tiposDisponibles(),
+    generos: CinecalidadScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return CinecalidadScraper.fetch(
+        tipo: genero == null || genero.isEmpty ? tipo : null,
+        genero: genero == null || genero.isEmpty ? null : genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: CinecalidadScraper.search,
+  ),
+
+  // ── ThanhDatToday ──────────────────────────────────────────────────────
+  Fuente(
+    id: 'thanhdattoday',
+    label: 'ThanhDatToday',
+    tipos: ThanhDatTodayScraper.tiposDisponibles(),
+    generos: ThanhDatTodayScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return ThanhDatTodayScraper.fetch(
+        tipo: genero == null || genero.isEmpty ? tipo : null,
+        genero: genero == null || genero.isEmpty ? null : genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: ThanhDatTodayScraper.search,
+  ),
+
+  // ── AnimeFLV ───────────────────────────────────────────────────────────
+  Fuente(
+    id: 'animeflv',
+    label: 'AnimeFLV',
+    tipos: AnimeFLVScraper.tiposDisponibles(),
+    generos: AnimeFLVScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return AnimeFLVScraper.fetch(
+        tipo: genero == null || genero.isEmpty ? tipo : null,
+        genero: genero == null || genero.isEmpty ? null : genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: AnimeFLVScraper.search,
   ),
 ];
 

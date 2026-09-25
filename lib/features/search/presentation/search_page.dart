@@ -8,9 +8,9 @@ import '../../../data/datasources/remote/tmdb/tmdb_search_api.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_discover_api.dart';
 // Modal de opciones móvil
 import '../../content/presentation/content_options_modal.dart';
-const kAccentColor = Colors.purpleAccent;
+const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
-const kCardBg = Color(0xFF1a1a2e);
+const kCardBg = Color(0xFF1C1C1E);
 
 String _posterUrl(dynamic raw) {
   final p = raw?.toString() ?? '';
@@ -704,32 +704,28 @@ class BuscarPageState extends State<BuscarPage>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           child: Row(
             children: [
-              Expanded(
-                child: _FilterChipButton(
-                  label: _tipoLabel,
-                  icon: Icons.movie_filter_rounded,
-                  onTap: _showTipoSheet,
-                ),
+              _FilterChipButton(
+                label: _tipoLabel,
+                icon: Icons.movie_filter_rounded,
+                onTap: _showTipoSheet,
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: _FilterChipButton(
-                  label: _genero,
-                  icon: Icons.category_rounded,
-                  onTap: _showGeneroSheet,
-                ),
+              _FilterChipButton(
+                label: _genero,
+                icon: Icons.category_rounded,
+                onTap: _showGeneroSheet,
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: _FilterChipButton(
-                  label: _sortLabel,
-                  icon: Icons.sort_rounded,
-                  onTap: _showSortSheet,
-                ),
+              _FilterChipButton(
+                label: _sortLabel,
+                icon: Icons.sort_rounded,
+                onTap: _showSortSheet,
               ),
             ],
           ),
@@ -868,32 +864,30 @@ class _FilterChipButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: kCardBg,
-      borderRadius: BorderRadius.circular(10),
+      borderRadius: BorderRadius.circular(20),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(20),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
           ),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 16, color: kAccentColor),
-              const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
+              const SizedBox(width: 6),
               const Icon(
                 Icons.keyboard_arrow_down_rounded,
                 color: Colors.white54,

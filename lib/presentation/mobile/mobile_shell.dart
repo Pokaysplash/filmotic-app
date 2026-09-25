@@ -23,7 +23,7 @@ import '../../features/downloads/presentation/downloads_page.dart';
 import '../shared/modals/playback_setup_modal.dart';
 import '../../core/constants/versiones.dart'; // ← VersionService
 
-const _kAccentColor = Color(0xFFE50914);
+const _kAccentColor = Color(0xFFFF6B35);
 
 /// Notifica cambios de visibilidad del tab Descargas.
 class DownloadNavBus {
@@ -56,8 +56,8 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
   Map<String, dynamic>? _continueItem;
   bool _continueDismissed = false;
 
-  bool _enableDownloads = true;
-  bool _showDownloadButtonMain = true;
+  bool _enableDownloads = false;
+  bool _showDownloadButtonMain = false;
 
   // ── Actualización ──────────────────────────────────────────────────────
   bool _updateAvailable = false;
@@ -79,8 +79,8 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
 
   static const _prefAbiKey = 'apk_preferred_abi';
 
-  bool get _showDescargasTab =>
-      _enableDownloads && _showDownloadButtonMain;
+  // B.6: Desactivar pantalla de descargas (ocultada para uso futuro)
+  bool get _showDescargasTab => false;
 
   bool get _showUpdateBanner =>
       _updateAvailable && !_updateBannerDismissed;

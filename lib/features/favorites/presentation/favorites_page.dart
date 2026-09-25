@@ -2,13 +2,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../core/storage/app_database.dart';
 
 import '../../content/presentation/content_page.dart';
 import '../../player/presentation/player_page.dart';
 // Ajusta la ruta del modal según donde lo hayas guardado
 import '../../content/presentation/content_options_modal.dart'; // ← el modal móvil que hicimos
 
-const _kAccentColor = Color(0xFFE50914);
+const _kAccentColor = Color(0xFFFF6B35);
 const _kCardBg = Color(0xFF1a1a2e);
 
 class GuardadosPage extends StatefulWidget {
@@ -63,6 +64,9 @@ class GuardadosPageState extends State<GuardadosPage>
   }
 
   Future<List<Map<String, dynamic>>> _loadHistorial() async {
+    final sembastHistory = await AppDatabase.instance.getHistory();
+    if (sembastHistory.isNotEmpty) return sembastHistory;
+
     final prefs = await SharedPreferences.getInstance();
     final keys = prefs
         .getKeys()

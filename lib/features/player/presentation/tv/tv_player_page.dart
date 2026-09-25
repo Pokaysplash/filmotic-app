@@ -7,6 +7,7 @@ import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../../../core/storage/app_database.dart';
 import '../../../content/presentation/tv_content_page.dart';
 import '../../../servers/presentation/tv_servers_modal.dart';
 import '../../../servers/presentation/tv_server_preloader.dart';
@@ -658,6 +659,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
       'timestamp': DateTime.now().toIso8601String(),
     };
     await prefs.setString(_getCacheKey(), jsonEncode(full));
+
+    AppDatabase.instance.saveHistory(
+      contenidoId: widget.idcontenido,
+      episodioId: widget.temporada != null && widget.capitulo != null
+          ? 'T${widget.temporada}_C${widget.capitulo}'
+          : 'movie',
+      progresoSegundos: pos,
+      duracionTotal: _controller.value.duration.inSeconds,
+      temporada: widget.temporada,
+      capitulo: widget.capitulo,
+      titulo: _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
+      poster: backdrop,
+      tipo: widget.tipo,
+      videoUrl: widget.videoUrl,
+      tmdbId: widget.tmdbId ?? widget.idcontenido,
+    );
 
     final rapido = {
       'idcontenido': widget.idcontenido,

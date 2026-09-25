@@ -5,6 +5,9 @@ import '../detail/tioplus_detail_scraper.dart';
 import '../detail/cuevana_detail_scraper.dart';
 import '../detail/pelisplus_detail_scraper.dart';
 import '../detail/cinehax_detail_scraper.dart';
+import '../cinecalidad_scraper.dart';
+import '../thanhdattoday_scraper.dart';
+import '../animeflv_scraper.dart';
 class DetalleScraper {
   static Future<DetalleContenido> fetch({
     required String servicio,
@@ -32,6 +35,12 @@ class DetalleScraper {
           return await DetallePelisPlus.fetch(url: url, titulo: titulo, tipo: tipo);
         case 'cinehax':
           return await DetalleCineHax.fetch(url: url, titulo: titulo, tipo: tipo);
+        case 'cinecalidad':
+          return await CinecalidadScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'thanhdattoday':
+          return await ThanhDatTodayScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'animeflv':
+          return await AnimeFLVScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         default:
           return DetalleContenido(
             ok: false,

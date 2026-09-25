@@ -432,7 +432,9 @@ class _PlaybackSetupDialogState extends State<_PlaybackSetupDialog> {
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Row(
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 8,
                             children: [
                               _chip(
                                 anchorKey: _latKey,
@@ -451,7 +453,6 @@ class _PlaybackSetupDialogState extends State<_PlaybackSetupDialog> {
                                 },
                                 onRight: () => _cas.requestFocus(),
                               ),
-                              const SizedBox(width: 10),
                               _chip(
                                 anchorKey: _casKey,
                                 node: _cas,
@@ -470,7 +471,6 @@ class _PlaybackSetupDialogState extends State<_PlaybackSetupDialog> {
                                 onLeft: () => _lat.requestFocus(),
                                 onRight: () => _sub.requestFocus(),
                               ),
-                              const SizedBox(width: 10),
                               _chip(
                                 anchorKey: _subKey,
                                 node: _sub,

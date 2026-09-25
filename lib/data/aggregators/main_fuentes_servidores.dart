@@ -10,6 +10,10 @@ import '../extractors/providers/pelisplus_extractor.dart'; // PelisPlusService
 import '../extractors/providers/tioplus_extractor.dart'; // TioplusService
 import '../extractors/providers/unlimplay_extractor.dart'; // UnlimplayService
 import '../extractors/hls/hls_extractor.dart'; // ExtractorHlsService  ← NUEVO
+import '../extractors/providers/cinecalidad_extractor.dart';
+import '../scrapers/cinecalidad_scraper.dart';
+import '../scrapers/thanhdattoday_scraper.dart';
+import '../scrapers/animeflv_scraper.dart';
 
 class ServerEvent {
   final Map<String, dynamic>? servidor;
@@ -227,6 +231,49 @@ class MainFuentesServidores {
           episode: episode,
         )) {
           yield s.toModalMap();
+        }
+        break;
+
+      case 'cinecalidad':
+        await for (final s in CinecalidadService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
+        }
+        break;
+
+      case 'thanhdattoday':
+        final servers = await ThanhDatTodayScraper.fetchServers(
+          url: 'https://thanhdattoday.online/${isMovie ? "movie" : "tv"}/$tmdbId',
+        );
+        for (final s in servers) {
+          yield {
+            'servidor_nombre': 'ThanhDat · ${s.nombre}',
+            'servidor_url': s.url,
+            'calidad': s.calidad ?? 'HD',
+            'idioma': s.idioma ?? 'subtitulado',
+            'estado': 'activo',
+            'es_thanhdat': true,
+          };
+        }
+        break;
+
+      case 'animeflv':
+        final animeServers = await AnimeFLVScraper.fetchServers(
+          url: 'https://animeflv.com.es/ver/$tmdbId-${isMovie ? 1 : episode}',
+        );
+        for (final s in animeServers) {
+          yield {
+            'servidor_nombre': s.nombre,
+            'servidor_url': s.url,
+            'calidad': s.calidad ?? 'HD',
+            'idioma': s.idioma ?? 'subtitulado',
+            'estado': 'activo',
+            'es_animeflv': true,
+          };
         }
         break;
 

@@ -15,7 +15,7 @@ import '../../../data/datasources/remote/tmdb/tmdb_content.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_recommendations_api.dart';
 import '../../../supabase/guardados_service.dart';
 
-const kAccentColor = Color(0xFFE50914);
+const kAccentColor = Color(0xFFFF6B35);
 const double _kEpisodeItemExtent =
     214.0; // ancho tarjeta + margen (slider horizontal)
 const double _kRecoItemExtent = 148.0; // ancho poster reco + margen
@@ -1262,7 +1262,7 @@ class _PageContenidoState extends State<PageContenido>
     final bool canRandomEpisode = !isMovie && _totalEpisodesCount > 1;
     final bool episodesViewActive = _showEpisodesView && !isMovie;
     final bool recoViewActive = _showRecommendationsView;
-    final bool canShowLetterboxd = isMovie && imdbId.isNotEmpty;
+    final bool canShowLetterboxd = false;
 
     final size = MediaQuery.sizeOf(context);
     final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 1.6);

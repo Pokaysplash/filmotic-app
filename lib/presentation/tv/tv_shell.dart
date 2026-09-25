@@ -21,7 +21,7 @@ import '../../features/settings/presentation/tv_settings.dart';
 import '../../features/profile/presentation/profile_page.dart';
 import '../../features/discover/presentation/discover_page.dart';
 import '../../features/discover/presentation/tv_discover_page.dart';
-const _kAccentColor = Color(0xFFE50914);
+const _kAccentColor = Color(0xFFFF6B35);
 const _kSideAccent = Color(0xFF7B5CFF);
 
 class MainHome extends StatefulWidget {

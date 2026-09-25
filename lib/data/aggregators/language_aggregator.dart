@@ -644,8 +644,9 @@ class MainFuentes {
 
   /// Normaliza código de idioma a clave canónica.
   static String normalizeIdioma(String? raw) {
-    if (raw == null || raw.isEmpty) return 'es_MX';
+    if (raw == null || raw.trim().isEmpty) return 'Desconocido';
     final l = raw.toLowerCase().trim();
+    if (l == 'desconocido' || l == 'unknown') return 'Desconocido';
     if (l.contains('castellano') ||
         l.contains('es_es') ||
         l.contains('es-es') ||
@@ -661,8 +662,9 @@ class MainFuentes {
         l.contains('english')) {
       return 'en_US';
     }
-    if (l.contains('japon')) return 'ja_JA';
-    return 'es_MX';
+    if (l.contains('japon') || l.contains('ja_ja')) return 'ja_JA';
+    if (l.contains('latino') || l.contains('es_mx') || l.contains('lat')) return 'es_MX';
+    return 'Desconocido';
   }
 
   static String idiomaLabel(String code) {
@@ -673,8 +675,10 @@ class MainFuentes {
         return 'Subtitulado';
       case 'ja_JA':
         return 'Japonés';
-      default:
+      case 'es_MX':
         return 'Latino';
+      default:
+        return 'Desconocido';
     }
   }
 

@@ -1,4 +1,1 @@
-/// Placeholder for local database (Hive / SQLite) if needed later.
-class AppDatabase {
-  AppDatabase._();
-}
+export 'app_database.dart';

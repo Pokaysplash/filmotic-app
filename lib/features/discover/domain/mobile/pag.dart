@@ -8,9 +8,9 @@ import '../../../../data/scrapers/base/scraper_context.dart';
 import '../../../../data/scrapers/base/registry.dart';
 import '../../../../data/scrapers/base/buscador.dart';
 import 'derivar.dart';
-const kAccentColor = Color(0xFFE50914);
+const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
-const kCardBg = Color(0xFF1a1a2e);
+const kCardBg = Color(0xFF1C1C1E);
 
 class ServiciosPage extends StatefulWidget {
   const ServiciosPage({super.key});
@@ -46,6 +46,7 @@ class _ServiciosPageState extends State<ServiciosPage>
   String? _searchError;
   String _searchTipo = 'todas'; // todas | id de fuente
   List<BuscadorItem> _searchItems = [];
+  Map<String, List<BuscadorItem>> _lastResultados = {};
 
   @override
   bool get wantKeepAlive => true;
@@ -222,11 +223,29 @@ class _ServiciosPageState extends State<ServiciosPage>
         return;
       }
 
+      _lastResultados = res.resultados;
       final flat = <BuscadorItem>[];
       res.resultados.forEach((_, list) => flat.addAll(list));
 
+      List<BuscadorItem> finalItems = flat;
+      if (_searchTipo == 'todas') {
+        final seenTitles = <String>{};
+        final deduplicated = <BuscadorItem>[];
+        for (final item in flat) {
+          final norm = item.titulo
+              .toLowerCase()
+              .trim()
+              .replaceAll(RegExp(r'[\(\[\{].*?[\)\]\}]'), '')
+              .replaceAll(RegExp(r'[^a-z0-9]'), '');
+          if (norm.isEmpty || seenTitles.add(norm)) {
+            deduplicated.add(item);
+          }
+        }
+        finalItems = deduplicated;
+      }
+
       setState(() {
-        _searchItems = flat;
+        _searchItems = finalItems;
         _searchLoading = false;
       });
     } catch (_) {
@@ -307,20 +326,30 @@ class _ServiciosPageState extends State<ServiciosPage>
       builder: (ctx) => _buildSheet(
         title: 'Buscar en',
         children: [
-          _sheetOption('Todas las fuentes', _searchTipo == 'todas', () {
-            Navigator.pop(ctx);
-            setState(() => _searchTipo = 'todas');
-            if (_searchCtrl.text.trim().isNotEmpty) _doSearch();
+          _sheetOption(
+            _searchItems.isNotEmpty && _searchTipo == 'todas'
+                ? 'Todas las fuentes (${_searchItems.length})'
+                : 'Todas las fuentes',
+            _searchTipo == 'todas',
+            () {
+              Navigator.pop(ctx);
+              setState(() => _searchTipo = 'todas');
+              if (_searchCtrl.text.trim().isNotEmpty) _doSearch();
+            },
+          ),
+          ...fuentesConBusqueda.map((f) {
+            final count = _lastResultados[f.id]?.length;
+            final label = count != null ? '${f.label} ($count)' : f.label;
+            return _sheetOption(
+              label,
+              _searchTipo == f.id,
+              () {
+                Navigator.pop(ctx);
+                setState(() => _searchTipo = f.id);
+                if (_searchCtrl.text.trim().isNotEmpty) _doSearch();
+              },
+            );
           }),
-          ...fuentesConBusqueda.map((f) => _sheetOption(
-                f.label,
-                _searchTipo == f.id,
-                () {
-                  Navigator.pop(ctx);
-                  setState(() => _searchTipo = f.id);
-                  if (_searchCtrl.text.trim().isNotEmpty) _doSearch();
-                },
-              )),
         ],
       ),
     );
@@ -329,18 +358,24 @@ class _ServiciosPageState extends State<ServiciosPage>
   void _showServicioSheet() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) => _buildSheet(
         title: 'Servicio / Fuente',
         children: fuentesConListado
-            .map((f) => _sheetOption(
-                  f.label,
-                  _servicio.id == f.id,
-                  () {
-                    Navigator.pop(ctx);
-                    _changeServicio(f);
-                  },
-                ))
+            .map((f) {
+              final count = _servicio.id == f.id && _items.isNotEmpty
+                  ? ' (${_items.length})'
+                  : (_lastResultados[f.id]?.length != null ? ' (${_lastResultados[f.id]!.length})' : '');
+              return _sheetOption(
+                '${f.label}$count',
+                _servicio.id == f.id,
+                () {
+                  Navigator.pop(ctx);
+                  _changeServicio(f);
+                },
+              );
+            })
             .toList(),
       ),
     );
@@ -436,11 +471,14 @@ class _ServiciosPageState extends State<ServiciosPage>
 
   Widget _buildSheet({required String title, required List<Widget> children}) {
     return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.75,
+      ),
       decoration: const BoxDecoration(
         color: kCardBg,
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
       child: SafeArea(
         top: false,
         child: Column(
@@ -467,7 +505,14 @@ class _ServiciosPageState extends State<ServiciosPage>
               ),
             ),
             const SizedBox(height: 14),
-            ...children,
+            Flexible(
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: children,
+                ),
+              ),
+            ),
           ],
         ),
       ),

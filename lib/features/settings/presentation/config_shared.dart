@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 // Constantes compartidas (AHORA SON PÚBLICAS)
-const kAccentColor = Color(0xFFE50914);
+const kAccentColor = Color(0xFFFF6B35);
 const kCardColor = Color(0xFF1C1C1E);
 
 // Enum para idioma predeterminado
