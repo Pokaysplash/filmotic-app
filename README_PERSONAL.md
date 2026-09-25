@@ -322,7 +322,7 @@ Se implementó una landing page estática moderna, de alto impacto visual y adap
   - `docs/PUBLICAR.md`: Manual operativo para empaquetado de APKs y publicación de releases.
 - **Enlace de Descarga Directa**:
   El botón principal apunta de forma permanente a la URL canónica de GitHub Releases:
-  `https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk`
+  `https://github.com/Pokaysplash/filmotic-releases/releases/latest/download/filmotic.apk`
 
 ### 11.2 Pasos para Activar GitHub Pages en el Repositorio
 1. Ve a tu repositorio en GitHub: `https://github.com/Pokaysplash/filmotic-app`.
@@ -346,7 +346,7 @@ Para compilar y publicar una actualización:
    ```
    El binario se genera en: `build/app/outputs/flutter-apk/app-release.apk`.
 3. **Crear Release en GitHub**:
-   - Ve a `https://github.com/Pokaysplash/filmotic-app/releases` y pulsa **Draft a new release**.
+   - Ve a `https://github.com/Pokaysplash/filmotic-releases/releases` y pulsa **Draft a new release**.
    - Tag: `v1.0.0` (o `v1.0.1`).
    - Título: `Filmotic v1.0.0`.
    - Adjunta el archivo `app-release.apk` y **renómbralo exactamente a `filmotic.apk`** para asegurar compatibilidad permanente con la URL de descarga directa.
@@ -377,7 +377,7 @@ Estructura completa con sección `"app"`:
   "app": {
     "min_version": "1.0.0",
     "latest_version": "1.0.0",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
+    "update_url": "https://github.com/Pokaysplash/filmotic-releases/releases/latest/download/filmotic.apk",
     "update_message": "Hay una nueva versión de Filmotic disponible. Actualiza para disfrutar de las últimas mejoras.",
     "force_update": false
   }

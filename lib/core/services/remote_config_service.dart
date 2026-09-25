@@ -25,7 +25,7 @@ class FilmoticAppInfo {
     final minVer = (m['min_version'] ?? fallbackMinVersion).toString();
     final latestVer = (m['latest_version'] ?? minVer).toString();
     final url = (m['update_url'] ??
-            'https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk')
+            'https://github.com/Pokaysplash/filmotic-releases/releases/latest/download/filmotic.apk')
         .toString();
     final msg = (m['update_message'] ??
             'Hay una nueva versión de Filmotic disponible. Actualiza para disfrutar de las últimas mejoras.')
@@ -53,7 +53,7 @@ class FilmoticAppInfo {
         minVersion: '1.0.0',
         latestVersion: '1.0.0',
         updateUrl:
-            'https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk',
+            'https://github.com/Pokaysplash/filmotic-releases/releases/latest/download/filmotic.apk',
         updateMessage:
             'Hay una nueva versión de Filmotic disponible. Actualiza para disfrutar de las últimas mejoras.',
         forceUpdate: false,
