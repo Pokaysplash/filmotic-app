@@ -126,12 +126,20 @@ class _SplashScreenState extends State<SplashScreen> {
     // Mostrar el logo de carga durante 2 segundos
     await Future.delayed(const Duration(seconds: 2));
 
-    // Verificar si se requiere actualización forzada según min_app_version
+    // Verificar si se requiere actualización forzada u opcional
     const currentVersion = '1.0.0';
-    if (RemoteConfigService.instance.isUpdateRequired(currentVersion)) {
+    final appConfig = RemoteConfigService.instance.config.app;
+
+    if (RemoteConfigService.instance.isMandatoryUpdateRequired(currentVersion)) {
       if (!mounted) return;
-      _showBlockingUpdateDialog(RemoteConfigService.instance.config.minAppVersion);
+      _showBlockingUpdateDialog(appConfig);
       return;
+    }
+
+    final dismissed = await RemoteConfigService.instance.getDismissedVersion();
+    if (RemoteConfigService.instance.isOptionalUpdateAvailable(currentVersion, dismissedVersion: dismissed)) {
+      if (!mounted) return;
+      await _showOptionalUpdateDialog(appConfig);
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -150,7 +158,7 @@ class _SplashScreenState extends State<SplashScreen> {
     await _goToHome();
   }
 
-  void _showBlockingUpdateDialog(String minVersion) {
+  void _showBlockingUpdateDialog(FilmoticAppInfo appInfo) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -174,7 +182,7 @@ class _SplashScreenState extends State<SplashScreen> {
             ],
           ),
           content: Text(
-            'Se requiere la versión $minVersion o superior para continuar usando Filmotic.\n\nPor favor actualiza la aplicación para disfrutar de las últimas mejoras y servidores.',
+            '${appInfo.updateMessage}\n\nSe requiere la versión ${appInfo.minVersion} o superior para continuar usando Filmotic.',
             style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
           ),
           actions: [
@@ -188,7 +196,7 @@ class _SplashScreenState extends State<SplashScreen> {
               ),
               onPressed: () {
                 launchUrl(
-                  Uri.parse('https://github.com/Filmotic/filmotic/releases/latest'),
+                  Uri.parse(appInfo.updateUrl),
                   mode: LaunchMode.externalApplication,
                 );
               },
@@ -196,6 +204,66 @@ class _SplashScreenState extends State<SplashScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  Future<void> _showOptionalUpdateDialog(FilmoticAppInfo appInfo) async {
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1C1C1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            const Icon(Icons.new_releases_rounded, color: Color(0xFFFF6B35)),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Nueva versión disponible (${appInfo.latestVersion})',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 17,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          appInfo.updateMessage,
+          style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () async {
+              await RemoteConfigService.instance.setDismissedVersion(appInfo.latestVersion);
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: const Text(
+              'Más tarde',
+              style: TextStyle(color: Colors.white60),
+            ),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF6B35),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            onPressed: () {
+              launchUrl(
+                Uri.parse(appInfo.updateUrl),
+                mode: LaunchMode.externalApplication,
+              );
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: const Text('Actualizar'),
+          ),
+        ],
       ),
     );
   }

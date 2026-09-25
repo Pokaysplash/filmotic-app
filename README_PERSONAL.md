@@ -291,3 +291,90 @@ Ubicación: `lib/core/services/remote_config_service.dart` y archivo plantilla `
     1. Se eliminaron las llamadas duplicadas a `Navigator.pop()` en los callbacks de `settings_page.dart`, `profile_page.dart`, `tv_supabase_tab.dart` y `supabase_section.dart`, dejando que `ProfileSelectionPage._enterApp()` controle de forma estricta y única el cierre del diálogo.
     2. Se conectó `AppDatabase.instance.activeProfileNotifier` con listeners reactivos en `MobileShell` y en `GuardadosPage` (`favorites_page.dart`), de modo que al conmutar de perfil se limpien y recarguen de inmediato los favoritos, el historial y las recomendaciones del nuevo perfil sin dejar estados inconsistentes ni pantallas negras.
 
+
+---
+
+## 11. Landing Page en GitHub Pages, Soporte de Actualizaciones y Distribución de APKs
+
+### 11.1 Landing Page Oficial en GitHub Pages (`/docs`)
+Se implementó una landing page estática moderna, de alto impacto visual y adaptada a móvil y desktop, alojada en el directorio `/docs` para servirse nativamente mediante GitHub Pages:
+
+- **Archivos Clave**:
+  - `docs/index.html`: Estructura semántica HTML5 con optimización SEO, meta tags para vista previa social, hero section con llamado a la acción (CTA) directo, cuadrícula de 4 características clave (Multi-perfil, WiFi P2P, Sin publicidad molesta, Móvil & TV), guía paso a paso para instalar en Android y pie de página legal.
+  - `docs/style.css`: Diseño en tema oscuro (`#0B0B0E`), fuentes modernas (Google Fonts *Inter*), acentos con el naranja oficial de Filmotic (`#FF6B35`), efectos de glassmorphism y microinteracciones de botón.
+  - `docs/app-icon.png`: Icono oficial de alta definición generado desde el branding de la app.
+  - `docs/README.md`: Instrucciones directas de activación de GitHub Pages.
+  - `docs/PUBLICAR.md`: Manual operativo para empaquetado de APKs y publicación de releases.
+- **Enlace de Descarga Directa**:
+  El botón principal apunta de forma permanente a la URL canónica de GitHub Releases:
+  `https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk`
+
+### 11.2 Pasos para Activar GitHub Pages en el Repositorio
+1. Ve a tu repositorio en GitHub: `https://github.com/Pokaysplash/filmotic-app`.
+2. Haz clic en **Settings** (pestaña superior).
+3. En el menú lateral izquierdo, haz clic en **Pages**.
+4. En **Build and deployment > Source**, selecciona: **Deploy from a branch**.
+5. En **Branch**:
+   - Rama: **`main`**
+   - Carpeta: **`/docs`**
+6. Haz clic en **Save**.
+7. En 1-2 minutos, tu landing estará disponible en:  
+   👉 **`https://pokaysplash.github.io/filmotic-app/`**
+
+### 11.3 Distribución de Nuevas Versiones y GitHub Releases
+Para compilar y publicar una actualización:
+
+1. **Ajustar versión**: En `pubspec.yaml`, incrementa `version: 1.0.1+2` (y opcionalmente `const currentVersion = '1.0.1'` en `lib/main.dart`).
+2. **Compilar APK Release**:
+   ```bash
+   flutter build apk --release
+   ```
+   El binario se genera en: `build/app/outputs/flutter-apk/app-release.apk`.
+3. **Crear Release en GitHub**:
+   - Ve a `https://github.com/Pokaysplash/filmotic-app/releases` y pulsa **Draft a new release**.
+   - Tag: `v1.0.0` (o `v1.0.1`).
+   - Título: `Filmotic v1.0.0`.
+   - Adjunta el archivo `app-release.apk` y **renómbralo exactamente a `filmotic.apk`** para asegurar compatibilidad permanente con la URL de descarga directa.
+   - Publica el release.
+
+### 11.4 Configuración Remota Ampliada (`filmotic_config.json`)
+La configuración remota se sirve desde GitHub Raw:
+`https://raw.githubusercontent.com/Pokaysplash/filmotic-app/main/filmotic_config.json`
+
+Estructura completa con sección `"app"`:
+```json
+{
+  "version": 1,
+  "ads": {
+    "adsterra_banner_id": "PENDIENTE",
+    "hilltopads_vast_url": "PENDIENTE"
+  },
+  "sources": {
+    "enabled": ["cinecalidad", "thanhdattoday", "animeflv", "serieskao", "tioplus", "cuevana", "pelisplus", "cinehax"],
+    "disabled": []
+  },
+  "messages": {
+    "maintenance": null,
+    "welcome_banner": null
+  },
+  "app": {
+    "min_version": "1.0.0",
+    "latest_version": "1.0.0",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
+    "update_message": "Hay una nueva versión de Filmotic disponible. Actualiza para disfrutar de las últimas mejoras.",
+    "force_update": false
+  }
+}
+```
+
+### 11.5 Lógica de Actualizaciones Inteligente en la App
+Ubicación: `lib/core/services/remote_config_service.dart` y `lib/main.dart`
+
+- **Comparación Semántica de Versiones (`compareVersions`)**:
+  Analiza numéricamente cada componente mayor, menor y parche (ej: `1.0.1` vs `1.0.0`) ignorando sufijos de compilación (`+1`).
+- **Actualización Obligatoria (Hard Gate)**:
+  Se activa si `min_version` es mayor a la versión instalada o si `force_update: true`. Muestra un diálogo bloqueante (`PopScope(canPop: false)`) con botón "Descargar Actualización" que invoca `url_launcher` para abrir el navegador hacia `update_url`.
+- **Actualización Opcional (Soft Prompt)**:
+  Se activa si `latest_version` es mayor a la versión instalada y no hay bloqueo obligatorio.
+  - Ofrece botones **"Actualizar"** y **"Más tarde"**.
+  - Al pulsar **"Más tarde"**, guarda la versión descartada en la base de datos local **Sembast** (`dismissed_version`), garantizando no volver a interrumpir al usuario hasta que se publique una versión posterior.

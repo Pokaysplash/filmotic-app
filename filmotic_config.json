@@ -1,8 +1,8 @@
 {
   "version": 1,
   "ads": {
-    "adsterra_banner_id": "ADSTERRA_SAMPLE_BANNER_ID",
-    "hilltopads_vast_url": "https://hilltopads.example.com/vast/sample.xml"
+    "adsterra_banner_id": "PENDIENTE",
+    "hilltopads_vast_url": "PENDIENTE"
   },
   "sources": {
     "enabled": [
@@ -11,15 +11,21 @@
       "animeflv",
       "serieskao",
       "tioplus",
-      "cuevana"
+      "cuevana",
+      "pelisplus",
+      "cinehax"
     ],
-    "disabled": [
-      "pelisplus"
-    ]
+    "disabled": []
   },
   "messages": {
     "maintenance": null,
     "welcome_banner": null
   },
-  "min_app_version": "1.0.0"
+  "app": {
+    "min_version": "1.0.0",
+    "latest_version": "1.0.0",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
+    "update_message": "Hay una nueva versión de Filmotic disponible. Actualiza para disfrutar de las últimas mejoras.",
+    "force_update": false
+  }
 }
