@@ -78,7 +78,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late VideoPlayerController _controller;
   bool _isLoading = true;
   bool _isPlaying = false;
-  bool _subtitlesEnabled = true;
+  bool _subtitlesEnabled = false;
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
   String _errorMessage = '';

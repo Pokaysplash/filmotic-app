@@ -1435,21 +1435,60 @@ class _OpenSubtitlesModalTvState extends State<OpenSubtitlesModalTv> {
                                                                   width: 1.8)
                                                               : null,
                                                         ),
-                                                        child: Column(
-                                                          crossAxisAlignment:
-                                                              CrossAxisAlignment
-                                                                  .start,
+                                                        child: Row(
                                                           children: [
-                                                            Row(
-                                                              children: [
-                                                                Container(
-                                                                  padding: const EdgeInsets
-                                                                      .symmetric(
-                                                                    horizontal:
-                                                                        8,
-                                                                    vertical:
-                                                                        3,
+                                                            Container(
+                                                              padding: const EdgeInsets.all(10),
+                                                              decoration: BoxDecoration(
+                                                                color: hasFocus
+                                                                    ? accentPurpleLight.withValues(alpha: 0.3)
+                                                                    : (isSelected
+                                                                        ? accentPurple.withValues(alpha: 0.5)
+                                                                        : Colors.white.withValues(alpha: 0.08)),
+                                                                borderRadius: BorderRadius.circular(8),
+                                                              ),
+                                                              child: Icon(
+                                                                Icons.subtitles_rounded,
+                                                                color: hasFocus || isSelected ? Colors.white : Colors.white70,
+                                                                size: 20,
+                                                              ),
+                                                            ),
+                                                            const SizedBox(width: 14),
+                                                            Expanded(
+                                                              child: Column(
+                                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                                children: [
+                                                                  Text(
+                                                                    'Opción ${i + 1}',
+                                                                    style: TextStyle(
+                                                                      color: hasFocus || isSelected
+                                                                          ? Colors.white
+                                                                          : Colors.white.withOpacity(0.9),
+                                                                      fontSize: 15,
+                                                                      fontWeight: FontWeight.w600,
+                                                                    ),
                                                                   ),
+                                                                  const SizedBox(height: 2),
+                                                                  Text(
+                                                                    'Subtítulo · ${_langDisplayName(_currentLang)}',
+                                                                    style: TextStyle(
+                                                                      color: hasFocus
+                                                                          ? accentPurpleLight
+                                                                          : (isSelected ? accentPurpleLight : Colors.white38),
+                                                                      fontSize: 12,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ),
+                                                            if (isSelected)
+                                                              const Icon(
+                                                                Icons.check_circle_rounded,
+                                                                color: accentPurpleLight,
+                                                                size: 22,
+                                                              ),
+                                                          ],
+                                                        ),
                                                                   decoration:
                                                                       BoxDecoration(
                                                                     color: const Color(

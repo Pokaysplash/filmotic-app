@@ -84,16 +84,22 @@ class LocalProfile {
     String? avatar,
     bool? esInfantil,
     String? pin,
-  }) =>
-      LocalProfile(
-        id: id,
-        cuentaId: cuentaId,
-        nombre: nombre ?? this.nombre,
-        avatar: avatar ?? this.avatar,
-        esInfantil: esInfantil ?? this.esInfantil,
-        pin: pin ?? this.pin,
-        createdAt: createdAt,
-      );
+    bool clearPin = false,
+  }) {
+    String? cleanPin = pin?.trim();
+    if (cleanPin != null && cleanPin.isNotEmpty && !RegExp(r'^\d{4}$').hasMatch(cleanPin)) {
+      cleanPin = null;
+    }
+    return LocalProfile(
+      id: id,
+      cuentaId: cuentaId,
+      nombre: nombre ?? this.nombre,
+      avatar: avatar ?? this.avatar,
+      esInfantil: esInfantil ?? this.esInfantil,
+      pin: clearPin ? null : (pin != null ? cleanPin : this.pin),
+      createdAt: createdAt,
+    );
+  }
 }
 
 class AppDatabase {
@@ -327,8 +333,9 @@ class AppDatabase {
   }
 
   bool verifyPin(LocalProfile profile, String inputPin) {
-    if (profile.pin == null || profile.pin!.isEmpty) return true;
-    return profile.pin == inputPin;
+    final stored = profile.pin?.trim();
+    if (stored == null || stored.isEmpty || stored.length != 4) return false;
+    return stored == inputPin.trim();
   }
 
   // ══════════════════════════════════════════════════════════════

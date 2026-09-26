@@ -21,6 +21,16 @@ final List<String> kPresetAvatars = [
   'assets/avatars/avatar_8.png',
   'assets/avatars/avatar_9.png',
   'assets/avatars/avatar_10.png',
+  'assets/avatars/avatar_11.png',
+  'assets/avatars/avatar_12.png',
+  'assets/avatars/avatar_13.png',
+  'assets/avatars/avatar_14.png',
+  'assets/avatars/avatar_15.png',
+  'assets/avatars/avatar_16.png',
+  'assets/avatars/avatar_17.png',
+  'assets/avatars/avatar_18.png',
+  'assets/avatars/avatar_19.png',
+  'assets/avatars/avatar_20.png',
 ];
 
 ImageProvider getAvatarImageProvider(String path) {
@@ -169,6 +179,10 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
 
   Future<void> _onProfileTap(LocalProfile profile) async {
     if (_isEditing) {
+      if (profile.pin != null && profile.pin!.isNotEmpty) {
+        final pinOk = await _showPinDialog(profile);
+        if (pinOk != true) return;
+      }
       _openEditDialog(profile);
       return;
     }
@@ -199,10 +213,24 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
 
     return showDialog<bool>(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            void verify() {
+              final val = pinController.text.trim();
+              if (val.length != 4 || !RegExp(r'^\d{4}$').hasMatch(val)) {
+                setDialogState(() => error = 'Ingresa el PIN de 4 números');
+                return;
+              }
+              if (AppDatabase.instance.verifyPin(profile, val)) {
+                Navigator.pop(ctx, true);
+              } else {
+                pinController.clear();
+                setDialogState(() => error = 'PIN incorrecto');
+              }
+            }
+
             return AlertDialog(
               backgroundColor: const Color(0xFF141414),
               shape: RoundedRectangleBorder(
@@ -213,8 +241,11 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                 children: [
                   const Icon(Icons.lock, color: _kAccent),
                   const SizedBox(width: 8),
-                  Text('PIN de ${profile.nombre}',
-                      style: const TextStyle(color: Colors.white, fontSize: 18)),
+                  Expanded(
+                    child: Text('PIN de ${profile.nombre}',
+                        style: const TextStyle(color: Colors.white, fontSize: 18),
+                        overflow: TextOverflow.ellipsis),
+                  ),
                 ],
               ),
               content: Column(
@@ -247,13 +278,13 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                         borderSide: BorderSide.none,
                       ),
                     ),
-                    onSubmitted: (val) {
-                      if (AppDatabase.instance.verifyPin(profile, val.trim())) {
-                        Navigator.pop(ctx, true);
-                      } else {
-                        setDialogState(() => error = 'PIN incorrecto');
+                    onChanged: (val) {
+                      if (error.isNotEmpty) setDialogState(() => error = '');
+                      if (val.trim().length == 4) {
+                        verify();
                       }
                     },
+                    onSubmitted: (_) => verify(),
                   ),
                   if (error.isNotEmpty) ...[
                     const SizedBox(height: 8),
@@ -269,13 +300,7 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: _kAccent),
-                  onPressed: () {
-                    if (AppDatabase.instance.verifyPin(profile, pinController.text.trim())) {
-                      Navigator.pop(ctx, true);
-                    } else {
-                      setDialogState(() => error = 'PIN incorrecto');
-                    }
-                  },
+                  onPressed: verify,
                   child: const Text('Entrar', style: TextStyle(color: Colors.white)),
                 ),
               ],
@@ -301,6 +326,7 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
     final pinCtrl = TextEditingController();
     String selectedAvatar = kPresetAvatars.first;
     bool isKids = false;
+    String createError = '';
 
     showDialog(
       context: context,
@@ -336,6 +362,9 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                           borderSide: BorderSide.none,
                         ),
                       ),
+                      onChanged: (_) {
+                        if (createError.isNotEmpty) setDialogState(() => createError = '');
+                      },
                     ),
                     const SizedBox(height: 16),
                     const Text('Selecciona un Avatar:',
@@ -397,7 +426,15 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                           borderSide: BorderSide.none,
                         ),
                       ),
+                      onChanged: (_) {
+                        if (createError.isNotEmpty) setDialogState(() => createError = '');
+                      },
                     ),
+                    if (createError.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(createError,
+                          style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                    ],
                   ],
                 ),
               ),
@@ -410,13 +447,21 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                   style: ElevatedButton.styleFrom(backgroundColor: _kAccent),
                   onPressed: () async {
                     final name = nameCtrl.text.trim();
-                    if (name.isEmpty) return;
+                    if (name.isEmpty) {
+                      setDialogState(() => createError = 'Ingresa un nombre para el perfil');
+                      return;
+                    }
+                    final pin = pinCtrl.text.trim();
+                    if (pin.isNotEmpty && (pin.length != 4 || !RegExp(r'^\d{4}$').hasMatch(pin))) {
+                      setDialogState(() => createError = 'El PIN debe tener exactamente 4 números');
+                      return;
+                    }
                     Navigator.pop(ctx);
                     await AppDatabase.instance.createProfile(
                       nombre: name,
                       avatar: selectedAvatar,
                       esInfantil: isKids,
-                      pin: pinCtrl.text.trim().isNotEmpty ? pinCtrl.text.trim() : null,
+                      pin: pin.isNotEmpty ? pin : null,
                     );
                     await _load();
                   },
@@ -435,6 +480,7 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
     final pinCtrl = TextEditingController(text: profile.pin ?? '');
     String selectedAvatar = profile.avatar;
     bool isKids = profile.esInfantil;
+    String editError = '';
 
     showDialog(
       context: context,
@@ -468,6 +514,9 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                           borderSide: BorderSide.none,
                         ),
                       ),
+                      onChanged: (_) {
+                        if (editError.isNotEmpty) setDialogState(() => editError = '');
+                      },
                     ),
                     const SizedBox(height: 16),
                     const Text('Avatar:',
@@ -527,7 +576,15 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                           borderSide: BorderSide.none,
                         ),
                       ),
+                      onChanged: (_) {
+                        if (editError.isNotEmpty) setDialogState(() => editError = '');
+                      },
                     ),
+                    if (editError.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(editError,
+                          style: const TextStyle(color: Colors.redAccent, fontSize: 13, fontWeight: FontWeight.bold)),
+                    ],
                     const Divider(color: Colors.white24, height: 28),
                     Center(
                       child: TextButton.icon(
@@ -578,13 +635,22 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
                   style: ElevatedButton.styleFrom(backgroundColor: _kAccent),
                   onPressed: () async {
                     final name = nameCtrl.text.trim();
-                    if (name.isEmpty) return;
+                    if (name.isEmpty) {
+                      setDialogState(() => editError = 'Ingresa un nombre para el perfil');
+                      return;
+                    }
+                    final pin = pinCtrl.text.trim();
+                    if (pin.isNotEmpty && (pin.length != 4 || !RegExp(r'^\d{4}$').hasMatch(pin))) {
+                      setDialogState(() => editError = 'El PIN debe tener exactamente 4 números');
+                      return;
+                    }
                     Navigator.pop(ctx);
                     final updated = profile.copyWith(
                       nombre: name,
                       avatar: selectedAvatar,
                       esInfantil: isKids,
-                      pin: pinCtrl.text.trim().isNotEmpty ? pinCtrl.text.trim() : null,
+                      pin: pin.isNotEmpty ? pin : null,
+                      clearPin: pin.isEmpty,
                     );
                     await AppDatabase.instance.updateProfile(updated);
                     await _load();

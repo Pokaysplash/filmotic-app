@@ -1253,21 +1253,54 @@ class _OpenSubtitlesModalState extends State<OpenSubtitlesModal> {
                                                               .transparent,
                                                     ),
                                                   ),
-                                                  child: Column(
-                                                    crossAxisAlignment:
-                                                        CrossAxisAlignment
-                                                            .start,
+                                                  child: Row(
                                                     children: [
-                                                      Row(
-                                                        children: [
-                                                          Container(
-                                                            padding:
-                                                                const EdgeInsets
-                                                                    .symmetric(
-                                                              horizontal:
-                                                                  8,
-                                                              vertical: 3,
+                                                      Container(
+                                                        padding: const EdgeInsets.all(8),
+                                                        decoration: BoxDecoration(
+                                                          color: isSelected
+                                                              ? accentPurple.withValues(alpha: 0.5)
+                                                              : Colors.white.withValues(alpha: 0.08),
+                                                          borderRadius: BorderRadius.circular(8),
+                                                        ),
+                                                        child: Icon(
+                                                          Icons.subtitles_rounded,
+                                                          color: isSelected ? Colors.white : Colors.white70,
+                                                          size: 18,
+                                                        ),
+                                                      ),
+                                                      const SizedBox(width: 12),
+                                                      Expanded(
+                                                        child: Column(
+                                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                                          children: [
+                                                            Text(
+                                                              'Opción ${i + 1}',
+                                                              style: TextStyle(
+                                                                color: isSelected ? Colors.white : Colors.white.withOpacity(0.95),
+                                                                fontSize: 14,
+                                                                fontWeight: FontWeight.w600,
+                                                              ),
                                                             ),
+                                                            const SizedBox(height: 2),
+                                                            Text(
+                                                              'Subtítulo · ${_langDisplayName(_currentLang)}',
+                                                              style: TextStyle(
+                                                                color: isSelected ? accentPurpleLight : Colors.white38,
+                                                                fontSize: 11,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                      if (isSelected)
+                                                        const Icon(
+                                                          Icons.check_circle_rounded,
+                                                          color: accentPurpleLight,
+                                                          size: 20,
+                                                        ),
+                                                    ],
+                                                  ),
                                                             decoration:
                                                                 BoxDecoration(
                                                               color: const Color(
