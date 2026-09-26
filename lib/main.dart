@@ -9,6 +9,7 @@ import 'presentation/mobile/mobile_shell.dart' as mobile;
 import 'presentation/tv/tv_shell.dart' as tv;
 import 'features/downloads/presentation/notification_helper.dart';
 import 'features/profile/presentation/profile_selection_page.dart';
+import 'presentation/shared/widgets/filmotic_splash_loader.dart';
 import 'core/storage/app_database.dart';
 
 // Cast: botones de la notificación (play/pause/seek)
@@ -341,17 +342,7 @@ class _SplashScreenState extends State<SplashScreen> {
     if (_screen == 'mode') {
       return _buildModeSelector();
     }
-    return const Scaffold(
-      backgroundColor: Colors.black,
-      body: Center(
-        child: Image(
-          image: AssetImage('assets/spiner.gif'),
-          width: 120,
-          height: 120,
-          fit: BoxFit.contain,
-        ),
-      ),
-    );
+    return const FilmoticSplashLoader();
   }
 
   // ── 1) Selector Móvil / TV ─────────────────────────────────────────────
