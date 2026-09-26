@@ -758,7 +758,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
         Uri.parse(url),
         httpHeaders: _playerHeaders(url),
       );
-      await _controller.initialize();
+
+      if (widget.isLive) {
+        await _controller.initialize().timeout(
+          const Duration(seconds: 7),
+          onTimeout: () {
+            throw TimeoutException('Tiempo de espera agotado al conectar con el canal.');
+          },
+        );
+      } else {
+        await _controller.initialize();
+      }
 
       if (!mounted || _isDisposing) {
         await _controller.dispose();
@@ -784,6 +794,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _scheduleHideControls();
     } catch (e) {
       debugPrint('Error al reproducir URL: $e');
+      if (widget.isLive) {
+        if (!mounted || _isDisposing) return;
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'La señal en vivo no está disponible en este momento.\nEl canal podría estar fuera del aire o temporalmente inaccesible.';
+          _allServersFailed = true;
+        });
+        return;
+      }
       // Marcar inválido y probar siguiente
       if (_fallbackIndex < _fallbackServers.length) {
         final cur = _fallbackServers[_fallbackIndex];

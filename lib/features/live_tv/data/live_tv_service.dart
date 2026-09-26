@@ -133,16 +133,64 @@ class LiveTvService {
     return 'https://iptv-org.github.io/iptv/index.m3u';
   }
 
+  final Map<String, bool> _channelHealth = {};
+
+  /// Verifica la disponibilidad de un stream con timeout corto (2.5s)
+  Future<bool> probeChannel(String streamUrl) async {
+    try {
+      final uri = Uri.parse(streamUrl);
+      final client = http.Client();
+      try {
+        final req = http.Request('GET', uri)
+          ..headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          ..headers['Range'] = 'bytes=0-512';
+        final streamed = await client.send(req).timeout(const Duration(milliseconds: 2500));
+        final status = streamed.statusCode;
+        return (status >= 200 && status < 400);
+      } finally {
+        client.close();
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool? isChannelOnline(String channelId) => _channelHealth[channelId];
+
+  void markChannelStatus(String channelId, bool isOnline) {
+    _channelHealth[channelId] = isOnline;
+  }
+
+  /// Valida en segundo plano una lista de canales en lotes concurrentes
+  Future<void> validateChannelsInBackground(
+    List<LiveChannel> channels,
+    void Function() onProgress,
+  ) async {
+    final toTest = channels.take(30).toList();
+    for (int i = 0; i < toTest.length; i += 4) {
+      final chunk = toTest.sublist(i, (i + 4 < toTest.length) ? i + 4 : toTest.length);
+      await Future.wait(chunk.map((ch) async {
+        if (_channelHealth.containsKey(ch.id)) return;
+        final ok = await probeChannel(ch.streamUrl);
+        _channelHealth[ch.id] = ok;
+      }));
+      onProgress();
+    }
+  }
+
   List<LiveChannel> _sortChannels(List<LiveChannel> channels) {
+    // Filtrar canales que están explícitamente marcados como geobloqueados
+    final available = channels.where((c) => !c.name.contains('[Geo-blocked]')).toList();
+
     final featured = RemoteConfigService.instance.config.liveTv.featuredChannels;
-    if (featured.isEmpty) return channels;
+    if (featured.isEmpty) return available;
 
     final featuredSet = featured.map((e) => e.toLowerCase()).toSet();
     final featuredList = <LiveChannel>[];
     final regularList = <LiveChannel>[];
 
-    for (final ch in channels) {
-      if (featuredSet.contains(ch.name.toLowerCase())) {
+    for (final ch in available) {
+      if (featuredSet.any((f) => ch.name.toLowerCase().contains(f))) {
         featuredList.add(ch);
       } else {
         regularList.add(ch);

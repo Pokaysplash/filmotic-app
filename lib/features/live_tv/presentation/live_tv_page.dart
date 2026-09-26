@@ -32,6 +32,7 @@ class _LiveTvPageState extends State<LiveTvPage> {
   final TextEditingController _searchCtrl = TextEditingController();
   Timer? _nowTimer;
 
+  bool _onlyWorking = false;
   final Map<String, _ChannelEpgState> _channelEpgMap = {};
 
   final List<Map<String, String>> _countries = [
@@ -97,6 +98,11 @@ class _LiveTvPageState extends State<LiveTvPage> {
 
       // Cargar EPG para los primeros 30 canales visibles
       _fetchEpgForVisible();
+
+      // Validar canales en segundo plano
+      LiveTvService.instance.validateChannelsInBackground(_filteredChannels, () {
+        if (mounted) setState(() {});
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -132,6 +138,10 @@ class _LiveTvPageState extends State<LiveTvPage> {
     final query = _searchCtrl.text.trim().toLowerCase();
     setState(() {
       _filteredChannels = _allChannels.where((c) {
+        if (_onlyWorking) {
+          final isOnline = LiveTvService.instance.isChannelOnline(c.id);
+          if (isOnline == false) return false;
+        }
         if (query.isNotEmpty) {
           final matchesName = c.name.toLowerCase().contains(query);
           final matchesGroup = c.group?.toLowerCase().contains(query) ?? false;
@@ -148,6 +158,9 @@ class _LiveTvPageState extends State<LiveTvPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bottomPad = MediaQuery.paddingOf(context).bottom;
+    final navOffset = 12.0 + bottomPad + 58.0 + 8.0;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -204,7 +217,7 @@ class _LiveTvPageState extends State<LiveTvPage> {
           // ── Barra de Filtros y Búsqueda ──
           _buildFilterBar(),
 
-          // ── Contenido Principal ──
+          // ── Contenido Principal (Tipo Lista en Rectángulos) ──
           Expanded(
             child: _isLoading
                 ? _buildLoadingSkeleton()
@@ -216,27 +229,22 @@ class _LiveTvPageState extends State<LiveTvPage> {
                             color: kBrandOrange,
                             backgroundColor: kCardBg,
                             onRefresh: () => _loadChannels(force: true),
-                            child: GridView.builder(
-                              padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 2,
-                                childAspectRatio: 0.88,
-                                crossAxisSpacing: 12,
-                                mainAxisSpacing: 12,
-                              ),
+                            child: ListView.separated(
+                              padding: EdgeInsets.fromLTRB(16, 8, 16, navOffset + 55),
                               itemCount: _filteredChannels.length,
+                              separatorBuilder: (_, __) => const SizedBox(height: 8),
                               itemBuilder: (context, index) {
                                 final channel = _filteredChannels[index];
                                 final epg = _channelEpgMap[channel.id];
-                                return _buildChannelCard(channel, epg);
+                                return _buildChannelTile(channel, epg);
                               },
                             ),
                           ),
           ),
 
-          // ── Banner Publicitario Adsterra ──
+          // ── Banner Publicitario Adsterra posicionado ENCIMA del menú flotante ──
           AdService.instance.buildBanner(
-            margin: const EdgeInsets.only(bottom: 6),
+            margin: EdgeInsets.only(bottom: navOffset),
           ),
         ],
       ),
@@ -353,163 +361,204 @@ class _LiveTvPageState extends State<LiveTvPage> {
               ),
             ],
           ),
+          const SizedBox(height: 10),
+
+          // Filtro "Solo canales en línea" y contador
+          Row(
+            children: [
+              FilterChip(
+                label: const Text('Solo en línea', style: TextStyle(fontSize: 12)),
+                avatar: Icon(
+                  _onlyWorking ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
+                  size: 15,
+                  color: _onlyWorking ? kBrandOrange : Colors.white38,
+                ),
+                selected: _onlyWorking,
+                selectedColor: kBrandOrange.withValues(alpha: 0.22),
+                backgroundColor: const Color(0xFF1B1B26),
+                side: BorderSide(color: _onlyWorking ? kBrandOrange : Colors.white12),
+                labelStyle: TextStyle(
+                  color: _onlyWorking ? Colors.white : Colors.white70,
+                  fontWeight: _onlyWorking ? FontWeight.bold : FontWeight.normal,
+                ),
+                onSelected: (val) {
+                  setState(() => _onlyWorking = val);
+                  _applyFilters();
+                },
+              ),
+              const Spacer(),
+              Text(
+                '${_filteredChannels.length} canales',
+                style: const TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildChannelCard(LiveChannel channel, _ChannelEpgState? epg) {
+  Widget _buildChannelTile(LiveChannel channel, _ChannelEpgState? epg) {
+    final isOnline = LiveTvService.instance.isChannelOnline(channel.id);
+
     return Container(
       decoration: BoxDecoration(
-        color: kCardBg,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        color: const Color(0xFF151520),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           onTap: () => _playChannel(channel),
           child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
               children: [
-                // Top row: Logo + Badges
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Logo
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.05),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      padding: const EdgeInsets.all(4),
-                      child: channel.logo != null && channel.logo!.isNotEmpty
-                          ? CachedNetworkImage(
-                              imageUrl: channel.logo!,
-                              fit: BoxFit.contain,
-                              errorWidget: (_, __, ___) => const Icon(
-                                Icons.tv_rounded,
-                                color: Colors.white38,
-                                size: 24,
-                              ),
-                            )
-                          : const Icon(Icons.tv_rounded, color: Colors.white38, size: 24),
-                    ),
-                    const Spacer(),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        if (channel.isHD)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                            margin: const EdgeInsets.only(bottom: 4),
-                            decoration: BoxDecoration(
-                              color: kBrandOrange.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: kBrandOrange.withValues(alpha: 0.4)),
-                            ),
-                            child: const Text(
-                              'HD',
-                              style: TextStyle(
-                                color: kBrandOrange,
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                              ),
-                            ),
-                          ),
-                        if (channel.country != null && channel.country!.isNotEmpty)
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              channel.country!.toUpperCase(),
-                              style: const TextStyle(
-                                color: Colors.white70,
-                                fontSize: 9,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-
-                // Channel Name
-                Text(
-                  channel.name,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                // Logo rectangular estilizado
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.45),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const Spacer(),
-
-                // EPG Section (Now / Next)
-                if (epg != null && epg.now != null) ...[
-                  Row(
-                    children: [
-                      const Icon(Icons.play_circle_filled_rounded, color: kBrandOrange, size: 12),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          epg.now!.title,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                  padding: const EdgeInsets.all(4),
+                  child: channel.logo != null && channel.logo!.isNotEmpty
+                      ? CachedNetworkImage(
+                          imageUrl: channel.logo!,
+                          fit: BoxFit.contain,
+                          errorWidget: (_, __, ___) => const Icon(
+                            Icons.tv_rounded,
+                            color: Colors.white38,
+                            size: 24,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        )
+                      : const Icon(Icons.tv_rounded, color: Colors.white38, size: 24),
+                ),
+                const SizedBox(width: 14),
+
+                // Info del canal
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              channel.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (channel.isHD)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              margin: const EdgeInsets.only(left: 6),
+                              decoration: BoxDecoration(
+                                color: kBrandOrange.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: kBrandOrange.withValues(alpha: 0.4)),
+                              ),
+                              child: const Text(
+                                'HD',
+                                style: TextStyle(
+                                  color: kBrandOrange,
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          if (channel.country != null && channel.country!.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              margin: const EdgeInsets.only(left: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                channel.country!.toUpperCase(),
+                                style: const TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+
+                      // Estado en línea y programa EPG o categoría
+                      Row(
+                        children: [
+                          if (isOnline == true) ...[
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFF2ECC71),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                          ] else if (isOnline == false) ...[
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: const BoxDecoration(
+                                color: Colors.redAccent,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                          ],
+                          Expanded(
+                            child: Text(
+                              epg?.now != null
+                                  ? epg!.now!.title
+                                  : (channel.group != null && channel.group!.isNotEmpty
+                                      ? channel.group!
+                                      : 'Canal en vivo'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.55),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: epg.now!.progress,
-                      minHeight: 2.5,
-                      backgroundColor: Colors.white12,
-                      valueColor: const AlwaysStoppedAnimation<Color>(kBrandOrange),
-                    ),
+                ),
+                const SizedBox(width: 10),
+
+                // Botón play
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: kBrandOrange.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
                   ),
-                  if (epg.next != null) ...[
-                    const SizedBox(height: 4),
-                    Text(
-                      'Sig: ${epg.next!.title}',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.45),
-                        fontSize: 10,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                ] else ...[
-                  Text(
-                    channel.group ?? 'Canal en vivo',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.4),
-                      fontSize: 11,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                  child: const Icon(
+                    Icons.play_arrow_rounded,
+                    color: kBrandOrange,
+                    size: 22,
                   ),
-                ],
+                ),
               ],
             ),
           ),

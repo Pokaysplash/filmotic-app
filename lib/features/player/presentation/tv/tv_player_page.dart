@@ -1471,7 +1471,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
               }
             : headers,
       );
-      await _controller.initialize();
+      if (widget.isLive) {
+        await _controller.initialize().timeout(
+          const Duration(seconds: 7),
+          onTimeout: () {
+            throw TimeoutException('Tiempo de espera agotado al conectar con el canal.');
+          },
+        );
+      } else {
+        await _controller.initialize();
+      }
 
       if (!mounted || _isDisposing) {
         await _controller.dispose();
@@ -1500,6 +1509,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       WidgetsBinding.instance.addPostFrameCallback((_) => _claimPlayerFocus());
     } catch (e) {
       debugPrint('Error al reproducir URL TV: $e');
+      if (widget.isLive) {
+        if (!mounted || _isDisposing) return;
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'La señal en vivo no está disponible en este momento.\nEl canal podría estar fuera del aire o temporalmente inaccesible.';
+          _allServersFailed = true;
+        });
+        return;
+      }
       if (_fallbackIndex < _fallbackServers.length) {
         _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
       }

@@ -1,63 +1,63 @@
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import '../services/remote_config_service.dart';
 
 class VersionService {
   // ============================================
   // CONFIGURA AQUÍ LA VERSIÓN ACTUAL DE TU APP
-  // (la versión con la que estás trabajando ahora)
   // ============================================
   static const String currentVersionName = "1.0.1"; // version_aceptada
   static const int currentVersionCode = 11; // version_code_aceptada
 
-  // URL de tu API
-  static const String apiUrl =
-      "https://www.modlyo.com/lol/versiones.php?tipo=lol";
-
-  /// Obtiene la última versión de tipo "lol" desde la API
+  /// Obtiene la última versión configurada en RemoteConfig
   static Future<VersionInfo?> getLatestAnimeVersion() async {
     try {
-      final response = await http.get(Uri.parse(apiUrl));
-
-      if (response.statusCode == 200) {
-        final jsonData = json.decode(response.body);
-
-        if (jsonData['success'] == true &&
-            jsonData['data'] is List &&
-            (jsonData['data'] as List).isNotEmpty) {
-          // API ordena por version_code DESC → el primero es el más reciente
-          final latest = jsonData['data'][0] as Map<String, dynamic>;
-          return VersionInfo.fromJson(latest);
-        }
-      }
-      return null;
-    } catch (e) {
-      // ignore: avoid_print
-      print("Error al obtener versión: $e");
+      final appConfig = RemoteConfigService.instance.config.app;
+      return VersionInfo(
+        id: 1,
+        versionAceptada: appConfig.latestVersion,
+        versionCodeAceptada: _parseVersionCode(appConfig.latestVersion),
+        novedades: appConfig.updateMessage,
+        urlApk: appConfig.updateUrl,
+        tipo: 'filmotic',
+        fechaCreacion: DateTime.now().toIso8601String(),
+      );
+    } catch (_) {
       return null;
     }
   }
 
-  /// Verifica si se requiere actualización
-  static Future<UpdateStatus> checkForUpdate() async {
-    final latest = await getLatestAnimeVersion();
-
-    if (latest == null) {
-      return UpdateStatus(
-        requiresUpdate: false,
-        isForceUpdate: false,
-        latestVersion: null,
-        message: "No se pudo obtener información de actualización",
-      );
+  static int _parseVersionCode(String ver) {
+    final parts = ver.replaceAll(RegExp(r'[^0-9.]'), '').split('.');
+    int code = 0;
+    for (final p in parts) {
+      code = code * 100 + (int.tryParse(p) ?? 0);
     }
+    return code;
+  }
 
-    final bool needsUpdate = latest.versionCodeAceptada > currentVersionCode;
+  /// Verifica si se requiere actualización contra RemoteConfig
+  static Future<UpdateStatus> checkForUpdate() async {
+    final appConfig = RemoteConfigService.instance.config.app;
+    final latestVer = appConfig.latestVersion;
+    final isMandatory = RemoteConfigService.instance.isMandatoryUpdateRequired(currentVersionName);
+    final isOptional = RemoteConfigService.instance.isOptionalUpdateAvailable(currentVersionName);
+    final needsUpdate = isMandatory || isOptional;
+
+    final info = VersionInfo(
+      id: 1,
+      versionAceptada: latestVer,
+      versionCodeAceptada: _parseVersionCode(latestVer),
+      novedades: appConfig.updateMessage,
+      urlApk: appConfig.updateUrl,
+      tipo: 'filmotic',
+      fechaCreacion: DateTime.now().toIso8601String(),
+    );
 
     return UpdateStatus(
       requiresUpdate: needsUpdate,
-      isForceUpdate: needsUpdate,
-      latestVersion: latest,
+      isForceUpdate: isMandatory,
+      latestVersion: info,
       message: needsUpdate
-          ? "Hay una nueva versión disponible: ${latest.versionAceptada}"
+          ? "Hay una nueva versión disponible: $latestVer"
           : "Tu aplicación está actualizada",
     );
   }
