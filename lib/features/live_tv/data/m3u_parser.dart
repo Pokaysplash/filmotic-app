@@ -17,7 +17,7 @@ class M3UParser {
   static final RegExp _epgHeaderRegex = RegExp(r'x-tvg-url="([^"]+)"', caseSensitive: false);
 
   static M3UParseResult parse(String content, String sourceUrl) {
-    final channels = <LiveChannel>[];
+    final channelMap = <String, LiveChannel>{};
     String? epgUrl;
 
     final lines = content.replaceAll('\r\n', '\n').split('\n');
@@ -50,13 +50,44 @@ class M3UParser {
       if (currentExtInf != null && (line.startsWith('http://') || line.startsWith('https://'))) {
         final channel = _buildChannel(currentExtInf, line, sourceUrl);
         if (channel != null) {
-          channels.add(channel);
+          final groupKey = _normalizeChannelKey(channel.id, channel.name, channel.country);
+          if (channelMap.containsKey(groupKey)) {
+            final existing = channelMap[groupKey]!;
+            final alts = List<String>.from(existing.alternateUrls);
+            if (line != existing.streamUrl && !alts.contains(line)) {
+              alts.add(line);
+            }
+            channelMap[groupKey] = existing.copyWith(
+              alternateUrls: alts,
+              isHD: existing.isHD || channel.isHD,
+              logo: existing.logo ?? channel.logo,
+            );
+          } else {
+            channelMap[groupKey] = channel;
+          }
         }
         currentExtInf = null;
       }
     }
 
-    return M3UParseResult(channels: channels, epgUrl: epgUrl);
+    return M3UParseResult(channels: channelMap.values.toList(), epgUrl: epgUrl);
+  }
+
+  static String _normalizeChannelKey(String tvgId, String name, String? country) {
+    if (tvgId.isNotEmpty && tvgId.contains('@')) {
+      final base = tvgId.split('@').first.toLowerCase();
+      if (base.isNotEmpty) return base;
+    }
+    if (tvgId.isNotEmpty && !tvgId.contains(':')) {
+      return tvgId.toLowerCase();
+    }
+    final clean = name
+        .toLowerCase()
+        .replaceAll(RegExp(r'\([^)]*\)'), '')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), '')
+        .replaceAll(RegExp(r'\b(1080p|720p|576p|480p|360p|hd|fhd|sd|4k)\b'), '')
+        .trim();
+    return '${clean}_${(country ?? '').toLowerCase()}';
   }
 
   static LiveChannel? _buildChannel(String extInf, String streamUrl, String sourceUrl) {

@@ -36,28 +36,56 @@ class LiveTvService {
             group: group,
           );
           if (cached.isNotEmpty) {
-            return _sortChannels(cached.map((m) => LiveChannel.fromMap(m)).toList());
+            final list = cached.map((m) => LiveChannel.fromMap(m)).toList();
+            final enriched = _enrichWithVerifiedSources(list, country);
+            return _sortChannels(enriched);
           }
         }
       }
     }
 
-    // 2. Descargar lista de iptv-org
+    // 2. Descargar lista de iptv-org y fuentes alternativas
     final url = _buildDownloadUrl(country: country, language: language, group: group);
     try {
-      final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 12));
-      if (res.statusCode == 200) {
-        final body = utf8.decode(res.bodyBytes);
+      final futures = <Future<http.Response>>[
+        http.get(Uri.parse(url)).timeout(const Duration(seconds: 12)),
+      ];
+      final isCountry = country != null && country.isNotEmpty && country != 'ALL';
+      final streamsUrl = isCountry
+          ? 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/${country.toLowerCase()}.m3u'
+          : null;
+      if (streamsUrl != null) {
+        futures.add(http.get(Uri.parse(streamsUrl)).timeout(const Duration(seconds: 10)));
+      }
+
+      final responses = await Future.wait(futures);
+      final mainRes = responses[0];
+      if (mainRes.statusCode == 200) {
+        final body = utf8.decode(mainRes.bodyBytes);
         final parseResult = M3UParser.parse(body, url);
         if (parseResult.epgUrl != null && parseResult.epgUrl!.isNotEmpty) {
           lastEpgUrl = parseResult.epgUrl;
         }
 
-        if (parseResult.channels.isNotEmpty) {
+        var channels = parseResult.channels;
+
+        // Si descargamos la lista de streams completa, combinar fuentes alternativas
+        if (responses.length > 1 && responses[1].statusCode == 200) {
+          try {
+            final streamsBody = utf8.decode(responses[1].bodyBytes);
+            final streamsResult = M3UParser.parse(streamsBody, streamsUrl!);
+            channels = _mergeAlternateStreams(channels, streamsResult.channels);
+          } catch (_) {}
+        }
+
+        // Enriquecer con verified_sources configuradas remotamente (RCN, Caracol, etc.)
+        channels = _enrichWithVerifiedSources(channels, country);
+
+        if (channels.isNotEmpty) {
           // Guardar en caché Sembast
-          final maps = parseResult.channels.map((c) => c.toMap()).toList();
+          final maps = channels.map((c) => c.toMap()).toList();
           await AppDatabase.instance.saveLiveChannels(listKey, maps);
-          return _sortChannels(parseResult.channels);
+          return _sortChannels(channels);
         }
       }
     } catch (e) {
@@ -71,7 +99,8 @@ class LiveTvService {
       group: group,
     );
     if (fallbackCached.isNotEmpty) {
-      return _sortChannels(fallbackCached.map((m) => LiveChannel.fromMap(m)).toList());
+      final list = fallbackCached.map((m) => LiveChannel.fromMap(m)).toList();
+      return _sortChannels(_enrichWithVerifiedSources(list, country));
     }
 
     return [];
@@ -176,6 +205,108 @@ class LiveTvService {
       }));
       onProgress();
     }
+  }
+
+  /// Enriquecer canales existentes con fuentes verificadas y canales de alta disponibilidad
+  List<LiveChannel> _enrichWithVerifiedSources(List<LiveChannel> channels, String? country) {
+    final verifiedList = RemoteConfigService.instance.config.liveTv.verifiedSources;
+    if (verifiedList.isEmpty) return channels;
+
+    final updated = List<LiveChannel>.from(channels);
+
+    for (final v in verifiedList) {
+      final vName = (v['name'] ?? '').toString();
+      final vCountry = (v['country'] ?? '').toString().toUpperCase();
+      if (country != null && country.isNotEmpty && country != 'ALL' && vCountry.isNotEmpty) {
+        if (country.toUpperCase() != vCountry) continue;
+      }
+
+      final rawStreams = (v['streams'] as List?)
+              ?.map((e) => e.toString().trim())
+              .where((s) => s.isNotEmpty)
+              .toList() ??
+          [];
+      if (rawStreams.isEmpty) continue;
+
+      final aliases = (v['aliases'] as List?)
+              ?.map((e) => e.toString().toLowerCase().trim())
+              .toList() ??
+          [vName.toLowerCase()];
+      if (!aliases.contains(vName.toLowerCase())) aliases.add(vName.toLowerCase());
+
+      final matchIndex = updated.indexWhere((ch) {
+        final chLower = ch.name.toLowerCase();
+        final chId = ch.id.toLowerCase();
+        return aliases.any((a) =>
+            chLower == a ||
+            chLower.startsWith('$a ') ||
+            chLower.startsWith('$a(') ||
+            chLower.contains(a) ||
+            chId.contains(a));
+      });
+
+      if (matchIndex != -1) {
+        final existing = updated[matchIndex];
+        final combined = <String>[];
+        for (final s in rawStreams) {
+          if (!combined.contains(s)) combined.add(s);
+        }
+        for (final s in existing.allStreamUrls) {
+          if (!combined.contains(s)) combined.add(s);
+        }
+
+        updated[matchIndex] = existing.copyWith(
+          name: vName,
+          logo: existing.logo ?? v['logo']?.toString(),
+          streamUrl: combined.first,
+          alternateUrls: combined.length > 1 ? combined.sublist(1) : [],
+          isHD: true,
+        );
+      } else {
+        final newChannel = LiveChannel(
+          id: 'verified_${vName.replaceAll(' ', '_').toLowerCase()}',
+          name: vName,
+          logo: v['logo']?.toString(),
+          group: v['group']?.toString() ?? 'General',
+          country: vCountry.isNotEmpty ? vCountry : 'CO',
+          language: 'spa',
+          streamUrl: rawStreams.first,
+          alternateUrls: rawStreams.length > 1 ? rawStreams.sublist(1) : [],
+          sourceList: 'verified_sources',
+          isHD: true,
+        );
+        updated.insert(0, newChannel);
+      }
+    }
+
+    return updated;
+  }
+
+  /// Combina streams alternativos descargados de la lista general
+  List<LiveChannel> _mergeAlternateStreams(List<LiveChannel> base, List<LiveChannel> extras) {
+    final map = <String, LiveChannel>{};
+    for (final c in base) {
+      final key = c.name.toLowerCase().replaceAll(RegExp(r'\([^)]*\)'), '').trim();
+      map[key] = c;
+    }
+
+    for (final extra in extras) {
+      final key = extra.name.toLowerCase().replaceAll(RegExp(r'\([^)]*\)'), '').trim();
+      if (map.containsKey(key)) {
+        final existing = map[key]!;
+        final combined = List<String>.from(existing.alternateUrls);
+        for (final u in extra.allStreamUrls) {
+          if (u != existing.streamUrl && !combined.contains(u)) {
+            combined.add(u);
+          }
+        }
+        map[key] = existing.copyWith(
+          alternateUrls: combined,
+          isHD: existing.isHD || extra.isHD,
+        );
+      }
+    }
+    return map.values.toList();
   }
 
   List<LiveChannel> _sortChannels(List<LiveChannel> channels) {

@@ -162,18 +162,34 @@ class PlayerScreen extends StatefulWidget {
     this.fuentesServidor,
     this.isLive = false,
     this.liveLogo,
+    this.liveStreams,
   });
 
+  final List<String>? liveStreams;
+
   static void openLiveChannel(BuildContext context, dynamic channel) {
+    List<String> streams = [];
+    try {
+      streams = List<String>.from(channel.allStreamUrls);
+    } catch (_) {
+      try {
+        streams = [channel.streamUrl?.toString() ?? ''];
+      } catch (_) {}
+    }
+    if (streams.isEmpty && channel.streamUrl != null) {
+      streams = [channel.streamUrl.toString()];
+    }
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
-          videoUrl: channel.streamUrl,
+          videoUrl: streams.isNotEmpty ? streams.first : (channel.streamUrl ?? ''),
           idcontenido: channel.id.hashCode,
           tipo: 'live',
           titulo: channel.name,
           isLive: true,
           liveLogo: channel.logo,
+          liveStreams: streams,
         ),
       ),
     );
@@ -192,6 +208,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Map<String, String> _activeHeaders = {};
   List<Map<String, dynamic>> _fallbackServers = [];
   int _fallbackIndex = 0;
+  int _currentLiveIndex = 0;
   bool _isResolving = false;
   bool _allServersFailed = false;
   bool _preloadTriggered = false;
@@ -1376,9 +1393,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _allServersFailed = false;
 
     try {
-      String? url = widget.videoUrl.trim().isNotEmpty
-          ? widget.videoUrl.trim()
+      final liveList = (widget.isLive && widget.liveStreams != null && widget.liveStreams!.isNotEmpty)
+          ? widget.liveStreams!
           : null;
+      String? url = (liveList != null && _currentLiveIndex < liveList.length)
+          ? liveList[_currentLiveIndex].trim()
+          : (widget.videoUrl.trim().isNotEmpty ? widget.videoUrl.trim() : null);
       Map<String, String> headers = {};
 
       if (url == null || url.isEmpty) {
@@ -1510,10 +1530,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } catch (e) {
       debugPrint('Error al reproducir URL TV: $e');
       if (widget.isLive) {
+        final streams = widget.liveStreams ?? [widget.videoUrl];
+        if (_currentLiveIndex + 1 < streams.length) {
+          _currentLiveIndex++;
+          final nextStream = streams[_currentLiveIndex];
+          debugPrint('[Live TV] Señal falló, probando alternativa ${_currentLiveIndex + 1}/${streams.length}: $nextStream');
+          await _startControllerWithUrl(nextStream, headers);
+          return;
+        }
+
         if (!mounted || _isDisposing) return;
         setState(() {
           _isLoading = false;
-          _errorMessage = 'La señal en vivo no está disponible en este momento.\nEl canal podría estar fuera del aire o temporalmente inaccesible.';
+          _errorMessage = streams.length > 1
+              ? 'No se pudo conectar a ninguna de las ${streams.length} señales disponibles para este canal.\nEl canal podría estar fuera del aire.'
+              : 'La señal en vivo no está disponible en este momento.\nEl canal podría estar fuera del aire o temporalmente inaccesible.';
           _allServersFailed = true;
         });
         return;

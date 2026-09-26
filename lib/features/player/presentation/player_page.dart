@@ -59,18 +59,34 @@ class PlayerScreen extends StatefulWidget {
     this.headers,
     this.isLive = false,
     this.liveLogo,
+    this.liveStreams,
   });
 
+  final List<String>? liveStreams;
+
   static void openLiveChannel(BuildContext context, dynamic channel) {
+    List<String> streams = [];
+    try {
+      streams = List<String>.from(channel.allStreamUrls);
+    } catch (_) {
+      try {
+        streams = [channel.streamUrl?.toString() ?? ''];
+      } catch (_) {}
+    }
+    if (streams.isEmpty && channel.streamUrl != null) {
+      streams = [channel.streamUrl.toString()];
+    }
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
-          videoUrl: channel.streamUrl,
+          videoUrl: streams.isNotEmpty ? streams.first : (channel.streamUrl ?? ''),
           idcontenido: channel.id.hashCode,
           tipo: 'live',
           titulo: channel.name,
           isLive: true,
           liveLogo: channel.logo,
+          liveStreams: streams,
         ),
       ),
     );
@@ -107,6 +123,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isDragging = false;
   bool _isDisposing = false;
   bool _controllerReady = false;
+  int _currentLiveIndex = 0;
 
   List<_SubtitleCue> _subtitleCues = const [];
   String _currentSubtitleText = '';
@@ -636,11 +653,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (widget.headers != null) ...widget.headers!,
       };
 
-      // ─── 1) URL ya pasada (p.ej. m3u8 desde ServidoresModal) ───────────
-      final passed = widget.videoUrl.trim();
+      // ─── 1) URL ya pasada (p.ej. m3u8 desde ServidoresModal o TV en Vivo) ───────────
+      final liveList = (widget.isLive && widget.liveStreams != null && widget.liveStreams!.isNotEmpty)
+          ? widget.liveStreams!
+          : null;
+      final passed = (liveList != null && _currentLiveIndex < liveList.length)
+          ? liveList[_currentLiveIndex].trim()
+          : widget.videoUrl.trim();
       if (passed.isNotEmpty && _isDirectStreamUrl(passed)) {
         // Directo al reproductor: NO resolvePlayable, NO getServers
-        debugPrint('Player: m3u8/directo recibido → play inmediato');
+        debugPrint('Player: m3u8/directo recibido → play inmediato ($passed)');
         _activeUrl = passed;
         _activeHeaders = headers;
         _fallbackServers = [];
@@ -795,10 +817,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } catch (e) {
       debugPrint('Error al reproducir URL: $e');
       if (widget.isLive) {
+        final streams = widget.liveStreams ?? [widget.videoUrl];
+        if (_currentLiveIndex + 1 < streams.length) {
+          _currentLiveIndex++;
+          final nextStream = streams[_currentLiveIndex];
+          debugPrint('[Live] Señal previa falló. Conectando a opción ${_currentLiveIndex + 1}/${streams.length}: $nextStream');
+          if (mounted && !_isDisposing) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Señal no disponible. Probando señal alternativa (${_currentLiveIndex + 1}/${streams.length})...'),
+                duration: const Duration(seconds: 2),
+                backgroundColor: accentOrange,
+              ),
+            );
+            await _startControllerWithUrl(nextStream, headers);
+          }
+          return;
+        }
+
         if (!mounted || _isDisposing) return;
         setState(() {
           _isLoading = false;
-          _errorMessage = 'La señal en vivo no está disponible en este momento.\nEl canal podría estar fuera del aire o temporalmente inaccesible.';
+          _errorMessage = streams.length > 1
+              ? 'No se pudo conectar a ninguna de las ${streams.length} señales disponibles para este canal.\nEl canal podría estar fuera del aire.'
+              : 'La señal en vivo no está disponible en este momento.\nEl canal podría estar fuera del aire o temporalmente inaccesible.';
           _allServersFailed = true;
         });
         return;
@@ -1855,6 +1897,100 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
+  void _showLiveStreamSelector() {
+    final streams = widget.liveStreams ?? [widget.videoUrl];
+    if (streams.length <= 1) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF151520),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.settings_input_antenna_rounded, color: accentOrange, size: 22),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Señales de ${widget.titulo} (${streams.length})',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: streams.length,
+                  separatorBuilder: (_, __) => const Divider(color: Colors.white12, height: 1),
+                  itemBuilder: (_, idx) {
+                    final isSelected = idx == _currentLiveIndex;
+                    return ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? accentOrange.withValues(alpha: 0.2)
+                              : Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          isSelected ? Icons.play_circle_fill_rounded : Icons.radio_button_unchecked_rounded,
+                          color: isSelected ? accentOrange : Colors.white54,
+                          size: 22,
+                        ),
+                      ),
+                      title: Text(
+                        'Señal ${idx + 1} ${idx == 0 ? "(Principal / CDN)" : "(Alternativa)"}',
+                        style: TextStyle(
+                          color: isSelected ? accentOrange : Colors.white,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                        ),
+                      ),
+                      subtitle: Text(
+                        streams[idx],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                      ),
+                      trailing: isSelected
+                          ? const Icon(Icons.check_circle_rounded, color: accentOrange, size: 20)
+                          : null,
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        if (idx != _currentLiveIndex) {
+                          setState(() {
+                            _currentLiveIndex = idx;
+                            _isLoading = true;
+                            _errorMessage = '';
+                            _allServersFailed = false;
+                          });
+                          _startControllerWithUrl(streams[idx], _activeHeaders);
+                        }
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2027,24 +2163,58 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
             const SizedBox(height: 20),
             if (widget.isLive) ...[
-              ElevatedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _isLoading = true;
-                    _errorMessage = '';
-                    _allServersFailed = false;
-                  });
-                  _initializePlayer();
-                },
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Reintentar canal'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: accentOrange,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              if ((widget.liveStreams?.length ?? 0) > 1) ...[
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: List.generate(widget.liveStreams!.length, (idx) {
+                    final isCurrent = idx == _currentLiveIndex;
+                    return ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          _currentLiveIndex = idx;
+                          _isLoading = true;
+                          _errorMessage = '';
+                          _allServersFailed = false;
+                        });
+                        _startControllerWithUrl(widget.liveStreams![idx], _activeHeaders);
+                      },
+                      icon: Icon(
+                        Icons.settings_input_antenna_rounded,
+                        size: 16,
+                        color: isCurrent ? Colors.white : accentOrange,
+                      ),
+                      label: Text('Probar Señal ${idx + 1}'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isCurrent ? accentOrange : Colors.white12,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      ),
+                    );
+                  }),
                 ),
-              ),
-              const SizedBox(height: 10),
+                const SizedBox(height: 12),
+              ] else ...[
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _isLoading = true;
+                      _errorMessage = '';
+                      _allServersFailed = false;
+                    });
+                    _initializePlayer();
+                  },
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Reintentar canal'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: accentOrange,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
                 child: const Text('Volver a la lista de canales', style: TextStyle(color: Colors.white70)),
@@ -2173,6 +2343,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ],
                       ),
                     ),
+                    if ((widget.liveStreams?.length ?? 0) > 1) ...[
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: _showLiveStreamSelector,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: accentOrange.withValues(alpha: 0.5)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.settings_input_antenna_rounded, color: accentOrange, size: 14),
+                              const SizedBox(width: 5),
+                              Text(
+                                'Señal ${_currentLiveIndex + 1}/${widget.liveStreams!.length}',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ] else ...[
                     IconButton(
                       onPressed: _showExitConfirmation,

@@ -66,6 +66,7 @@ class FilmoticLiveTvConfig {
   final String defaultLanguage;
   final List<String> categories;
   final List<String> featuredChannels;
+  final List<Map<String, dynamic>> verifiedSources;
   final bool epgEnabled;
   final int epgRefreshHours;
   final int epgWindowHours;
@@ -76,6 +77,7 @@ class FilmoticLiveTvConfig {
     required this.defaultLanguage,
     required this.categories,
     required this.featuredChannels,
+    this.verifiedSources = const [],
     required this.epgEnabled,
     required this.epgRefreshHours,
     required this.epgWindowHours,
@@ -89,8 +91,11 @@ class FilmoticLiveTvConfig {
     final featured = m['featured_channels'] is List
         ? (m['featured_channels'] as List).map((e) => e.toString()).toList()
         : <String>[
+            'Disney Channel',
             'Caracol TV',
             'RCN',
+            'Canal 1',
+            'Cablenoticias',
             'NTN24',
             'DW Español',
             'France 24 Español',
@@ -98,6 +103,12 @@ class FilmoticLiveTvConfig {
             'Red Bull TV',
             'NASA TV'
           ];
+    final verified = m['verified_sources'] is List
+        ? (m['verified_sources'] as List)
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList()
+        : defaults.verifiedSources;
 
     return FilmoticLiveTvConfig(
       enabled: m['enabled'] != false,
@@ -105,6 +116,7 @@ class FilmoticLiveTvConfig {
       defaultLanguage: (m['default_language'] ?? 'spa').toString().toLowerCase(),
       categories: cats,
       featuredChannels: featured,
+      verifiedSources: verified,
       epgEnabled: m['epg_enabled'] != false,
       epgRefreshHours: (m['epg_refresh_hours'] is int) ? m['epg_refresh_hours'] : 6,
       epgWindowHours: (m['epg_window_hours'] is int) ? m['epg_window_hours'] : 48,
@@ -117,6 +129,7 @@ class FilmoticLiveTvConfig {
         'default_language': defaultLanguage,
         'categories': categories,
         'featured_channels': featuredChannels,
+        'verified_sources': verifiedSources,
         'epg_enabled': epgEnabled,
         'epg_refresh_hours': epgRefreshHours,
         'epg_window_hours': epgWindowHours,
@@ -128,14 +141,64 @@ class FilmoticLiveTvConfig {
         defaultLanguage: 'spa',
         categories: ['sports', 'news', 'kids', 'movies', 'documentary', 'music'],
         featuredChannels: [
+          'Disney Channel',
           'Caracol TV',
           'RCN',
+          'Canal 1',
+          'Cablenoticias',
           'NTN24',
           'DW Español',
           'France 24 Español',
           'Bloomberg TV',
           'Red Bull TV',
           'NASA TV'
+        ],
+        verifiedSources: [
+          {
+            'name': 'Canal RCN',
+            'aliases': ['rcn', 'canal rcn', 'canalrcn'],
+            'logo': 'https://i.imgur.com/5PhTaHp.png',
+            'group': 'General',
+            'country': 'CO',
+            'streams': [
+              'https://rcntv-rcnmas-1-us.roku.wurl.tv/playlist.m3u8',
+              'http://181.78.17.228:8081/RCN-HD/index.m3u8',
+              'http://138.121.15.230:9002/RCN/index.m3u8',
+            ],
+          },
+          {
+            'name': 'Caracol TV',
+            'aliases': ['caracol', 'caracol tv', 'caracoltv'],
+            'logo': 'https://i.imgur.com/4q2T2n6.png',
+            'group': 'General',
+            'country': 'CO',
+            'streams': [
+              'http://181.78.17.228:8081/CARACOL-HD/index.m3u8',
+              'http://181.79.86.130:8000/play/a077/index.m3u8',
+              'http://138.121.15.230:9002/CARACOL/index.m3u8',
+            ],
+          },
+          {
+            'name': 'Noticias RCN',
+            'aliases': ['noticias rcn', 'rcn noticias'],
+            'logo': 'https://i.imgur.com/FMX4QCM.png',
+            'group': 'News',
+            'country': 'CO',
+            'streams': [
+              'https://jmp2.uk/plu-67d9b0ebc290c9499046e88f.m3u8',
+            ],
+          },
+          {
+            'name': 'Cablenoticias',
+            'aliases': ['cablenoticias', 'cable noticias'],
+            'logo': 'https://i.imgur.com/sWjXjU6.png',
+            'group': 'News',
+            'country': 'CO',
+            'streams': [
+              'http://181.78.17.228:8081/CABLENOTICIAS-HD/index.m3u8',
+              'https://play.cdn.enetres.net/621B146D29C541AFB1507809F038F471021/021/playlist.m3u8',
+            ],
+          },
         ],
         epgEnabled: true,
         epgRefreshHours: 6,

@@ -478,6 +478,24 @@ class _LiveTvPageState extends State<LiveTvPage> {
                                 ),
                               ),
                             ),
+                          if (channel.allStreamUrls.length > 1)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                              margin: const EdgeInsets.only(left: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E88E5).withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: const Color(0xFF1E88E5).withValues(alpha: 0.4)),
+                              ),
+                              child: Text(
+                                '${channel.allStreamUrls.length} SEÑALES',
+                                style: const TextStyle(
+                                  color: Color(0xFF64B5F6),
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
                           if (channel.country != null && channel.country!.isNotEmpty)
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
