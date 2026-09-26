@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'core/services/remote_config_service.dart';
 import 'presentation/mobile/mobile_shell.dart' as mobile;
@@ -10,6 +9,7 @@ import 'presentation/tv/tv_shell.dart' as tv;
 import 'features/downloads/presentation/notification_helper.dart';
 import 'features/profile/presentation/profile_selection_page.dart';
 import 'presentation/shared/widgets/filmotic_splash_loader.dart';
+import 'presentation/shared/widgets/filmotic_update_dialog.dart';
 import 'core/storage/app_database.dart';
 
 // Cast: botones de la notificación (play/pause/seek)
@@ -160,112 +160,21 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   void _showBlockingUpdateDialog(FilmoticAppInfo appInfo) {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          backgroundColor: const Color(0xFF1C1C1E),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.system_update_rounded, color: Color(0xFFFF6B35)),
-              SizedBox(width: 10),
-              Text(
-                'Actualización requerida',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-            ],
-          ),
-          content: Text(
-            '${appInfo.updateMessage}\n\nSe requiere la versión ${appInfo.minVersion} o superior para continuar usando Filmotic.',
-            style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFFF6B35),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-              onPressed: () {
-                launchUrl(
-                  Uri.parse(appInfo.updateUrl),
-                  mode: LaunchMode.externalApplication,
-                );
-              },
-              child: const Text('Descargar Actualización'),
-            ),
-          ],
-        ),
-      ),
+    FilmoticUpdateDialog.show(
+      context,
+      appInfo: appInfo,
+      isMandatory: true,
     );
   }
 
   Future<void> _showOptionalUpdateDialog(FilmoticAppInfo appInfo) async {
-    await showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1C1C1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Row(
-          children: [
-            const Icon(Icons.new_releases_rounded, color: Color(0xFFFF6B35)),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Nueva versión disponible (${appInfo.latestVersion})',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 17,
-                ),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          appInfo.updateMessage,
-          style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () async {
-              await RemoteConfigService.instance.setDismissedVersion(appInfo.latestVersion);
-              if (ctx.mounted) Navigator.of(ctx).pop();
-            },
-            child: const Text(
-              'Más tarde',
-              style: TextStyle(color: Colors.white60),
-            ),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF6B35),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            onPressed: () {
-              launchUrl(
-                Uri.parse(appInfo.updateUrl),
-                mode: LaunchMode.externalApplication,
-              );
-              if (ctx.mounted) Navigator.of(ctx).pop();
-            },
-            child: const Text('Actualizar'),
-          ),
-        ],
-      ),
+    await FilmoticUpdateDialog.show(
+      context,
+      appInfo: appInfo,
+      isMandatory: false,
+      onDismissed: () {
+        RemoteConfigService.instance.setDismissedVersion(appInfo.latestVersion);
+      },
     );
   }
 

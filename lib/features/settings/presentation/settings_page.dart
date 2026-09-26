@@ -660,7 +660,7 @@ class _ConfigPageState extends State<ConfigPage> {
 
     try {
       final dir = await getTemporaryDirectory();
-      final filePath = '${dir.path}/lol_update.apk';
+      final filePath = '${dir.path}/filmotic_update.apk';
       final file = File(filePath);
       if (await file.exists()) await file.delete();
 
