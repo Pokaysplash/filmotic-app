@@ -1122,69 +1122,6 @@ class _ConfigPageState extends State<ConfigPage> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  _buildSectionCard(
-                    title: 'Reproducción e Idioma',
-                    subtitle:
-                        'Calidad de reproducción, servidores e idioma predeterminado',
-                    icon: Icons.play_circle_fill_rounded,
-                    accent: const Color(0xFFFF6B35),
-                    onTap: () => _openSection(
-                      title: 'Reproducción e Idioma',
-                      icon: Icons.play_circle_fill_rounded,
-                      accent: const Color(0xFFFF6B35),
-                      builder: (refresh) => FuentesSection(
-                        verificarServidores: _verificarServidores,
-                        unServidorPorIdioma: _unServidorPorIdioma,
-                        mostrarServidoresEnPlayer: _mostrarServidoresEnPlayer,
-                        idiomaPredEnabled: _idiomaPredEnabled,
-                        idiomaPred: _idiomaPred,
-                        seleccionFuente: _seleccionFuente,
-                        reutilizarUltimoEnlace: _reutilizarUltimoEnlace,
-                        sourceEnabled: _sourceEnabled,
-                        sourceLoading: _sourceLoading,
-                        fuentesActivas: _fuentesActivas,
-                        onVerificarChanged: (v) {
-                          _setVerificarServidores(v).then((_) => refresh());
-                        },
-                        onUnServidorChanged: (v) {
-                          _setUnServidorPorIdioma(v).then((_) => refresh());
-                        },
-                        onMostrarServidoresEnPlayerChanged: (v) {
-                          _setMostrarServidoresEnPlayer(v)
-                              .then((_) => refresh());
-                        },
-                        onIdiomaPredEnabledChanged: (v) {
-                          _setIdiomaPredEnabled(v).then((_) => refresh());
-                        },
-                        onIdiomaPredChanged: (v) {
-                          _setIdiomaPred(v).then((_) => refresh());
-                        },
-                        onSeleccionFuenteChanged: (v) {
-                          _setSeleccionFuente(v).then((_) => refresh());
-                        },
-                        onReutilizarChanged: (v) {
-                          _setReutilizarUltimoEnlace(v).then((_) => refresh());
-                        },
-                        onSourceChanged: (source, v) {
-                          _setSourceEnabled(source, v).then((_) => refresh());
-                        },
-                        showConfirmDialog: (
-                          title,
-                          body, {
-                          confirmLabel = 'Activar',
-                          accent = kAccentColor,
-                        }) {
-                          return _confirmDialog(
-                            title: title,
-                            body: body,
-                            confirmLabel: confirmLabel,
-                            accent: accent,
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
                   _buildVersionCard(),
                 ],
               ),

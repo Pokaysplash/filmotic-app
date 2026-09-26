@@ -220,152 +220,19 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
   Future<void> _onTapDownload() async {
     if (_downloading) return;
 
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      backgroundColor: const Color(0xFF1C1C1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      builder: (ctx) {
-        final options = <Map<String, String>>[
-          {
-            'id': 'arm64',
-            'title': 'ARM64 (arm64-v8a)',
-            'subtitle': 'Mayoría de móviles modernos',
-          },
-          {
-            'id': 'armeabi',
-            'title': 'ARMv7 (armeabi-v7a)',
-            'subtitle': 'Móviles más antiguos',
-          },
-          {
-            'id': 'x86',
-            'title': 'x86 / x86_64',
-            'subtitle': 'Emuladores y algunos tablets',
-          },
-          {
-            'id': 'universal',
-            'title': 'Universal (todas)',
-            'subtitle': 'Más pesada · compatible con todo',
-          },
-        ];
+    final url = _urlForAbi('arm64') ??
+        _urlForAbi('universal') ??
+        _downloadUrl ??
+        _urlArm64 ??
+        _urlUniversal ??
+        '';
 
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 14),
-                    decoration: BoxDecoration(
-                      color: Colors.white24,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const Text(
-                  'Elige arquitectura del APK',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  _preferredAbi != null
-                      ? 'Última usada: ${_labelAbi(_preferredAbi!)}'
-                      : 'Se recordará tu elección',
-                  style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.55),
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ...options.map((o) {
-                  final id = o['id']!;
-                  final hasUrl = _urlForAbi(id) != null;
-                  final isPreferred = _preferredAbi == id;
-                  return ListTile(
-                    enabled: hasUrl,
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(
-                      isPreferred
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_off,
-                      color: isPreferred
-                          ? _kAccentColor
-                          : (hasUrl ? Colors.white54 : Colors.white24),
-                    ),
-                    title: Text(
-                      o['title']!,
-                      style: TextStyle(
-                        color: hasUrl ? Colors.white : Colors.white38,
-                        fontWeight:
-                            isPreferred ? FontWeight.w700 : FontWeight.w500,
-                      ),
-                    ),
-                    subtitle: Text(
-                      hasUrl
-                          ? o['subtitle']!
-                          : 'No disponible en esta versión',
-                      style: TextStyle(
-                        color: hasUrl
-                            ? Colors.white.withValues(alpha: 0.5)
-                            : Colors.white24,
-                        fontSize: 12,
-                      ),
-                    ),
-                    trailing: isPreferred
-                        ? Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: _kAccentColor.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Text(
-                              'Anterior',
-                              style: TextStyle(
-                                color: _kAccentColor,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          )
-                        : null,
-                    onTap: hasUrl ? () => Navigator.pop(ctx, id) : null,
-                  );
-                }),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-
-    if (selected == null || !mounted) return;
-
-    final url = _urlForAbi(selected);
-    if (url == null || url.isEmpty) {
-      setState(
-        () => _downloadError = 'URL no disponible para esa arquitectura',
-      );
+    if (url.isEmpty) {
+      setState(() => _downloadError = 'No hay enlace de descarga disponible');
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefAbiKey, selected);
-
     setState(() {
-      _preferredAbi = selected;
       _downloadUrl = url;
       _downloadError = null;
     });
@@ -832,17 +699,6 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
                               fontSize: 12,
                             ),
                           ),
-                          if (_preferredAbi != null) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              'APK: ${_labelAbi(_preferredAbi!)}',
-                              style: TextStyle(
-                                color: _kAccentColor.withValues(alpha: 0.9),
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     ),

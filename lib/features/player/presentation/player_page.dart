@@ -2318,8 +2318,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     _openSubtitlesModal,
                   ),
                   _actionIcon(
-                    Icons.dns_rounded,
-                    'Servidores',
+                    Icons.translate_rounded,
+                    'Idiomas',
                     () => _openServersModal(),
                   ),
                   _actionIcon(

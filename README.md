@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="LolPlusTV Logo" width="180"/>
+<img src="assets/logo.png" alt="Filmotic Logo" width="180"/>
 
-# LolPlusTV
+# Filmotic
 
-### Películas y series en un solo lugar
+### Películas, series y anime en un solo lugar
 
 Aplicación multiplataforma desarrollada con **Flutter** para dispositivos móviles y **Android TV**, con catálogo basado en TMDB, múltiples fuentes, addons y reproductor integrado.
 

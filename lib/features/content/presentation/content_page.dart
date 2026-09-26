@@ -1667,6 +1667,15 @@ class _PageContenidoState extends State<PageContenido>
                       ),
                     ),
                   ],
+
+                  // ── Publicidad Banner No Intrusiva (320x50) ──
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    child: Center(
+                      child: AdService.instance.buildBanner(context),
+                    ),
+                  ),
+
                   if (videos.isNotEmpty) ...[
                     const SizedBox(height: 28),
                     const Text(

@@ -313,19 +313,23 @@ class _PlaybackSetupDialogState extends State<_PlaybackSetupDialog> {
                 ),
               ),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (icon != null) ...[
                     Icon(icon, size: 18, color: Colors.white),
                     const SizedBox(width: 8),
                   ],
-                  Text(
-                    label,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight:
-                          selected ? FontWeight.w700 : FontWeight.w500,
-                      fontSize: 14,
+                  Flexible(
+                    child: Text(
+                      label,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight:
+                            selected ? FontWeight.w700 : FontWeight.w500,
+                        fontSize: 14,
+                      ),
                     ),
                   ),
                 ],
@@ -341,6 +345,7 @@ class _PlaybackSetupDialogState extends State<_PlaybackSetupDialog> {
   Widget build(BuildContext context) {
     final sources = kRegisteredSources;
     final isManual = _modo == 'manual';
+    final isMobile = MediaQuery.sizeOf(context).width < 500;
 
     return PopScope(
       canPop: false,
@@ -349,12 +354,15 @@ class _PlaybackSetupDialogState extends State<_PlaybackSetupDialog> {
       },
       child: Dialog(
         backgroundColor: const Color(0xFF141418),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 48, vertical: 32),
+        insetPadding: EdgeInsets.symmetric(
+          horizontal: isMobile ? 20 : 48,
+          vertical: 24,
+        ),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 520),
+          constraints: const BoxConstraints(maxWidth: 560, maxHeight: 540),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+            padding: EdgeInsets.fromLTRB(isMobile ? 18 : 24, 22, isMobile ? 18 : 24, 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -378,11 +386,11 @@ class _PlaybackSetupDialogState extends State<_PlaybackSetupDialog> {
                 Expanded(
                   child: Scrollbar(
                     controller: _scroll,
-                    thumbVisibility: true,
+                    thumbVisibility: false,
                     child: SingleChildScrollView(
                       key: _scrollViewKey,
                       controller: _scroll,
-                      padding: const EdgeInsets.only(right: 8),
+                      padding: const EdgeInsets.only(right: 4),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -398,26 +406,30 @@ class _PlaybackSetupDialogState extends State<_PlaybackSetupDialog> {
                           const SizedBox(height: 8),
                           Row(
                             children: [
-                              _chip(
-                                anchorKey: _modoAutoKey,
-                                node: _modoAuto,
-                                selected: _modo == 'auto',
-                                label: 'Automático',
-                                icon: Icons.bolt_rounded,
-                                onTap: () => setState(() => _modo = 'auto'),
-                                onDown: () => _lat.requestFocus(),
-                                onRight: () => _modoManual.requestFocus(),
+                              Expanded(
+                                child: _chip(
+                                  anchorKey: _modoAutoKey,
+                                  node: _modoAuto,
+                                  selected: _modo == 'auto',
+                                  label: 'Automático',
+                                  icon: Icons.bolt_rounded,
+                                  onTap: () => setState(() => _modo = 'auto'),
+                                  onDown: () => _lat.requestFocus(),
+                                  onRight: () => _modoManual.requestFocus(),
+                                ),
                               ),
                               const SizedBox(width: 10),
-                              _chip(
-                                anchorKey: _modoManualKey,
-                                node: _modoManual,
-                                selected: _modo == 'manual',
-                                label: 'Manual',
-                                icon: Icons.list_alt_rounded,
-                                onTap: () => setState(() => _modo = 'manual'),
-                                onDown: () => _cas.requestFocus(),
-                                onLeft: () => _modoAuto.requestFocus(),
+                              Expanded(
+                                child: _chip(
+                                  anchorKey: _modoManualKey,
+                                  node: _modoManual,
+                                  selected: _modo == 'manual',
+                                  label: 'Manual',
+                                  icon: Icons.list_alt_rounded,
+                                  onTap: () => setState(() => _modo = 'manual'),
+                                  onDown: () => _cas.requestFocus(),
+                                  onLeft: () => _modoAuto.requestFocus(),
+                                ),
                               ),
                             ],
                           ),

@@ -27,19 +27,19 @@ class _SocialItem {
 const _kSocials = [
   _SocialItem(
     name: 'Instagram',
-    url: 'https://instagram.com/lol_oficialapp',
+    url: 'https://instagram.com/filmotic_oficial',
     color: Color(0xFFE1306C),
     asset: 'assets/redes/instagram.png',
   ),
   _SocialItem(
     name: 'Telegram',
-    url: 'https://t.me/lol_oficialapp',
+    url: 'https://t.me/filmotic_oficial',
     color: Color(0xFF0088CC),
     asset: 'assets/redes/telegram.png',
   ),
   _SocialItem(
     name: 'TikTok',
-    url: 'https://tiktok.com/@lol_oficialapp',
+    url: 'https://tiktok.com/@filmotic_oficial',
     color: Color(0xFF69C9D0),
     asset: 'assets/redes/tiktok.png',
   ),

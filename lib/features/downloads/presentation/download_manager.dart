@@ -168,9 +168,20 @@ class DownloadManager extends ChangeNotifier {
 
   Future<Directory> getBaseDir() async {
     final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory('${docs.path}/lolplustv_downloads');
-    if (!await dir.exists()) await dir.create(recursive: true);
-    return dir;
+    final newDir = Directory('${docs.path}/filmotic_downloads');
+    final oldDir = Directory('${docs.path}/lolplustv_downloads');
+    if (!await newDir.exists()) {
+      if (await oldDir.exists()) {
+        try {
+          await oldDir.rename(newDir.path);
+        } catch (_) {
+          await newDir.create(recursive: true);
+        }
+      } else {
+        await newDir.create(recursive: true);
+      }
+    }
+    return newDir;
   }
 
   String _safeName(String titulo, {int? temporada, int? capitulo}) {

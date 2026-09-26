@@ -221,44 +221,22 @@ class _MainHomeState extends State<MainHome> {
     }
   }
 
-  /// Abrir modal de arquitectura (TV / D-pad) y luego descargar.
   Future<void> _onTapDownload() async {
     if (_downloading) return;
 
-    final selected = await showDialog<String>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => _AbiPickerDialog(
-        preferredAbi: _preferredAbi,
-        urlForAbi: _urlForAbi,
-        labelAbi: _labelAbi,
-        accent: _kAccentColor,
-      ),
-    );
+    final url = _urlForAbi('arm64') ??
+        _urlForAbi('universal') ??
+        _downloadUrl ??
+        _urlArm64 ??
+        _urlUniversal ??
+        '';
 
-    if (selected == null || !mounted) {
-      // Volver foco al botón Descargar del banner
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _showUpdateBanner) {
-          _updateDownloadFocus.requestFocus();
-        }
-      });
+    if (url.isEmpty) {
+      setState(() => _downloadError = 'No hay enlace de descarga');
       return;
     }
-
-    final url = _urlForAbi(selected);
-    if (url == null || url.isEmpty) {
-      setState(
-        () => _downloadError = 'URL no disponible para esa arquitectura',
-      );
-      return;
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_prefAbiKey, selected);
 
     setState(() {
-      _preferredAbi = selected;
       _downloadUrl = url;
       _downloadError = null;
     });
@@ -877,17 +855,6 @@ class _MainHomeState extends State<MainHome> {
                               fontSize: 13,
                             ),
                           ),
-                          if (_preferredAbi != null) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              'APK: ${_labelAbi(_preferredAbi!)}',
-                              style: TextStyle(
-                                color: _kAccentColor.withValues(alpha: 0.95),
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
                         ],
                       ),
                     ),

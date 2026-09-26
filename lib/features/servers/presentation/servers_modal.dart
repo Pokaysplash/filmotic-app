@@ -266,6 +266,7 @@ class _ServidoresModalState extends State<ServidoresModal>
   final List<Map<String, dynamic>> _todos = [];
   final Map<String, List<Map<String, dynamic>>> _porIdioma = {};
   final Set<String> _seenUrls = {};
+  final Set<String> _expandedLangs = {};
   final Map<FuenteId, bool> _fuenteDone = {};
   final Map<FuenteId, String?> _fuenteError = {};
 
@@ -1479,42 +1480,107 @@ class _ServidoresModalState extends State<ServidoresModal>
         return order.indexOf(a).compareTo(order.indexOf(b));
       });
 
+    if (_expandedLangs.isEmpty && langKeys.isNotEmpty) {
+      _expandedLangs.add(langKeys.first);
+    }
+
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
       itemCount: langKeys.length,
       itemBuilder: (ctx, i) {
         final lang = langKeys[i];
         final servers = byLang[lang]!;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(4, 10, 4, 8),
-              child: Row(
-                children: [
-                  _langFlag(lang),
-                  const SizedBox(width: 8),
-                  Text(
-                    MainFuentes.idiomaLabel(lang),
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.7),
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    '(${servers.length})',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.35),
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-              ),
+        final isExpanded = _expandedLangs.contains(lang);
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFF18181D),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isExpanded
+                  ? _kOrange.withValues(alpha: 0.5)
+                  : Colors.white.withValues(alpha: 0.08),
+              width: isExpanded ? 1.5 : 1.0,
             ),
-            ...servers.map((s) => _serverTile(s)),
-          ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InkWell(
+                borderRadius: BorderRadius.circular(16),
+                onTap: () {
+                  setState(() {
+                    if (isExpanded) {
+                      _expandedLangs.remove(lang);
+                    } else {
+                      _expandedLangs.add(lang);
+                    }
+                  });
+                },
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+                  child: Row(
+                    children: [
+                      _langFlag(lang, size: 30),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              MainFuentes.idiomaLabel(lang),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '${servers.length} servidor${servers.length == 1 ? '' : 'es'} disponible${servers.length == 1 ? '' : 's'}',
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.5),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: isExpanded
+                              ? _kOrange.withValues(alpha: 0.2)
+                              : Colors.white.withValues(alpha: 0.06),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          isExpanded
+                              ? Icons.keyboard_arrow_up_rounded
+                              : Icons.keyboard_arrow_down_rounded,
+                          color: isExpanded ? _kOrange : Colors.white70,
+                          size: 22,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (isExpanded) ...[
+                const Divider(color: Colors.white10, height: 1),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+                  child: Column(
+                    children: servers.asMap().entries.map((entry) {
+                      return _serverTile(entry.value, optionNumber: entry.key + 1);
+                    }).toList(),
+                  ),
+                ),
+              ],
+            ],
+          ),
         );
       },
     );
@@ -1591,8 +1657,9 @@ class _ServidoresModalState extends State<ServidoresModal>
     );
   }
 
-  Widget _serverTile(Map<String, dynamic> s) {
-    final nombre = s['servidor_nombre']?.toString() ?? 'Servidor';
+  Widget _serverTile(Map<String, dynamic> s, {int? optionNumber}) {
+    final rawNombre = s['servidor_nombre']?.toString() ?? 'Servidor';
+    final nombre = optionNumber != null ? 'Opción $optionNumber · $rawNombre' : rawNombre;
     final calidad = s['calidad']?.toString() ?? 'HD';
     final verificado = s['verificado'] == true;
     final fuenteLabel = s['fuente_label']?.toString();

@@ -3680,8 +3680,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         const SizedBox(width: 10),
         _buildActionBtn(
           _serversFocusNode,
-          Icons.dns_rounded,
-          'Servidores',
+          Icons.translate_rounded,
+          'Idiomas',
           () => _openServersModal(),
         ),
         const SizedBox(width: 10),
