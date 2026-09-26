@@ -18,7 +18,8 @@ import '../../features/history/presentation/history_page.dart';
 import '../../features/settings/presentation/tv_settings.dart';
 import '../../features/profile/presentation/profile_page.dart';
 import '../../features/discover/presentation/discover_page.dart';
-import '../../features/discover/presentation/tv_discover_page.dart';
+import '../../core/services/remote_config_service.dart';
+import '../../features/live_tv/presentation/live_tv_page_tv.dart';
 const _kAccentColor = Color(0xFFFF6B35);
 const _kSideAccent = Color(0xFF7B5CFF);
 
@@ -740,14 +741,9 @@ class _MainHomeState extends State<MainHome> {
               )
             : const SizedBox.shrink();
       case _kFuentesIndex:
-        return _fuentesLoaded
-            ? ServiciosTvPage(
-                key: _fuentesKey,
-                onRequestMenuFocus: _focusMenu,
-                onMainFocusNodeCreated: (node) =>
-                    _fuentesContentFocusNode = node,
-              )
-            : const SizedBox.shrink();
+        return LiveTvPageTv(
+          onRequestMenuFocus: _focusMenu,
+        );
       case 3:
         return BuscarPage(
           key: const ValueKey('buscarPage'),
@@ -1520,15 +1516,16 @@ class _SideMenu extends StatelessWidget {
                     onKeyEvent: (n, e) => onKeyEvent(n, e, 1),
                     onTap: () => onSelect(1),
                   ),
-                  _SideItem(
-                    expanded: expanded,
-                    icon: Icons.cloud_rounded,
-                    label: 'Fuentes',
-                    focusNode: fuentesFocus,
-                    selected: currentIndex == 2,
-                    onKeyEvent: (n, e) => onKeyEvent(n, e, 2),
-                    onTap: () => onSelect(2),
-                  ),
+                  if (RemoteConfigService.instance.config.liveTv.enabled)
+                    _SideItem(
+                      expanded: expanded,
+                      icon: Icons.live_tv_rounded,
+                      label: 'TV en Vivo',
+                      focusNode: fuentesFocus,
+                      selected: currentIndex == 2,
+                      onKeyEvent: (n, e) => onKeyEvent(n, e, 2),
+                      onTap: () => onSelect(2),
+                    ),
                   _SideItem(
                     expanded: expanded,
                     icon: Icons.search_rounded,

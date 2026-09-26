@@ -1672,7 +1672,7 @@ class _PageContenidoState extends State<PageContenido>
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     child: Center(
-                      child: AdService.instance.buildBanner(context),
+                      child: AdService.instance.buildBanner(),
                     ),
                   ),
 

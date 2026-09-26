@@ -19,9 +19,11 @@ import '../../features/discover/domain/mobile/pag.dart';
 import '../../features/player/presentation/player_page.dart';
 import '../../features/content/presentation/content_page.dart';
 import '../../features/downloads/presentation/downloads_page.dart';
-import '../shared/modals/playback_setup_modal.dart';
 import '../../core/constants/versiones.dart'; // ← VersionService
 import '../../core/storage/app_database.dart';
+import '../../core/services/remote_config_service.dart';
+import '../../features/live_tv/presentation/live_tv_page.dart';
+import '../shared/modals/playback_setup_modal.dart';
 
 const _kAccentColor = Color(0xFFFF6B35);
 
@@ -622,6 +624,8 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
         return const ConfigPage(key: ValueKey('configPage'));
       case 5:
         return const BuscarPage(key: ValueKey('buscarPage'));
+      case 6:
+        return const LiveTvPage();
       default:
         return const SizedBox.shrink();
     }
@@ -830,6 +834,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
                         _buildPage(3),
                         _buildPage(4),
                         _buildPage(5),
+                        _buildPage(6),
                       ],
                     ),
                   ),
@@ -882,6 +887,12 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
                                 selected: _currentIndex == 1,
                                 onTap: () => _selectTab(1),
                               ),
+                              if (RemoteConfigService.instance.config.liveTv.enabled)
+                                _NavIcon(
+                                  icon: Icons.live_tv_rounded,
+                                  selected: _currentIndex == 6,
+                                  onTap: () => _selectTab(6),
+                                ),
                               if (_showDescargasTab)
                                 _NavIcon(
                                   icon: Icons.download_rounded,

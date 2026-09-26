@@ -118,6 +118,10 @@ class AppDatabase {
   final _favoritosStore = stringMapStoreFactory.store('favoritos');
   final _historialStore = stringMapStoreFactory.store('historial');
   final _cacheTmdbStore = stringMapStoreFactory.store('cache_tmdb');
+  final _liveChannelsStore = stringMapStoreFactory.store('live_channels');
+  final _liveListsCacheStore = stringMapStoreFactory.store('live_lists_cache');
+  final _epgProgramsStore = stringMapStoreFactory.store('epg_programs');
+  final _epgMetaStore = stringMapStoreFactory.store('epg_meta');
 
   final ValueNotifier<LocalProfile?> activeProfileNotifier =
       ValueNotifier<LocalProfile?>(null);
@@ -595,5 +599,93 @@ class AppDatabase {
       final first = LocalProfile.fromMap(Map<String, dynamic>.from(profilesList.first));
       await setActiveProfile(first);
     }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // LIVE TV & EPG (Caché local Sembast)
+  // ══════════════════════════════════════════════════════════════
+
+  Future<void> saveLiveChannels(String listKey, List<Map<String, dynamic>> channels) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final ch in channels) {
+        final id = ch['id']?.toString() ?? '';
+        if (id.isNotEmpty) {
+          await _liveChannelsStore.record(id).put(txn, ch);
+        }
+      }
+      await _liveListsCacheStore.record(listKey).put(txn, {
+        'key': listKey,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'count': channels.length,
+      });
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getCachedLiveChannels({String? country, String? language, String? group}) async {
+    final db = await database;
+    final records = await _liveChannelsStore.find(db);
+    var list = records.map((r) => r.value).toList();
+    if (country != null && country.isNotEmpty && country != 'ALL') {
+      list = list.where((c) => (c['country']?.toString().toUpperCase() == country.toUpperCase())).toList();
+    }
+    if (language != null && language.isNotEmpty && language != 'ALL') {
+      list = list.where((c) => (c['language']?.toString().toLowerCase() == language.toLowerCase())).toList();
+    }
+    if (group != null && group.isNotEmpty && group != 'ALL') {
+      list = list.where((c) => (c['group']?.toString().toLowerCase().contains(group.toLowerCase()) == true)).toList();
+    }
+    return list;
+  }
+
+  Future<int?> getLiveListCacheTime(String listKey) async {
+    final db = await database;
+    final record = await _liveListsCacheStore.record(listKey).get(db);
+    return record?['timestamp'] as int?;
+  }
+
+  Future<void> saveEpgPrograms(String channelId, List<Map<String, dynamic>> programs) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      for (final p in programs) {
+        final id = p['id']?.toString() ?? '';
+        if (id.isNotEmpty) {
+          await _epgProgramsStore.record(id).put(txn, p);
+        }
+      }
+      await _epgMetaStore.record(channelId).put(txn, {
+        'channel_id': channelId,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      });
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getEpgPrograms(String channelId) async {
+    final db = await database;
+    final records = await _epgProgramsStore.find(
+      db,
+      finder: Finder(
+        filter: Filter.equals('channel_id', channelId),
+        sortOrders: [SortOrder('start_time', true)],
+      ),
+    );
+    return records.map((r) => r.value).toList();
+  }
+
+  Future<int?> getEpgCacheTime(String channelId) async {
+    final db = await database;
+    final record = await _epgMetaStore.record(channelId).get(db);
+    return record?['timestamp'] as int?;
+  }
+
+  Future<void> purgeOldEpgPrograms() async {
+    final db = await database;
+    final cutoff = DateTime.now().toUtc().subtract(const Duration(hours: 24)).toIso8601String();
+    await _epgProgramsStore.delete(
+      db,
+      finder: Finder(
+        filter: Filter.lessThan('end_time', cutoff),
+      ),
+    );
   }
 }

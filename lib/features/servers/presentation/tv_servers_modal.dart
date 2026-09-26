@@ -14,7 +14,7 @@ import '../../player/presentation/tv/tv_player_page.dart';
 import 'tv_server_preloader_service.dart';
 import '../../player/presentation/tv/tv_player_webview.dart';
 
-const _kAccent = Color(0xFFE50914);
+const _kAccent = Color(0xFFFF6B35);
 const _kOrange = Color(0xFFFF6B00);
 const _kPanel = Color(0x1A141416);
 const _kCard = Color(0x4D1C1C1E);

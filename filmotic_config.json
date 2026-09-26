@@ -25,9 +25,35 @@
   },
   "app": {
     "min_version": "1.0.0",
-    "latest_version": "1.0.0",
+    "latest_version": "1.0.1",
     "update_url": "https://github.com/Pokaysplash/filmotic-releases/releases/latest/download/filmotic.apk",
-    "update_message": "Hay una nueva versión de Filmotic disponible. Actualiza para disfrutar de las últimas mejoras.",
+    "update_message": "¡Nueva versión de Filmotic con Televisión en Vivo (canales y guía EPG) y mejoras en Modo TV!",
     "force_update": false
+  },
+  "live_tv": {
+    "enabled": true,
+    "default_country": "co",
+    "default_language": "spa",
+    "categories": [
+      "sports",
+      "news",
+      "kids",
+      "movies",
+      "documentary",
+      "music"
+    ],
+    "featured_channels": [
+      "Caracol TV",
+      "RCN",
+      "NTN24",
+      "DW Español",
+      "France 24 Español",
+      "Bloomberg TV",
+      "Red Bull TV",
+      "NASA TV"
+    ],
+    "epg_enabled": true,
+    "epg_refresh_hours": 6,
+    "epg_window_hours": 48
   }
 }

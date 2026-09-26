@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../addons/presentation/widgets/custom_api_config_card.dart';
-const _kAccent = Color(0xFFE50914);
+const _kAccent = Color(0xFFFF6B35);
 const _kCard = Color(0xFF1C1C1E);
 const _kBg = Color(0xFF0A0A0A);
 

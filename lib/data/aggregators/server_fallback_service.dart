@@ -146,12 +146,12 @@ class ServerFallbackService {
       }
 
       // Buscar m3u8 o mp4 en HTML o JavaScript
-      final m3u8Match = RegExp(r'https?://[^\s"\'<>]+\.m3u8[^\s"\'<>]*').firstMatch(body);
+      final m3u8Match = RegExp(r'''https?://[^\s"'<>]+\.m3u8[^\s"'<>]*''').firstMatch(body);
       if (m3u8Match != null) {
         return m3u8Match.group(0);
       }
 
-      final mp4Match = RegExp(r'https?://[^\s"\'<>]+\.mp4[^\s"\'<>]*').firstMatch(body);
+      final mp4Match = RegExp(r'''https?://[^\s"'<>]+\.mp4[^\s"'<>]*''').firstMatch(body);
       if (mp4Match != null) {
         return mp4Match.group(0);
       }

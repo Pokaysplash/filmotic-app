@@ -12,7 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../../data/aggregators/main_fuentes_servidores.dart';
 import '../../discover/domain/extractor.dart';
 import '../../player/presentation/tv/tv_discover_player.dart';
-const _kAccent = Color(0xFFE50914);
+const _kAccent = Color(0xFFFF6B35);
 const _kOrange = Color(0xFFFF6B00);
 // Panel y cards más transparentes
 const _kPanel = Color(0x4D141416);

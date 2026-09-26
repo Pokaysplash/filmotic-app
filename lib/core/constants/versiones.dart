@@ -6,8 +6,8 @@ class VersionService {
   // CONFIGURA AQUÍ LA VERSIÓN ACTUAL DE TU APP
   // (la versión con la que estás trabajando ahora)
   // ============================================
-  static const String currentVersionName = "1.0.0"; // version_aceptada
-  static const int currentVersionCode = 10; // version_code_aceptada
+  static const String currentVersionName = "1.0.1"; // version_aceptada
+  static const int currentVersionCode = 11; // version_code_aceptada
 
   // URL de tu API
   static const String apiUrl =

@@ -60,6 +60,89 @@ class FilmoticAppInfo {
       );
 }
 
+class FilmoticLiveTvConfig {
+  final bool enabled;
+  final String defaultCountry;
+  final String defaultLanguage;
+  final List<String> categories;
+  final List<String> featuredChannels;
+  final bool epgEnabled;
+  final int epgRefreshHours;
+  final int epgWindowHours;
+
+  FilmoticLiveTvConfig({
+    required this.enabled,
+    required this.defaultCountry,
+    required this.defaultLanguage,
+    required this.categories,
+    required this.featuredChannels,
+    required this.epgEnabled,
+    required this.epgRefreshHours,
+    required this.epgWindowHours,
+  });
+
+  factory FilmoticLiveTvConfig.fromMap(Map<String, dynamic>? map) {
+    final m = map ?? {};
+    final cats = m['categories'] is List
+        ? (m['categories'] as List).map((e) => e.toString().toLowerCase()).toList()
+        : <String>['sports', 'news', 'kids', 'movies', 'documentary', 'music'];
+    final featured = m['featured_channels'] is List
+        ? (m['featured_channels'] as List).map((e) => e.toString()).toList()
+        : <String>[
+            'Caracol TV',
+            'RCN',
+            'NTN24',
+            'DW Español',
+            'France 24 Español',
+            'Bloomberg TV',
+            'Red Bull TV',
+            'NASA TV'
+          ];
+
+    return FilmoticLiveTvConfig(
+      enabled: m['enabled'] != false,
+      defaultCountry: (m['default_country'] ?? 'co').toString().toLowerCase(),
+      defaultLanguage: (m['default_language'] ?? 'spa').toString().toLowerCase(),
+      categories: cats,
+      featuredChannels: featured,
+      epgEnabled: m['epg_enabled'] != false,
+      epgRefreshHours: (m['epg_refresh_hours'] is int) ? m['epg_refresh_hours'] : 6,
+      epgWindowHours: (m['epg_window_hours'] is int) ? m['epg_window_hours'] : 48,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'enabled': enabled,
+        'default_country': defaultCountry,
+        'default_language': defaultLanguage,
+        'categories': categories,
+        'featured_channels': featuredChannels,
+        'epg_enabled': epgEnabled,
+        'epg_refresh_hours': epgRefreshHours,
+        'epg_window_hours': epgWindowHours,
+      };
+
+  static FilmoticLiveTvConfig get defaults => FilmoticLiveTvConfig(
+        enabled: true,
+        defaultCountry: 'co',
+        defaultLanguage: 'spa',
+        categories: ['sports', 'news', 'kids', 'movies', 'documentary', 'music'],
+        featuredChannels: [
+          'Caracol TV',
+          'RCN',
+          'NTN24',
+          'DW Español',
+          'France 24 Español',
+          'Bloomberg TV',
+          'Red Bull TV',
+          'NASA TV'
+        ],
+        epgEnabled: true,
+        epgRefreshHours: 6,
+        epgWindowHours: 48,
+      );
+}
+
 /// Modelo de configuración remota descargable sin recompilar.
 class FilmoticRemoteConfig {
   final int version;
@@ -68,6 +151,7 @@ class FilmoticRemoteConfig {
   final List<String> disabledSources;
   final Map<String, dynamic> messages;
   final FilmoticAppInfo app;
+  final FilmoticLiveTvConfig liveTv;
 
   /// Compatibilidad hacia atrás con min_app_version
   String get minAppVersion => app.minVersion;
@@ -79,7 +163,8 @@ class FilmoticRemoteConfig {
     required this.disabledSources,
     required this.messages,
     required this.app,
-  });
+    FilmoticLiveTvConfig? liveTv,
+  }) : liveTv = liveTv ?? FilmoticLiveTvConfig.defaults;
 
   factory FilmoticRemoteConfig.fromMap(Map<String, dynamic> map) {
     final adsMap = map['ads'] is Map ? Map<String, dynamic>.from(map['ads']) : <String, dynamic>{};
@@ -95,6 +180,9 @@ class FilmoticRemoteConfig {
     final appInfo = map['app'] is Map
         ? FilmoticAppInfo.fromMap(Map<String, dynamic>.from(map['app']), fallbackMinVersion: fallbackMin)
         : FilmoticAppInfo.fromMap(null, fallbackMinVersion: fallbackMin);
+    final liveTvConf = map['live_tv'] is Map
+        ? FilmoticLiveTvConfig.fromMap(Map<String, dynamic>.from(map['live_tv']))
+        : FilmoticLiveTvConfig.defaults;
 
     return FilmoticRemoteConfig(
       version: (map['version'] is int) ? map['version'] : 1,
@@ -103,6 +191,7 @@ class FilmoticRemoteConfig {
       disabledSources: disabled,
       messages: messagesMap,
       app: appInfo,
+      liveTv: liveTvConf,
     );
   }
 
@@ -116,6 +205,7 @@ class FilmoticRemoteConfig {
         'messages': messages,
         'app': app.toMap(),
         'min_app_version': app.minVersion,
+        'live_tv': liveTv.toMap(),
       };
 
   static FilmoticRemoteConfig get defaults => FilmoticRemoteConfig(
@@ -142,6 +232,7 @@ class FilmoticRemoteConfig {
           'welcome_banner': null,
         },
         app: FilmoticAppInfo.defaults,
+        liveTv: FilmoticLiveTvConfig.defaults,
       );
 }
 

@@ -2,23 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'tv_config_shared.dart';
-import 'content/tv_content_tab.dart';
 import 'updates/tv_updates_tab.dart';
-import 'sources/tv_sources_tab.dart';
 import 'appearance/tv_appearance_tab.dart';
-import 'cache/tv_cache_tab.dart';
-import 'player/tv_player_tab.dart';
+import '../../profile/presentation/profile_selection_page.dart';
+
 enum _ConfigTab {
-  contenido,
-  actualizaciones,
-  fuentes,
+  perfiles,
   apariencia,
-  cache,
-  player,
+  actualizaciones,
 }
 
-/// Página de configuración (shell de tabs).
-/// Cada pestaña es un widget independiente con su propio estado.
+/// Página de configuración TV (shell de tabs).
+/// Simplificada al igual que en móvil: Perfiles, Apariencia, Actualizaciones.
 class ConfigPage extends StatefulWidget {
   final VoidCallback? onRequestMenuFocus;
   final ValueChanged<FocusNode>? onMainFocusNodeCreated;
@@ -35,27 +30,21 @@ class ConfigPage extends StatefulWidget {
 
 class ConfigPageState extends State<ConfigPage>
     with AutomaticKeepAliveClientMixin {
-  _ConfigTab _tab = _ConfigTab.contenido;
+  _ConfigTab _tab = _ConfigTab.perfiles;
   bool _movingFocusToContent = false;
   String _menuPosition = 'top';
 
   late final List<FocusNode> _tabNodes;
   final ScrollController _scroll = ScrollController();
 
-  final GlobalKey<ContenidoTabState> _contenidoKey = GlobalKey();
   final GlobalKey<ActualizacionesTabState> _actualizacionesKey = GlobalKey();
-  final GlobalKey<FuentesTabState> _fuentesKey = GlobalKey();
   final GlobalKey<AparienciaTabState> _aparienciaKey = GlobalKey();
-  final GlobalKey<CacheTabState> _cacheKey = GlobalKey();
-  final GlobalKey<PlayerTabState> _playerKey = GlobalKey();
+  final FocusNode _perfilesActionNode = FocusNode(debugLabel: 'cfg_perfiles_btn');
 
   static const _tabLabels = [
-    'Contenido',
-    'Actualizaciones',
-    'Fuentes',
+    'Perfiles',
     'Apariencia',
-    'Caché',
-    'Player',
+    'Actualizaciones',
   ];
 
   @override
@@ -81,6 +70,7 @@ class ConfigPageState extends State<ConfigPage>
     for (final n in _tabNodes) {
       n.dispose();
     }
+    _perfilesActionNode.dispose();
     _scroll.dispose();
     super.dispose();
   }
@@ -103,78 +93,41 @@ class ConfigPageState extends State<ConfigPage>
     }
   }
 
-  void _selectTab(int index, {bool focusContent = false}) {
-    final tab =
-        _ConfigTab.values[index.clamp(0, _ConfigTab.values.length - 1)];
-    final changed = _tab != tab;
-    if (changed) {
-      setState(() => _tab = tab);
-      if (_scroll.hasClients) _scroll.jumpTo(0);
-    }
-    if (focusContent) {
-      _enterTabContent(tab, afterRebuild: changed);
+  void _selectTab(int index) {
+    if (index == _tab.index) return;
+    setState(() => _tab = _ConfigTab.values[index]);
+    if (_scroll.hasClients) {
+      _scroll.jumpTo(0);
     }
   }
 
-  void _enterTabContent(_ConfigTab tab, {bool afterRebuild = false}) {
-    Future<void> focusWhenReady() async {
-      final waits = afterRebuild ? 3 : 1;
-      for (var i = 0; i < waits; i++) {
-        await Future<void>.delayed(Duration.zero);
-        if (!mounted) return;
-        await WidgetsBinding.instance.endOfFrame;
-        if (!mounted) return;
-      }
-      if (!mounted || _tab != tab) return;
+  void _moveFocusToContent() {
+    if (_movingFocusToContent) return;
+    _movingFocusToContent = true;
 
-      final state = _stateFor(tab);
-      if (state != null) {
-        state.requestFirstFocus();
-        _movingFocusToContent = false;
-      }
-    }
-
-    if (_tab != tab) {
-      setState(() => _tab = tab);
-      if (_scroll.hasClients) _scroll.jumpTo(0);
-    }
-    focusWhenReady();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _movingFocusToContent = false;
+      if (!mounted) return;
+      final target = _contentFirstFocusNode();
+      target?.requestFocus();
+    });
   }
 
-  dynamic _stateFor(_ConfigTab tab) {
-    switch (tab) {
-      case _ConfigTab.contenido:
-        return _contenidoKey.currentState;
-      case _ConfigTab.actualizaciones:
-        return _actualizacionesKey.currentState;
-      case _ConfigTab.fuentes:
-        return _fuentesKey.currentState;
+  FocusNode? _contentFirstFocusNode() {
+    switch (_tab) {
+      case _ConfigTab.perfiles:
+        return _perfilesActionNode;
       case _ConfigTab.apariencia:
-        return _aparienciaKey.currentState;
-      case _ConfigTab.cache:
-        return _cacheKey.currentState;
-      case _ConfigTab.player:
-        return _playerKey.currentState;
+        return _aparienciaKey.currentState?.firstFocusNode;
+      case _ConfigTab.actualizaciones:
+        return _actualizacionesKey.currentState?.firstFocusNode;
     }
   }
 
   Widget _buildBody() {
     switch (_tab) {
-      case _ConfigTab.contenido:
-        return ContenidoTab(
-          key: _contenidoKey,
-          onRequestTabFocus: _focusCurrentTab,
-        );
-      case _ConfigTab.actualizaciones:
-        return ActualizacionesTab(
-          key: _actualizacionesKey,
-          onRequestTabFocus: _focusCurrentTab,
-        );
-      case _ConfigTab.fuentes:
-        return FuentesTab(
-          key: _fuentesKey,
-          onRequestTabFocus: _focusCurrentTab,
-        );
+      case _ConfigTab.perfiles:
+        return _buildPerfilesTab();
       case _ConfigTab.apariencia:
         return AparienciaTab(
           key: _aparienciaKey,
@@ -183,17 +136,131 @@ class ConfigPageState extends State<ConfigPage>
             if (mounted) setState(() => _menuPosition = v);
           },
         );
-      case _ConfigTab.cache:
-        return CacheTab(
-          key: _cacheKey,
-          onRequestTabFocus: _focusCurrentTab,
-        );
-      case _ConfigTab.player:
-        return PlayerTab(
-          key: _playerKey,
+      case _ConfigTab.actualizaciones:
+        return ActualizacionesTab(
+          key: _actualizacionesKey,
           onRequestTabFocus: _focusCurrentTab,
         );
     }
+  }
+
+  Widget _buildPerfilesTab() {
+    return Container(
+      padding: const EdgeInsets.all(28),
+      decoration: BoxDecoration(
+        color: kConfigCard,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: kConfigAccent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: const Icon(Icons.account_circle_rounded, color: kConfigAccent, size: 30),
+              ),
+              const SizedBox(width: 16),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Perfiles de Usuario',
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Gestiona los perfiles locales, personaliza avatares y configura tu PIN de seguridad.',
+                      style: TextStyle(color: Colors.white60, fontSize: 13),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          Focus(
+            focusNode: _perfilesActionNode,
+            onKeyEvent: (node, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.ignored;
+              if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                _focusCurrentTab();
+                return KeyEventResult.handled;
+              }
+              if (event.logicalKey == LogicalKeyboardKey.select ||
+                  event.logicalKey == LogicalKeyboardKey.enter) {
+                _openProfiles();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: Builder(
+              builder: (ctx) {
+                final hasFocus = Focus.of(ctx).hasFocus;
+                return InkWell(
+                  onTap: _openProfiles,
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
+                    decoration: BoxDecoration(
+                      color: hasFocus ? kConfigAccent : Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: hasFocus ? Colors.white : Colors.white.withValues(alpha: 0.15),
+                        width: hasFocus ? 2.5 : 1.0,
+                      ),
+                      boxShadow: hasFocus
+                          ? [
+                              BoxShadow(
+                                color: kConfigAccent.withValues(alpha: 0.4),
+                                blurRadius: 16,
+                                spreadRadius: 2,
+                              )
+                            ]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.switch_account_rounded,
+                          color: hasFocus ? Colors.white : kConfigAccent,
+                          size: 22,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          'Cambiar o Administrar Perfil',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: hasFocus ? FontWeight.bold : FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openProfiles() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const ProfileSelectionPage(allowDismiss: true),
+      ),
+    );
   }
 
   Widget _buildTopTabs() {
@@ -203,7 +270,6 @@ class ConfigPageState extends State<ConfigPage>
       child: Row(
         children: List.generate(_tabLabels.length, (i) {
           final selected = _tab.index == i;
-          final tabEnum = _ConfigTab.values[i];
           return Expanded(
             child: Focus(
               focusNode: _tabNodes[i],
@@ -221,51 +287,33 @@ class ConfigPageState extends State<ConfigPage>
                   if (i > 0) {
                     _selectTab(i - 1);
                     _tabNodes[i - 1].requestFocus();
+                  } else {
+                    widget.onRequestMenuFocus?.call();
                   }
                   return KeyEventResult.handled;
                 }
-
-                if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
-                    event.logicalKey == LogicalKeyboardKey.select ||
+                if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                  _moveFocusToContent();
+                  return KeyEventResult.handled;
+                }
+                if (event.logicalKey == LogicalKeyboardKey.select ||
                     event.logicalKey == LogicalKeyboardKey.enter) {
-                  _movingFocusToContent = true;
-                  final needRebuild = _tab != tabEnum;
-                  if (needRebuild) {
-                    setState(() => _tab = tabEnum);
-                    if (_scroll.hasClients) _scroll.jumpTo(0);
-                  }
-                  _enterTabContent(tabEnum, afterRebuild: needRebuild);
-                  return KeyEventResult.handled;
-                }
-
-                if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-                  widget.onRequestMenuFocus?.call();
+                  _selectTab(i);
+                  _moveFocusToContent();
                   return KeyEventResult.handled;
                 }
                 return KeyEventResult.ignored;
               },
-              onFocusChange: (hasFocus) {
-                if (!hasFocus) return;
-                if (_movingFocusToContent) {
-                  _movingFocusToContent = false;
-                  return;
-                }
-                _selectTab(i);
-              },
               child: Builder(
-                builder: (context) {
-                  final hasFocus = Focus.of(context).hasFocus;
-                  return GestureDetector(
+                builder: (ctx) {
+                  final hasFocus = Focus.of(ctx).hasFocus;
+                  return InkWell(
                     onTap: () {
-                      _movingFocusToContent = true;
-                      _selectTab(i, focusContent: true);
+                      _selectTab(i);
+                      _tabNodes[i].requestFocus();
                     },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 12,
-                      ),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
                         color: hasFocus
                             ? Colors.white.withValues(alpha: 0.08)
@@ -286,7 +334,7 @@ class ConfigPageState extends State<ConfigPage>
                           color: selected || hasFocus
                               ? Colors.white
                               : Colors.white60,
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: selected || hasFocus
                               ? FontWeight.w700
                               : FontWeight.w500,
@@ -317,7 +365,7 @@ class ConfigPageState extends State<ConfigPage>
             Expanded(
               child: SingleChildScrollView(
                 controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
                 child: _buildBody(),
               ),
             ),

@@ -6,7 +6,7 @@ import 'package:http/http.dart' as http;
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../content/presentation/tv_content_page.dart';
-const _kAccentColor = Color(0xFFE50914);
+const _kAccentColor = Color(0xFFFF6B35);
 const _kBaseUrl = 'https://modlyo.com/apitv';
 const _kPerPage = 18;
 const _kCols = 6;

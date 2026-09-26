@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-const Color kConfigAccent = Color(0xFFFF6B00);
+const Color kConfigAccent = Color(0xFFFF6B35);
 const Color kConfigBg = Color(0xFF0A0A0A);
 const Color kConfigCard = Color(0xFF1C1C1E);
 

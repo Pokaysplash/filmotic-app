@@ -43,6 +43,8 @@ class PlayerScreen extends StatefulWidget {
   final int? tmdbId;
   final String? idioma;
   final Map<String, String>? headers;
+  final bool isLive;
+  final String? liveLogo;
 
   const PlayerScreen({
     super.key,
@@ -55,7 +57,24 @@ class PlayerScreen extends StatefulWidget {
     this.tmdbId,
     this.idioma,
     this.headers,
+    this.isLive = false,
+    this.liveLogo,
   });
+
+  static void openLiveChannel(BuildContext context, dynamic channel) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          videoUrl: channel.streamUrl,
+          idcontenido: channel.id.hashCode,
+          tipo: 'live',
+          titulo: channel.name,
+          isLive: true,
+          liveLogo: channel.logo,
+        ),
+      ),
+    );
+  }
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -267,12 +286,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (mounted && !_isDisposing) _setupSystemUi();
     });
     _keepScreenOn();
-    _loadApiData().then((_) {
+    if (widget.isLive) {
       _initializePlayer();
-      _loadSubtitles();
-    });
-    _loadRecommendationsFromGuardados();
-    _loadSubtitlePrefs();
+    } else {
+      _loadApiData().then((_) {
+        _initializePlayer();
+        _loadSubtitles();
+      });
+      _loadRecommendationsFromGuardados();
+      _loadSubtitlePrefs();
+    }
   }
 
   void _setupSystemUi() {
@@ -1984,7 +2007,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),
-            if (_allServersFailed) ...[
+            if (widget.isLive) ...[
+              ElevatedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _isLoading = true;
+                    _errorMessage = '';
+                    _allServersFailed = false;
+                  });
+                  _initializePlayer();
+                },
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Reintentar canal'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: accentOrange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Volver a la lista de canales', style: TextStyle(color: Colors.white70)),
+              ),
+            ] else if (_allServersFailed) ...[
               ElevatedButton.icon(
                 onPressed: () => _openServersModal(),
                 icon: const Icon(Icons.dns_rounded),
@@ -2059,19 +2105,69 @@ class _PlayerScreenState extends State<PlayerScreen> {
               padding: const EdgeInsets.fromLTRB(8, 4, 12, 0),
               child: Row(
                 children: [
-                  IconButton(
-                    onPressed: _showExitConfirmation,
-                    icon: const Icon(
-                      Icons.arrow_back_ios_new_rounded,
-                      color: Colors.white,
-                      size: 22,
+                  if (widget.isLive) ...[
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        if (_logoUrl != null && _logoUrl!.isNotEmpty) ...[
-                          CachedNetworkImage(
+                    if (widget.liveLogo != null && widget.liveLogo!.isNotEmpty) ...[
+                      CachedNetworkImage(
+                        imageUrl: widget.liveLogo!,
+                        height: 28,
+                        fit: BoxFit.contain,
+                        memCacheHeight: 56,
+                        errorWidget: (_, __, ___) => const Icon(Icons.tv, color: Colors.white70, size: 20),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    Expanded(
+                      child: Text(
+                        widget.titulo,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE50914),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.fiber_manual_record, color: Colors.white, size: 10),
+                          SizedBox(width: 4),
+                          Text(
+                            'EN VIVO',
+                            style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w800),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    IconButton(
+                      onPressed: _showExitConfirmation,
+                      icon: const Icon(
+                        Icons.arrow_back_ios_new_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          if (_logoUrl != null && _logoUrl!.isNotEmpty) ...[
+                            CachedNetworkImage(
                             imageUrl: _logoUrl!,
                             height: 28,
                             fit: BoxFit.contain,
@@ -2200,157 +2296,185 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     },
                   ),
                 ],
-              ),
+              ],
             ),
+          ),
             const Spacer(),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                _centerBtn(
-                  icon: Icons.replay_10_rounded,
-                  size: 40,
-                  onTap: () => _seekBy(-10),
-                ),
-                const SizedBox(width: 28),
-                _centerBtn(
+            if (widget.isLive)
+              Center(
+                child: _centerBtn(
                   icon: _isPlaying
                       ? Icons.pause_rounded
                       : Icons.play_arrow_rounded,
-                  size: 56,
+                  size: 64,
                   onTap: _togglePlay,
                   filled: true,
                 ),
-                const SizedBox(width: 28),
-                _centerBtn(
-                  icon: Icons.forward_10_rounded,
-                  size: 40,
-                  onTap: () => _seekBy(10),
-                ),
-              ],
-            ),
+              )
+            else
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _centerBtn(
+                    icon: Icons.replay_10_rounded,
+                    size: 40,
+                    onTap: () => _seekBy(-10),
+                  ),
+                  const SizedBox(width: 28),
+                  _centerBtn(
+                    icon: _isPlaying
+                        ? Icons.pause_rounded
+                        : Icons.play_arrow_rounded,
+                    size: 56,
+                    onTap: _togglePlay,
+                    filled: true,
+                  ),
+                  const SizedBox(width: 28),
+                  _centerBtn(
+                    icon: Icons.forward_10_rounded,
+                    size: 40,
+                    onTap: () => _seekBy(10),
+                  ),
+                ],
+              ),
             const Spacer(),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Text(
-                    _formatDuration(_currentPosition),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  Expanded(
-                    child: SliderTheme(
-                      data: SliderThemeData(
-                        trackHeight: 3,
-                        thumbShape: const RoundSliderThumbShape(
-                          enabledThumbRadius: 7,
-                        ),
-                        overlayShape: const RoundSliderOverlayShape(
-                          overlayRadius: 14,
-                        ),
-                        activeTrackColor: accentOrange,
-                        inactiveTrackColor: Colors.white.withValues(
-                          alpha: 0.25,
-                        ),
-                        thumbColor: accentOrange,
-                        overlayColor: accentOrange.withValues(alpha: 0.25),
-                      ),
-                      child: Slider(
-                        value: _totalDuration.inSeconds > 0
-                            ? _currentPosition.inSeconds
-                                  .clamp(0, _totalDuration.inSeconds)
-                                  .toDouble()
-                            : 0.0,
-                        max: _totalDuration.inSeconds > 0
-                            ? _totalDuration.inSeconds.toDouble()
-                            : 1.0,
-                        onChanged: (v) {
-                          setState(() {
-                            _currentPosition = Duration(seconds: v.toInt());
-                          });
-                          _controller.seekTo(Duration(seconds: v.toInt()));
-                        },
-                        onChangeStart: (_) {
-                          _hideControlsTimer?.cancel();
-                          setState(() => _isDragging = true);
-                        },
-                        onChangeEnd: (_) {
-                          setState(() => _isDragging = false);
-                          _scheduleHideControls();
-                        },
+            if (widget.isLive)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.sensors_rounded, color: accentOrange, size: 20),
+                    const SizedBox(width: 8),
+                    const Text('Transmisión en vivo', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600)),
+                    const Spacer(),
+                    _actionIcon(_fitModeIcon, _fitModeLabel, _cycleFitMode),
+                  ],
+                ),
+              )
+            else ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Text(
+                      _formatDuration(_currentPosition),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ),
-                  Text(
-                    _formatDuration(_totalDuration - _currentPosition),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderThemeData(
+                          trackHeight: 3,
+                          thumbShape: const RoundSliderThumbShape(
+                            enabledThumbRadius: 7,
+                          ),
+                          overlayShape: const RoundSliderOverlayShape(
+                            overlayRadius: 14,
+                          ),
+                          activeTrackColor: accentOrange,
+                          inactiveTrackColor: Colors.white.withValues(
+                            alpha: 0.25,
+                          ),
+                          thumbColor: accentOrange,
+                          overlayColor: accentOrange.withValues(alpha: 0.25),
+                        ),
+                        child: Slider(
+                          value: _totalDuration.inSeconds > 0
+                              ? _currentPosition.inSeconds
+                                    .clamp(0, _totalDuration.inSeconds)
+                                    .toDouble()
+                              : 0.0,
+                          max: _totalDuration.inSeconds > 0
+                              ? _totalDuration.inSeconds.toDouble()
+                              : 1.0,
+                          onChanged: (v) {
+                            setState(() {
+                              _currentPosition = Duration(seconds: v.toInt());
+                            });
+                            _controller.seekTo(Duration(seconds: v.toInt()));
+                          },
+                          onChangeStart: (_) {
+                            _hideControlsTimer?.cancel();
+                            setState(() => _isDragging = true);
+                          },
+                          onChangeEnd: (_) {
+                            setState(() => _isDragging = false);
+                            _scheduleHideControls();
+                          },
+                        ),
+                      ),
                     ),
-                  ),
-                ],
+                    Text(
+                      _formatDuration(_totalDuration - _currentPosition),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _actionIcon(Icons.replay_rounded, 'Reiniciar', _restart),
-                  if (_mediaType == 'tv' ||
-                      (_showEndPrompt && _recomendaciones.isNotEmpty))
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _actionIcon(Icons.replay_rounded, 'Reiniciar', _restart),
+                    if (_mediaType == 'tv' ||
+                        (_showEndPrompt && _recomendaciones.isNotEmpty))
+                      _actionIcon(
+                        Icons.skip_next_rounded,
+                        'Siguiente',
+                        _goNextEpisode,
+                      ),
+                    // ── BOTÓN SUBTÍTULOS (abre el modal) ────────────────
                     _actionIcon(
-                      Icons.skip_next_rounded,
-                      'Siguiente',
-                      _goNextEpisode,
+                      _subtitlesEnabled
+                          ? Icons.closed_caption_rounded
+                          : Icons.closed_caption_disabled_rounded,
+                      _selectedSubtitleLabel,
+                      _openSubtitlesModal,
                     ),
-                  // ── BOTÓN SUBTÍTULOS (abre el modal) ────────────────
-                  _actionIcon(
-                    _subtitlesEnabled
-                        ? Icons.closed_caption_rounded
-                        : Icons.closed_caption_disabled_rounded,
-                    _selectedSubtitleLabel,
-                    _openSubtitlesModal,
-                  ),
-                  _actionIcon(
-                    Icons.translate_rounded,
-                    'Idiomas',
-                    () => _openServersModal(),
-                  ),
-                  _actionIcon(
-                    Icons.high_quality_rounded,
-                    _currentQualityLabel,
-                    _openQualitySelector,
-                  ),
-                  _actionIcon(_fitModeIcon, _fitModeLabel, _cycleFitMode),
-                  _actionIcon(
-                    Icons.info_outline_rounded,
-                    'Info',
-                    _openInfoModal,
-                  ),
-                  if (_hasBottomContent)
                     _actionIcon(
-                      _showBottomPanel
-                          ? Icons.expand_more_rounded
-                          : Icons.expand_less_rounded,
-                      _showBottomPanel ? 'Ocultar' : 'Más',
-                      () {
-                        setState(() => _showBottomPanel = !_showBottomPanel);
-                        if (_showBottomPanel) {
-                          _hideControlsTimer?.cancel();
-                        } else {
-                          _scheduleHideControls();
-                        }
-                      },
+                      Icons.translate_rounded,
+                      'Idiomas',
+                      () => _openServersModal(),
                     ),
-                ],
+                    _actionIcon(
+                      Icons.high_quality_rounded,
+                      _currentQualityLabel,
+                      _openQualitySelector,
+                    ),
+                    _actionIcon(_fitModeIcon, _fitModeLabel, _cycleFitMode),
+                    _actionIcon(
+                      Icons.info_outline_rounded,
+                      'Info',
+                      _openInfoModal,
+                    ),
+                    if (_hasBottomContent)
+                      _actionIcon(
+                        _showBottomPanel
+                            ? Icons.expand_more_rounded
+                            : Icons.expand_less_rounded,
+                        _showBottomPanel ? 'Ocultar' : 'Más',
+                        () {
+                          setState(() => _showBottomPanel = !_showBottomPanel);
+                          if (_showBottomPanel) {
+                            _hideControlsTimer?.cancel();
+                          } else {
+                            _scheduleHideControls();
+                          }
+                        },
+                      ),
+                  ],
+                ),
               ),
-            ),
+            ],
             if (_showBottomPanel && _hasBottomContent) ...[
               const SizedBox(height: 10),
               if (_mediaType == 'tv' && _temporadas.isNotEmpty) ...[

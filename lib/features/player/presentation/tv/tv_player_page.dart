@@ -143,6 +143,8 @@ class PlayerScreen extends StatefulWidget {
   final String? idioma;
   final int? idServidor;
   final String? fuentesServidor;
+  final bool isLive;
+  final String? liveLogo;
 
   const PlayerScreen({
     super.key,
@@ -158,15 +160,32 @@ class PlayerScreen extends StatefulWidget {
     this.idioma,
     this.idServidor,
     this.fuentesServidor,
+    this.isLive = false,
+    this.liveLogo,
   });
+
+  static void openLiveChannel(BuildContext context, dynamic channel) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          videoUrl: channel.streamUrl,
+          idcontenido: channel.id.hashCode,
+          tipo: 'live',
+          titulo: channel.name,
+          isLive: true,
+          liveLogo: channel.logo,
+        ),
+      ),
+    );
+  }
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
-  static const Color accentOrange = Color(0xFFFF6B00);
-  static const Color netflixRed = Color(0xFFE50914);
+  static const Color accentOrange = Color(0xFFFF6B35);
+  static const Color netflixRed = Color(0xFFFF6B35);
 
   final ServerLoader _serverLoader = ServerLoader();
   String _activeUrl = '';
@@ -536,15 +555,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _servidorNombre = widget.servidorNombre;
     _forceLandscape();
     _keepScreenOn();
-    _startClock();
-    _preloadServidores();
-    _loadApiData().then((_) {
+    if (widget.isLive) {
       _initializePlayer();
-      _loadSubtitles();
-    });
-    _loadSubtitlePrefs();
-    _loadNextThresholdPref();
-    _loadRecommendationsFromGuardados();
+    } else {
+      _preloadServidores();
+      _loadApiData().then((_) {
+        _initializePlayer();
+        _loadSubtitles();
+      });
+      _loadSubtitlePrefs();
+      _loadNextThresholdPref();
+      _loadRecommendationsFromGuardados();
+    }
     FocusManager.instance.addListener(_onGlobalFocusChanged);
     _startCacheTimer();
     _resetScreensaverTimer();
@@ -3596,32 +3618,65 @@ class _PlayerScreenState extends State<PlayerScreen> {
             overflow: TextOverflow.ellipsis,
           ),
           const SizedBox(height: 28),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              errorBtn(
-                node: _errorServersFocusNode,
-                icon: Icons.dns_rounded,
-                label: 'Cambiar servidor',
-                onTap: () => _openServersModal(),
-                primary: true,
-                other: _errorBackFocusNode,
-                autofocus: true,
-              ),
-              const SizedBox(width: 16),
-              errorBtn(
-                node: _errorBackFocusNode,
-                icon: Icons.arrow_back_rounded,
-                label: 'Volver',
-                onTap: () async {
-                  await _saveCache();
-                  _goBackToContent();
-                },
-                primary: false,
-                other: _errorServersFocusNode,
-              ),
-            ],
-          ),
+          if (widget.isLive) ...[
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                errorBtn(
+                  node: _errorServersFocusNode,
+                  icon: Icons.refresh_rounded,
+                  label: 'Reintentar canal',
+                  onTap: () {
+                    setState(() {
+                      _isLoading = true;
+                      _errorMessage = '';
+                      _allServersFailed = false;
+                    });
+                    _initializePlayer();
+                  },
+                  primary: true,
+                  other: _errorBackFocusNode,
+                  autofocus: true,
+                ),
+                const SizedBox(width: 16),
+                errorBtn(
+                  node: _errorBackFocusNode,
+                  icon: Icons.arrow_back_rounded,
+                  label: 'Volver a canales',
+                  onTap: () => Navigator.of(context).pop(),
+                  primary: false,
+                  other: _errorServersFocusNode,
+                ),
+              ],
+            ),
+          ] else ...[
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                errorBtn(
+                  node: _errorServersFocusNode,
+                  icon: Icons.dns_rounded,
+                  label: 'Cambiar servidor',
+                  onTap: () => _openServersModal(),
+                  primary: true,
+                  other: _errorBackFocusNode,
+                  autofocus: true,
+                ),
+                const SizedBox(width: 16),
+                errorBtn(
+                  node: _errorBackFocusNode,
+                  icon: Icons.arrow_back_rounded,
+                  label: 'Volver',
+                  onTap: () async {
+                    await _saveCache();
+                    _goBackToContent();
+                  },
+                  primary: false,
+                  other: _errorServersFocusNode,
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -3646,6 +3701,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Widget _buildActionButtonsRow() {
+    if (widget.isLive) {
+      return Row(
+        children: [
+          _buildPlayPauseBtn(),
+          const SizedBox(width: 12),
+          _buildActionBtn(
+            _fitFocusNode,
+            _fitModeIcon,
+            _fitModeLabel,
+            _cycleFitMode,
+          ),
+          const Spacer(),
+          _buildActionBtn(
+            _infoFocusNode,
+            Icons.tv_rounded,
+            'Volver a Canales',
+            () => Navigator.of(context).pop(),
+          ),
+        ],
+      );
+    }
     return Row(
       children: [
         _buildPlayPauseBtn(),
@@ -3740,7 +3816,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   Expanded(
                     child: Row(
                       children: [
-                        if (_logoUrl != null && _logoUrl!.isNotEmpty) ...[
+                        if (widget.isLive && widget.liveLogo != null && widget.liveLogo!.isNotEmpty) ...[
+                          CachedNetworkImage(
+                            imageUrl: widget.liveLogo!,
+                            height: 38,
+                            fit: BoxFit.contain,
+                            memCacheHeight: 76,
+                            memCacheWidth: 200,
+                            errorWidget: (_, __, ___) =>
+                                const Icon(Icons.tv, color: Colors.white70, size: 26),
+                          ),
+                          const SizedBox(width: 14),
+                        ] else if (_logoUrl != null && _logoUrl!.isNotEmpty) ...[
                           CachedNetworkImage(
                             imageUrl: _logoUrl!,
                             height: 36,
@@ -3756,7 +3843,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              if (widget.tipo == 'movie') ...[
+                              if (widget.isLive) ...[
+                                Text(
+                                  widget.titulo,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ] else if (widget.tipo == 'movie') ...[
                                 if (_logoUrl == null || _logoUrl!.isEmpty)
                                   Text(
                                     '$_tituloContenido${_apiData?['fecha_salida'] != null ? ' (${_apiData!['fecha_salida'].toString().substring(0, 4)})' : ''}',
@@ -3808,23 +3906,43 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ],
                     ),
                   ),
-                  ClipOval(
-                    child: CachedNetworkImage(
-                      imageUrl: _idiomaFlagUrl(),
-                      width: 26,
-                      height: 26,
-                      fit: BoxFit.cover,
-                      memCacheWidth: 52,
-                      errorWidget: (_, __, ___) => Text(
-                        _idiomaLabel(),
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.7),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
+                  if (widget.isLive) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE50914),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.fiber_manual_record, color: Colors.white, size: 10),
+                          SizedBox(width: 5),
+                          Text(
+                            'EN VIVO',
+                            style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ] else ...[
+                    ClipOval(
+                      child: CachedNetworkImage(
+                        imageUrl: _idiomaFlagUrl(),
+                        width: 26,
+                        height: 26,
+                        fit: BoxFit.cover,
+                        memCacheWidth: 52,
+                        errorWidget: (_, __, ___) => Text(
+                          _idiomaLabel(),
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                   const SizedBox(width: 12),
                   Text(
                     _currentTime,
@@ -3834,7 +3952,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  if (_horaFinEstimada.isNotEmpty) ...[
+                  if (!widget.isLive && _horaFinEstimada.isNotEmpty) ...[
                     const SizedBox(width: 10),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -3872,8 +3990,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
             const Spacer(),
 
-            Focus(
-              focusNode: _seekBarFocusNode,
+            if (!widget.isLive) ...[
+              Focus(
+                focusNode: _seekBarFocusNode,
               onKeyEvent: (node, event) {
                 if (event is KeyDownEvent) {
                   if (_isBackKey(event)) {
@@ -4004,6 +4123,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
             ),
+          ],
 
             const SizedBox(height: 10),
 

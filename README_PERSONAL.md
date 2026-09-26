@@ -395,3 +395,63 @@ Ubicación: `lib/core/services/remote_config_service.dart` y `lib/main.dart`
   Se activa si `latest_version` es mayor a la versión instalada y no hay bloqueo obligatorio.
   - Ofrece botones **"Actualizar"** y **"Más tarde"**.
   - Al pulsar **"Más tarde"**, guarda la versión descartada en la base de datos local **Sembast** (`dismissed_version`), garantizando no volver a interrumpir al usuario hasta que se publique una versión posterior.
+
+---
+
+## 12. Módulo de Televisión en Vivo (Live TV) y Guía EPG
+
+Filmotic incorpora una sección completa de **Televisión en Vivo** tanto en la versión Móvil como en Android TV, utilizando listas públicas M3U y guías XMLTV del proyecto de código abierto [iptv-org](https://github.com/iptv-org/iptv).
+
+### 12.1 Arquitectura del Módulo
+Ubicación: `lib/features/live_tv/`
+- **Modelos (`domain/`)**:
+  - `LiveChannel`: Modelo para cada canal (id, nombre, logo, país, idioma, categoría, url de stream, bandera HD).
+  - `EpgProgram`: Evento de programación EPG (id, canalId, título, descripción, categoría, inicio y fin UTC, cálculo de progreso en tiempo real).
+- **Parsers y Servicios (`data/`)**:
+  - `m3u_parser.dart`: Parser streaming de listas M3U/#EXTINF con extracción de etiquetas estándar (`tvg-id`, `tvg-logo`, `group-title`, `tvg-country`, etc.) y directiva cabecera `x-tvg-url`.
+  - `xmltv_parser.dart`: Parser XMLTV de alto rendimiento basado en expresiones regulares y streaming. Normaliza todas las zonas horarias (+0000, -0500, etc.) a UTC y filtra con ventana rodante (-2 horas a +48 horas) para optimizar memoria RAM.
+  - `live_tv_service.dart`: Descarga y administra listas M3U por país, idioma o categoría desde iptv-org. Cuenta con almacenamiento en caché local Sembast con TTL de 24 horas (`live_channels`, `live_lists_cache`).
+  - `epg_service.dart`: Descarga guías XMLTV desde `epg.pw` o URLs provistas en la lista M3U. Almacena en caché local Sembast con TTL de 6 horas (`epg_programs`, `epg_meta`) y provee consultas instantáneas de "En Vivo Ahora" y "A Continuación".
+- **Vistas e Interfaz (`presentation/`)**:
+  - **Móvil**: `LiveTvPage` con barra de búsqueda, chips de filtro rápido por país y categoría, cards con preview "Ahora / Después" con barra de progreso en vivo, y acceso directo a `EpgPage` (vista de parrilla de tiempo horizontal/vertical).
+  - **Android TV**: `LiveTvPageTv` con navegación 100% por control remoto (D-Pad), barra de previsualización superior dinámica, acceso directo a la guía de programación (`EpgPageTv`) y foco visual en color Filmotic Naranja (`#FFFF6B35`).
+  - `EpgProgramDetailModal`: Modal reutilizable con ficha descriptiva del programa actual/siguiente, progreso de emisión y botón de reproducción directa.
+
+### 12.2 Reproductor en Modo En Vivo (Live Mode)
+Ubicación: `lib/features/player/presentation/player_page.dart` y `tv/tv_player_page.dart`
+- Al reproducir un canal de TV en vivo (`openLiveChannel`):
+  - Se oculta la barra de tiempo/seek del reproductor y los botones de adelantar/retrasar +/-10s.
+  - Se activa el indicador animado pulsante `[● EN VIVO]`.
+  - Se muestra el logo y nombre oficial del canal en la cabecera superior.
+  - Se implementa un detector de desconexión o falla de señal con opción de reintento automático y diálogo amigable.
+
+### 12.3 Configuración Remota (`filmotic_config.json`)
+La sección `"live_tv"` permite habilitar/deshabilitar o personalizar el comportamiento del módulo dinámicamente:
+```json
+"live_tv": {
+  "enabled": true,
+  "default_country": "co",
+  "default_language": "spa",
+  "featured_channels": ["Caracol", "RCN", "Canal 1", "Señal Colombia"],
+  "categories": [
+    {"id": "general", "name": "General"},
+    {"id": "news", "name": "Noticias"},
+    {"id": "sports", "name": "Deportes"},
+    {"id": "entertainment", "name": "Entretenimiento"},
+    {"id": "movies", "name": "Películas"},
+    {"id": "music", "name": "Música"},
+    {"id": "kids", "name": "Infantil"}
+  ],
+  "epg_enabled": true,
+  "epg_refresh_hours": 6,
+  "epg_window_hours": 48
+}
+```
+
+### 12.4 Política de Publicidad
+- **En Listas / Catálogo**: Se integran banners publicitarios estándar no invasivos de Adsterra.
+- **Durante la Reproducción**: **Estrictamente cero publicidad** durante la reproducción de canales en vivo o contenido de video para evitar interrupciones de transmisiones en tiempo real.
+
+### 12.5 Aviso Legal y Exención de Responsabilidad (Disclaimer)
+Filmotic no transmite, aloja, retransmite ni almacena ninguna señal audiovisual o contenido multimedia en sus propios servidores. Todas las listas M3U y fuentes de streaming utilizadas provienen del repositorio público y colaborativo de código abierto [iptv-org/iptv](https://github.com/iptv-org/iptv), el cual recopila únicamente enlaces y transmisiones oficiales de libre acceso público transmitidas por sus respectivos titulares de derechos por internet. Filmotic actúa exclusivamente como un software cliente/reproductor multimedia.
+

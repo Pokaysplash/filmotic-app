@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'core/services/remote_config_service.dart';
+import 'features/live_tv/data/live_tv_service.dart';
+import 'features/live_tv/data/epg_service.dart';
 import 'presentation/mobile/mobile_shell.dart' as mobile;
 import 'presentation/tv/tv_shell.dart' as tv;
 import 'features/downloads/presentation/notification_helper.dart';
@@ -128,7 +131,7 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(seconds: 2));
 
     // Verificar si se requiere actualización forzada u opcional
-    const currentVersion = '1.0.0';
+    const currentVersion = '1.0.1';
     final appConfig = RemoteConfigService.instance.config.app;
 
     if (RemoteConfigService.instance.isMandatoryUpdateRequired(currentVersion)) {
@@ -156,7 +159,19 @@ class _SplashScreenState extends State<SplashScreen> {
 
     _mode = savedMode;
     await _applyOrientation(savedMode);
+    unawaited(_refreshLiveTvInBackground());
     await _goToHome();
+  }
+
+  Future<void> _refreshLiveTvInBackground() async {
+    try {
+      final cfg = RemoteConfigService.instance.config.liveTv;
+      if (!cfg.enabled) return;
+      await LiveTvService.instance.refreshAll();
+      await EpgService.instance.purgeAndRefresh();
+    } catch (e) {
+      debugPrint('[LiveTvRefresher] Error refresco en segundo plano: $e');
+    }
   }
 
   void _showBlockingUpdateDialog(FilmoticAppInfo appInfo) {

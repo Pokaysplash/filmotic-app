@@ -9,7 +9,7 @@ import '../../../data/scrapers/base/scraper_context.dart';
 import '../../../data/scrapers/base/registry.dart';
 import '../domain/derivar.dart';
 import 'source_search.dart';
-const kAccentColor = Color(0xFFE50914);
+const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
 const kCardBg = Color(0xFF1A1A1A);
 const kFilterBg = Color(0xFF2A2A38);
