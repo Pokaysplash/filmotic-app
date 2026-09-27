@@ -9,10 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../data/aggregators/source_aggregator.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_content.dart';
-import '../../player/data/extractor.dart';
 import '../../player/presentation/tv/tv_player_page.dart';
 import 'tv_server_preloader_service.dart';
-import '../../player/presentation/tv/tv_player_webview.dart';
 
 const _kAccent = Color(0xFFFF6B35);
 const _kOrange = Color(0xFFFF6B00);
@@ -1109,7 +1107,7 @@ class _ServidoresModalTvState extends State<ServidoresModalTv> {
 
     final esDirecto = _isDirectUrl(embedUrl);
     final esPlayer = m3u8.isNotEmpty || esDirecto;
-    final videoUrl = m3u8.isNotEmpty ? m3u8 : (esDirecto ? embedUrl : '');
+    String videoUrl = m3u8.isNotEmpty ? m3u8 : (esDirecto ? embedUrl : '');
 
     if (_cfg?.reutilizarUltimoEnlace == true) {
       final toSave = Map<String, dynamic>.from(servidor);
@@ -1127,9 +1125,34 @@ class _ServidoresModalTvState extends State<ServidoresModalTv> {
       );
     }
 
+    if (videoUrl.isEmpty) {
+      // Intentar extraer enlace directo nativo con scraper/extractor
+      try {
+        final extracted = await MainFuentes.verificarConExtractor(
+          context,
+          embedUrl,
+          timeout: const Duration(seconds: 8),
+        );
+        if (extracted != null && extracted.isNotEmpty) {
+          m3u8 = extracted;
+          servidor['resolved_m3u8'] = extracted;
+          servidor['verificado'] = true;
+          videoUrl = extracted;
+        }
+      } catch (e) {
+        debugPrint('[TvServersModal] Error extrayendo stream: $e');
+      }
+    }
+
     if (!mounted) return;
 
-    if (esPlayer && videoUrl.isNotEmpty) {
+    if (videoUrl.isNotEmpty) {
+      if (widget.fromPlayer) {
+        Navigator.of(context).pop({'videoUrl': videoUrl, 'server': servidor});
+        _schedulePreload();
+        return;
+      }
+
       final route = MaterialPageRoute(
         builder: (_) => PlayerScreen(
           videoUrl: videoUrl,
@@ -1141,38 +1164,18 @@ class _ServidoresModalTvState extends State<ServidoresModalTv> {
           titulo: tituloFinal,
         ),
       );
-      final nav = Navigator.of(context);
-      if (widget.fromPlayer) {
-        nav.pop();
-        nav.pushReplacement(route);
-      } else {
-        nav.pushReplacement(route);
-      }
+      Navigator.of(context).pushReplacement(route);
       _schedulePreload();
       return;
     }
 
-    final webviewRoute = MaterialPageRoute(
-      builder: (_) => TvPlayerWebViewPage(
-        url: embedUrl,
-        title: tituloFinal,
-        servidorNombre: nombre,
-        idioma: idioma,
-        idcontenido: widget.idcontenido,
-        tmdbId: _resolvedTmdbId,
-        temporada: _isMovie ? null : widget.temporada,
-        capitulo: _isMovie ? null : widget.capitulo,
-        tipo: _mediaType,
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('No se pudo extraer señal de este servidor. Por favor selecciona otra opción.'),
+        backgroundColor: Colors.redAccent,
+        duration: Duration(seconds: 3),
       ),
     );
-
-    final navigator = Navigator.of(context);
-    if (widget.fromPlayer) {
-      navigator.pop();
-      navigator.pushReplacement(webviewRoute);
-    } else {
-      navigator.pushReplacement(webviewRoute);
-    }
     _schedulePreload();
   }
 

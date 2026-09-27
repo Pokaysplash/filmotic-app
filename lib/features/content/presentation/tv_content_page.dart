@@ -102,6 +102,7 @@ class _PageContenidoState extends State<PageContenido>
   bool _refreshingProgress = false;
 
   final FocusNode _playFocusNode = FocusNode();
+  final FocusNode _episodesBtnFocusNode = FocusNode();
   final FocusNode _addFocusNode = FocusNode();
   final FocusNode _randomFocusNode = FocusNode();
   final FocusNode _restartFocusNode = FocusNode();
@@ -155,6 +156,7 @@ class _PageContenidoState extends State<PageContenido>
     _liveRefreshTimer?.cancel();
     _hintTimer?.cancel();
     _playFocusNode.dispose();
+    _episodesBtnFocusNode.dispose();
     _addFocusNode.dispose();
     _randomFocusNode.dispose();
     _restartFocusNode.dispose();
@@ -1499,6 +1501,7 @@ class _PageContenidoState extends State<PageContenido>
                                 genres: genres,
                                 playLabel: playLabel,
                                 playFocusNode: _playFocusNode,
+                                episodesFocusNode: _episodesBtnFocusNode,
                                 addFocusNode: _addFocusNode,
                                 randomFocusNode: _randomFocusNode,
                                 restartFocusNode: _restartFocusNode,
@@ -1605,43 +1608,47 @@ class _PageContenidoState extends State<PageContenido>
             Positioned(
               top: 22,
               right: 44,
-              child: IgnorePointer(
-                child: AnimatedOpacity(
-                  opacity:
-                      (_showEpisodesHint &&
-                          !episodesViewActive &&
-                          !recoViewActive)
-                      ? 1.0
-                      : 0.0,
-                  duration: const Duration(milliseconds: 350),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withValues(alpha: 0.78),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.white24),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.keyboard_arrow_down_rounded,
-                          color: kAccentColor,
-                          size: 20,
-                        ),
-                        SizedBox(width: 8),
-                        Text(
-                          'Presiona ↓ para ver capítulos',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
+              child: GestureDetector(
+                onTap: _enterEpisodesView,
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: AnimatedOpacity(
+                    opacity:
+                        (_showEpisodesHint &&
+                            !episodesViewActive &&
+                            !recoViewActive)
+                        ? 1.0
+                        : 0.0,
+                    duration: const Duration(milliseconds: 350),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.78),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.white24),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.video_library_rounded,
+                            color: kAccentColor,
+                            size: 18,
                           ),
-                        ),
-                      ],
+                          SizedBox(width: 8),
+                          Text(
+                            'Temporadas y Capítulos ↓',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1805,6 +1812,7 @@ class _InfoColumn extends StatelessWidget {
   final List<String> genres;
   final String playLabel;
   final FocusNode playFocusNode;
+  final FocusNode? episodesFocusNode;
   final FocusNode addFocusNode;
   final FocusNode randomFocusNode;
   final FocusNode restartFocusNode;
@@ -1831,6 +1839,7 @@ class _InfoColumn extends StatelessWidget {
     required this.genres,
     required this.playLabel,
     required this.playFocusNode,
+    this.episodesFocusNode,
     required this.addFocusNode,
     required this.randomFocusNode,
     required this.restartFocusNode,
@@ -2045,6 +2054,12 @@ class _InfoColumn extends StatelessWidget {
               focusNode: playFocusNode,
               onKeyEvent: (node, event) {
                 if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                  if (onRequestEpisodesView != null && episodesFocusNode != null) {
+                    episodesFocusNode!.requestFocus();
+                    return KeyEventResult.handled;
+                  }
+                }
                 if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
                   if (onRequestEpisodesView != null) {
                     onRequestEpisodesView!();
@@ -2105,6 +2120,79 @@ class _InfoColumn extends StatelessWidget {
                 },
               ),
             ),
+            if (onRequestEpisodesView != null) ...[
+              const SizedBox(width: 12),
+              Focus(
+                focusNode: episodesFocusNode,
+                onKeyEvent: (node, event) {
+                  if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                  if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                    playFocusNode.requestFocus();
+                    return KeyEventResult.handled;
+                  }
+                  if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                    if (secondaryButtons.isNotEmpty) {
+                      secondaryButtons.first.focusNode.requestFocus();
+                    }
+                    return KeyEventResult.handled;
+                  }
+                  if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                    onRequestEpisodesView!();
+                    return KeyEventResult.handled;
+                  }
+                  if (event.logicalKey == LogicalKeyboardKey.select ||
+                      event.logicalKey == LogicalKeyboardKey.enter) {
+                    onRequestEpisodesView!();
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: Builder(
+                  builder: (context) {
+                    final hasFocus = Focus.of(context).hasFocus;
+                    return GestureDetector(
+                      onTap: onRequestEpisodesView,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: hasFocus
+                              ? Colors.white.withValues(alpha: 0.22)
+                              : Colors.white.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: hasFocus ? kAccentColor : Colors.white38,
+                            width: hasFocus ? 2.5 : 1.2,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.video_library_rounded,
+                              color: hasFocus ? kAccentColor : Colors.white,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Temporadas y Episodios',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
             for (int i = 0; i < secondaryButtons.length; i++) ...[
               const SizedBox(width: 12),
               _CircleIconButton(
@@ -2115,7 +2203,13 @@ class _InfoColumn extends StatelessWidget {
                 onArrowUp: () => playFocusNode.requestFocus(),
                 onArrowLeft: i > 0
                     ? () => secondaryButtons[i - 1].focusNode.requestFocus()
-                    : null,
+                    : () {
+                        if (onRequestEpisodesView != null && episodesFocusNode != null) {
+                          episodesFocusNode!.requestFocus();
+                        } else {
+                          playFocusNode.requestFocus();
+                        }
+                      },
                 onArrowRight: i < secondaryButtons.length - 1
                     ? () => secondaryButtons[i + 1].focusNode.requestFocus()
                     : null,

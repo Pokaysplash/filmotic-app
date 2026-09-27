@@ -333,29 +333,9 @@ class _HomePageState extends State<HomePage>
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Positioned.fill(
-            child: ValueListenableBuilder<String>(
-              valueListenable: _heroBackdropNotifier,
-              builder: (context, backdropUrl, _) {
-                if (backdropUrl.isEmpty) {
-                  return const ColoredBox(color: Color(0xFF0a0a0a));
-                }
-                return CachedNetworkImage(
-                  imageUrl: backdropUrl,
-                  fit: BoxFit.cover,
-                  alignment: Alignment.center,
-                  memCacheWidth: bgMemW,
-                  memCacheHeight: bgMemH,
-                  fadeInDuration: const Duration(milliseconds: 280),
-                  placeholder: (_, __) =>
-                      const ColoredBox(color: Color(0xFF0a0a0a)),
-                  errorWidget: (_, __, ___) =>
-                      const ColoredBox(color: Color(0xFF0a0a0a)),
-                );
-              },
-            ),
+          const Positioned.fill(
+            child: ColoredBox(color: kBgColor),
           ),
-          const _HomeOverlayGradient(),
           Positioned.fill(
             child: CustomScrollView(
               cacheExtent: 300,
@@ -364,19 +344,45 @@ class _HomePageState extends State<HomePage>
                   child: SizedBox(
                     height: heroHeight,
                     width: double.infinity,
-                    child: RepaintBoundary(
-                      child: ValueListenableBuilder<Map<String, dynamic>?>(
-                        valueListenable: _focusedItemNotifier,
-                        builder: (context, item, _) => _HeroSection(
-                          item: item,
-                          focusNode: _sectionFocusNodes[0],
-                          onRequestMenuFocus: widget.onRequestMenuFocus,
-                          onRequestNextFocus: sections.isNotEmpty
-                              ? () => _sectionFocusNodes[1].requestFocus()
-                              : null,
-                          onTap: _openContent,
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        ValueListenableBuilder<String>(
+                          valueListenable: _heroBackdropNotifier,
+                          builder: (context, backdropUrl, _) {
+                            if (backdropUrl.isEmpty) {
+                              return const ColoredBox(color: kBgColor);
+                            }
+                            return CachedNetworkImage(
+                              imageUrl: backdropUrl,
+                              fit: BoxFit.cover,
+                              alignment: Alignment.center,
+                              memCacheWidth: bgMemW,
+                              memCacheHeight: bgMemH,
+                              fadeInDuration: const Duration(milliseconds: 280),
+                              placeholder: (_, __) =>
+                                  const ColoredBox(color: kBgColor),
+                              errorWidget: (_, __, ___) =>
+                                  const ColoredBox(color: kBgColor),
+                            );
+                          },
                         ),
-                      ),
+                        const _HomeOverlayGradient(),
+                        RepaintBoundary(
+                          child: ValueListenableBuilder<Map<String, dynamic>?>(
+                            valueListenable: _focusedItemNotifier,
+                            builder: (context, item, _) => _HeroSection(
+                              item: item,
+                              focusNode: _sectionFocusNodes[0],
+                              onRequestMenuFocus: widget.onRequestMenuFocus,
+                              onRequestNextFocus: sections.isNotEmpty
+                                  ? () => _sectionFocusNodes[1].requestFocus()
+                                  : null,
+                              onTap: _openContent,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
@@ -631,9 +637,9 @@ class _HomeOverlayGradient extends StatelessWidget {
               colors: [
                 Colors.transparent,
                 Color(0x59000000),
-                Color(0xD1000000),
+                kBgColor,
               ],
-              stops: [0.35, 0.58, 1.0],
+              stops: [0.30, 0.65, 1.0],
             ),
           ),
         ),
@@ -777,16 +783,6 @@ class _HeroSection extends StatelessWidget {
             child: Stack(
               fit: StackFit.expand,
               children: [
-                if (hasFocus)
-                  Positioned.fill(
-                    child: IgnorePointer(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.white, width: 2.5),
-                        ),
-                      ),
-                    ),
-                  ),
                 Positioned(
                   left: 36,
                   top: topSafe,
@@ -917,6 +913,52 @@ class _HeroSection extends StatelessWidget {
                               ),
                             ),
                           ],
+                          const SizedBox(height: 12),
+                          Row(
+                            children: [
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 180),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 18,
+                                  vertical: 8,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: hasFocus
+                                      ? Colors.white
+                                      : Colors.white.withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: hasFocus
+                                      ? [
+                                          BoxShadow(
+                                            color: Colors.white.withValues(alpha: 0.35),
+                                            blurRadius: 10,
+                                            spreadRadius: 1,
+                                          ),
+                                        ]
+                                      : null,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.play_arrow_rounded,
+                                      size: 20,
+                                      color: hasFocus ? Colors.black : Colors.white,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Ver ahora',
+                                      style: TextStyle(
+                                        color: hasFocus ? Colors.black : Colors.white,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),

@@ -191,6 +191,44 @@ class ServerLoader {
     return filtered;
   }
 
+  /// Retorna todos los servidores disponibles sin filtrar por idioma.
+  Future<List<Map<String, dynamic>>> getAllServers({
+    required int contentId,
+    required bool isMovie,
+    int season = 0,
+    int episode = 0,
+    BuildContext? context,
+  }) async {
+    await _ensureLoaded();
+    final cachedMain = await _main.tryLoadCachedServers(
+      tmdbId: contentId,
+      tipo: isMovie ? 'movie' : 'tv',
+      season: season,
+      episode: episode,
+    );
+    if (cachedMain != null && cachedMain.isNotEmpty) {
+      return cachedMain;
+    }
+    final result = await _main.fetchAll(
+      tmdbId: contentId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+      context: context,
+      forzarVerificar: false,
+    );
+    if (result.todos.isNotEmpty) {
+      await FuentesCache.saveServers(
+        tmdbId: contentId,
+        tipo: isMovie ? 'movie' : 'tv',
+        season: season,
+        episode: episode,
+        servidores: result.todos,
+      );
+    }
+    return result.todos;
+  }
+
   /// Primera fuente válida del idioma configurado → m3u8 y PARA (no espera el resto).
   Future<PlayableSource?> resolvePlayable({
     required int contentId,
