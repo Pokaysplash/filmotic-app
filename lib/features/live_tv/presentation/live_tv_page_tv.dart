@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:video_player/video_player.dart';
 import '../../../core/services/remote_config_service.dart';
 import '../../player/presentation/tv/tv_player_page.dart' as tv_player;
 import '../data/epg_service.dart';
@@ -23,8 +25,8 @@ class LiveTvPageTv extends StatefulWidget {
 
 class _LiveTvPageTvState extends State<LiveTvPageTv> {
   static const Color kBrandOrange = Color(0xFFFF6B35);
-  static const Color kCardBg = Color(0xFF14141E);
-  static const Color kCardBgFocused = Color(0xFF222234);
+  static const Color kBgColor = Color(0xFF0D0D12);
+  static const Color kPanelBg = Color(0xFF13131A);
 
   bool _isLoading = true;
   String? _error;
@@ -32,29 +34,37 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
   List<LiveChannel> _filteredChannels = [];
 
   String? _selectedCountry;
-  String? _selectedCategory;
-  LiveChannel? _focusedChannel;
+  String _selectedCategory = '';
+  LiveChannel? _selectedChannel;
+  int _selectedStreamIndex = 0;
+
+  // Mini-player en vivo estilo Magis TV
+  VideoPlayerController? _previewController;
+  bool _isPreviewLoading = false;
+  String? _previewError;
+  Timer? _previewDebounceTimer;
 
   final Map<String, _ChannelEpgState> _channelEpgMap = {};
   Timer? _nowTimer;
 
+  final List<Map<String, String>> _categories = [
+    {'code': '', 'label': 'Todos', 'icon': '📺'},
+    {'code': 'nacionales', 'label': 'Nacionales', 'icon': '🇨🇴'},
+    {'code': 'sports', 'label': 'Deportes', 'icon': '⚽'},
+    {'code': 'news', 'label': 'Noticias', 'icon': '📰'},
+    {'code': 'movies', 'label': 'Películas y Series', 'icon': '🎬'},
+    {'code': 'kids', 'label': 'Infantil', 'icon': '👶'},
+    {'code': 'music', 'label': 'Música', 'icon': '🎵'},
+    {'code': 'documentary', 'label': 'Documentales', 'icon': '🌍'},
+  ];
+
   final List<Map<String, String>> _countries = [
-    {'code': '', 'label': 'Todos los países'},
     {'code': 'co', 'label': '🇨🇴 Colombia'},
     {'code': 'mx', 'label': '🇲🇽 México'},
     {'code': 'ar', 'label': '🇦🇷 Argentina'},
     {'code': 'es', 'label': '🇪🇸 España'},
-    {'code': 'us', 'label': '🇺🇸 Estados Unidos'},
-  ];
-
-  final List<Map<String, String>> _categories = [
-    {'code': '', 'label': 'Todas'},
-    {'code': 'sports', 'label': '⚽ Deportes'},
-    {'code': 'news', 'label': '📰 Noticias'},
-    {'code': 'kids', 'label': '👶 Infantil'},
-    {'code': 'movies', 'label': '🎬 Películas'},
-    {'code': 'music', 'label': '🎵 Música'},
-    {'code': 'documentary', 'label': '🌍 Documentales'},
+    {'code': 'us', 'label': '🇺🇸 USA'},
+    {'code': '', 'label': '🌐 Todos'},
   ];
 
   @override
@@ -71,8 +81,18 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
 
   @override
   void dispose() {
+    _previewDebounceTimer?.cancel();
     _nowTimer?.cancel();
+    _disposePreview();
     super.dispose();
+  }
+
+  void _disposePreview() {
+    try {
+      _previewController?.pause();
+      _previewController?.dispose();
+    } catch (_) {}
+    _previewController = null;
   }
 
   Future<void> _loadChannels({bool force = false}) async {
@@ -85,18 +105,27 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
     try {
       final channels = await LiveTvService.instance.loadChannels(
         country: _selectedCountry?.isNotEmpty == true ? _selectedCountry : null,
-        group: _selectedCategory?.isNotEmpty == true ? _selectedCategory : null,
+        group: _selectedCategory.isNotEmpty ? _selectedCategory : null,
         forceRefresh: force,
       );
 
       if (!mounted) return;
+
+      final filtered = _applyCategoryFilter(channels, _selectedCategory);
+
       setState(() {
         _allChannels = channels;
-        _filteredChannels = channels;
-        if (channels.isNotEmpty) {
-          _focusedChannel = channels.first;
-        }
+        _filteredChannels = filtered;
         _isLoading = false;
+        if (filtered.isNotEmpty) {
+          final first = filtered.first;
+          _selectedChannel = first;
+          _selectedStreamIndex = 0;
+          _initPreviewChannel(first);
+        } else {
+          _selectedChannel = null;
+          _disposePreview();
+        }
       });
 
       _fetchEpgForVisible();
@@ -107,6 +136,128 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
         _error = 'Error cargando canales de televisión.';
       });
     }
+  }
+
+  List<LiveChannel> _applyCategoryFilter(List<LiveChannel> channels, String categoryCode) {
+    if (categoryCode.isEmpty) return channels;
+    return channels.where((c) => LiveTvService.matchesCategory(c, categoryCode)).toList();
+  }
+
+  void _onCategorySelected(String code) {
+    if (_selectedCategory == code) return;
+    setState(() {
+      _selectedCategory = code;
+      _filteredChannels = _applyCategoryFilter(_allChannels, code);
+      if (_filteredChannels.isNotEmpty) {
+        _selectedChannel = _filteredChannels.first;
+        _selectedStreamIndex = 0;
+        _initPreviewChannel(_filteredChannels.first);
+      } else {
+        _selectedChannel = null;
+        _disposePreview();
+      }
+    });
+  }
+
+  void _onChannelSelected(LiveChannel channel) {
+    if (_selectedChannel?.id == channel.id) {
+      // Si ya está seleccionado, entrar directo a pantalla completa
+      _openFullScreenPlayer(channel);
+      return;
+    }
+    setState(() {
+      _selectedChannel = channel;
+      _selectedStreamIndex = 0;
+    });
+    _initPreviewChannel(channel);
+  }
+
+  void _initPreviewChannel(LiveChannel channel, {int streamIndex = 0}) {
+    _previewDebounceTimer?.cancel();
+    _previewDebounceTimer = Timer(const Duration(milliseconds: 250), () async {
+      if (!mounted) return;
+
+      final streams = channel.allStreamUrls;
+      if (streams.isEmpty) {
+        setState(() {
+          _previewError = 'Canal sin enlace de reproducción disponible.';
+          _isPreviewLoading = false;
+        });
+        return;
+      }
+
+      final targetIdx = streamIndex.clamp(0, streams.length - 1);
+      final streamUrl = streams[targetIdx];
+
+      setState(() {
+        _isPreviewLoading = true;
+        _previewError = null;
+        _selectedStreamIndex = targetIdx;
+      });
+
+      _disposePreview();
+
+      try {
+        final controller = VideoPlayerController.networkUrl(
+          Uri.parse(streamUrl),
+          httpHeaders: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          },
+        );
+
+        await controller.initialize().timeout(
+          const Duration(seconds: 7),
+          onTimeout: () {
+            throw TimeoutException('Tiempo de espera agotado al conectar');
+          },
+        );
+
+        if (!mounted || _selectedChannel?.id != channel.id) {
+          controller.dispose();
+          return;
+        }
+
+        await controller.play();
+        await controller.setLooping(true);
+
+        setState(() {
+          _previewController = controller;
+          _isPreviewLoading = false;
+          _previewError = null;
+        });
+      } catch (e) {
+        debugPrint('[LiveTvTv] Preview señal $targetIdx falló: $e');
+        if (!mounted || _selectedChannel?.id != channel.id) return;
+
+        // Auto-failover al siguiente stream si existe
+        if (targetIdx + 1 < streams.length) {
+          debugPrint('[LiveTvTv] Probando siguiente señal: ${targetIdx + 1}/${streams.length}');
+          _initPreviewChannel(channel, streamIndex: targetIdx + 1);
+          return;
+        }
+
+        setState(() {
+          _isPreviewLoading = false;
+          _previewError = 'Señal temporalmente no disponible en este momento.';
+        });
+      }
+    });
+  }
+
+  void _openFullScreenPlayer(LiveChannel channel) {
+    // Pausar mini player mientras se reproduce en fullscreen
+    final channelIndex = _filteredChannels.indexOf(channel);
+    tv_player.PlayerScreen.openLiveChannel(
+      context,
+      channel,
+      initialStreamIndex: _selectedStreamIndex,
+      allChannels: _filteredChannels,
+      currentChannelIndex: channelIndex >= 0 ? channelIndex : null,
+    ).then((_) {
+      if (mounted) {
+        _previewController?.play();
+      }
+    });
   }
 
   void _fetchEpgForVisible() async {
@@ -131,127 +282,22 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
     }
   }
 
-  void _playChannel(LiveChannel channel) {
-    tv_player.PlayerScreen.openLiveChannel(context, channel);
-  }
-
-  void _openCountryPicker() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1B1B26),
-        title: const Text('Seleccionar País', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: SizedBox(
-          width: 340,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: _countries.length,
-            itemBuilder: (_, i) {
-              final c = _countries[i];
-              final isSel = (_selectedCountry ?? '') == c['code'];
-              return ListTile(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                tileColor: isSel ? kBrandOrange.withValues(alpha: 0.2) : Colors.transparent,
-                title: Text(
-                  c['label']!,
-                  style: TextStyle(
-                    color: isSel ? kBrandOrange : Colors.white,
-                    fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
-                  ),
-                ),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  setState(() => _selectedCountry = c['code']);
-                  _loadChannels();
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _openCategoryPicker() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1B1B26),
-        title: const Text('Seleccionar Categoría', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        content: SizedBox(
-          width: 340,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: _categories.length,
-            itemBuilder: (_, i) {
-              final cat = _categories[i];
-              final isSel = (_selectedCategory ?? '') == cat['code'];
-              return ListTile(
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                tileColor: isSel ? kBrandOrange.withValues(alpha: 0.2) : Colors.transparent,
-                title: Text(
-                  cat['label']!,
-                  style: TextStyle(
-                    color: isSel ? kBrandOrange : Colors.white,
-                    fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
-                  ),
-                ),
-                onTap: () {
-                  Navigator.of(ctx).pop();
-                  setState(() => _selectedCategory = cat['code']);
-                  _loadChannels();
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: kBgColor,
       body: SafeArea(
         child: Column(
           children: [
-            // ── TOP HEADER / PREVIEW BAR DINÁMICO ──
-            _buildTopPreviewBar(),
-
-            // ── BARRA DE ACCIONES Y FILTROS TV ──
-            _buildTvActionsBar(),
-
-            // ── GRID DE CANALES CON D-PAD ──
+            _buildTopBar(),
             Expanded(
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator(color: kBrandOrange))
+                  ? const Center(
+                      child: CircularProgressIndicator(color: kBrandOrange),
+                    )
                   : _error != null
                       ? _buildErrorView()
-                      : _filteredChannels.isEmpty
-                          ? _buildEmptyView()
-                          : GridView.builder(
-                              padding: const EdgeInsets.fromLTRB(28, 12, 28, 28),
-                              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                                crossAxisCount: 4,
-                                childAspectRatio: 1.15,
-                                crossAxisSpacing: 16,
-                                mainAxisSpacing: 16,
-                              ),
-                              itemCount: _filteredChannels.length,
-                              itemBuilder: (context, index) {
-                                final channel = _filteredChannels[index];
-                                final epg = _channelEpgMap[channel.id];
-                                return _TvChannelCard(
-                                  channel: channel,
-                                  epg: epg,
-                                  onFocused: () {
-                                    setState(() => _focusedChannel = channel);
-                                  },
-                                  onSelect: () => _playChannel(channel),
-                                );
-                              },
-                            ),
+                      : _buildMagisLayout(),
             ),
           ],
         ),
@@ -259,132 +305,75 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
     );
   }
 
-  Widget _buildTopPreviewBar() {
-    final ch = _focusedChannel;
-    final epg = ch != null ? _channelEpgMap[ch.id] : null;
-    final countryObj = _countries.firstWhere(
-      (c) => c['code'] == (ch?.country?.toLowerCase() ?? ''),
-      orElse: () => {'label': ch?.country?.toUpperCase() ?? ''},
-    );
-
+  Widget _buildTopBar() {
     return Container(
-      height: 140,
-      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
-      decoration: BoxDecoration(
-        color: const Color(0xFF0F0F17),
-        border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+      height: 52,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: const BoxDecoration(
+        color: kPanelBg,
+        border: Border(bottom: BorderSide(color: Colors.white10)),
       ),
       child: Row(
         children: [
-          // Logo grande
           Container(
-            width: 100,
-            height: 100,
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.all(6),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+              color: kBrandOrange.withValues(alpha: 0.2),
+              borderRadius: BorderRadius.circular(8),
             ),
-            child: ch?.logo != null && ch!.logo!.isNotEmpty
-                ? CachedNetworkImage(
-                    imageUrl: ch.logo!,
-                    fit: BoxFit.contain,
-                    errorWidget: (_, __, ___) => const Icon(Icons.tv_rounded, color: Colors.white38, size: 40),
-                  )
-                : const Icon(Icons.tv_rounded, color: Colors.white38, size: 40),
+            child: const Icon(Icons.live_tv_rounded, color: kBrandOrange, size: 20),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 10),
+          const Text(
+            'Filmotic TV',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(width: 24),
 
-          // Información del canal y programa actual
+          // Selector de país rápido
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Row(
-                  children: [
-                    Text(
-                      ch?.name ?? 'Selecciona un canal',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    if (ch?.isHD == true)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _countries.map((c) {
+                  final isSel = (_selectedCountry ?? '') == c['code'];
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: InkWell(
+                      onTap: () {
+                        setState(() => _selectedCountry = c['code']);
+                        _loadChannels();
+                      },
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: kBrandOrange.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: kBrandOrange.withValues(alpha: 0.5)),
-                        ),
-                        child: const Text('HD', style: TextStyle(color: kBrandOrange, fontSize: 11, fontWeight: FontWeight.bold)),
-                      ),
-                    const SizedBox(width: 8),
-                    if (countryObj['label']!.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.08),
-                          borderRadius: BorderRadius.circular(6),
+                          color: isSel ? kBrandOrange : Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          countryObj['label']!,
-                          style: const TextStyle(color: Colors.white70, fontSize: 11),
+                          c['label']!,
+                          style: TextStyle(
+                            color: isSel ? Colors.white : Colors.white70,
+                            fontSize: 12,
+                            fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
+                          ),
                         ),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-
-                // Now playing en grande
-                if (epg?.now != null) ...[
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        margin: const EdgeInsets.only(right: 8),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFE50914),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: const Text('EN VIVO', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w800)),
-                      ),
-                      Expanded(
-                        child: Text(
-                          epg!.now!.title,
-                          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  if (epg.now!.description != null && epg.now!.description!.isNotEmpty)
-                    Text(
-                      epg.now!.description!,
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                ] else ...[
-                  Text(
-                    ch?.group ?? 'Canal de televisión abierta',
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13),
-                  ),
-                ],
-              ],
+                  );
+                }).toList(),
+              ),
             ),
           ),
 
           // Botón Guía TV
-          _TvActionButton(
-            icon: Icons.calendar_view_week_rounded,
-            label: 'Guía Completa',
+          InkWell(
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
@@ -392,46 +381,331 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
                 ),
               );
             },
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.calendar_month_rounded, color: Colors.white70, size: 16),
+                  SizedBox(width: 6),
+                  Text('Guía EPG', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Refrescar canales',
+            icon: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
+            onPressed: () => _loadChannels(force: true),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTvActionsBar() {
-    final curCountry = _countries.firstWhere(
-      (c) => c['code'] == (_selectedCountry ?? ''),
-      orElse: () => {'label': 'Todos'},
+  Widget _buildMagisLayout() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // ── 1. Columna de Categorías (Izquierda) ──
+        Container(
+          width: 200,
+          color: kPanelBg,
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+            itemCount: _categories.length,
+            itemBuilder: (context, i) {
+              final cat = _categories[i];
+              final isSel = _selectedCategory == cat['code'];
+              return _TvCategoryItem(
+                label: cat['label']!,
+                icon: cat['icon']!,
+                isSelected: isSel,
+                onTap: () => _onCategorySelected(cat['code']!),
+              );
+            },
+          ),
+        ),
+
+        const VerticalDivider(width: 1, color: Colors.white10),
+
+        // ── 2. Columna de Canales (Centro) ──
+        SizedBox(
+          width: 320,
+          child: _filteredChannels.isEmpty
+              ? _buildEmptyView()
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                  itemCount: _filteredChannels.length,
+                  itemBuilder: (context, i) {
+                    final ch = _filteredChannels[i];
+                    final isSel = _selectedChannel?.id == ch.id;
+                    final epg = _channelEpgMap[ch.id];
+                    return _TvChannelRowItem(
+                      channel: ch,
+                      epg: epg,
+                      isSelected: isSel,
+                      onTap: () => _onChannelSelected(ch),
+                    );
+                  },
+                ),
+        ),
+
+        const VerticalDivider(width: 1, color: Colors.white10),
+
+        // ── 3. Reproductor / Vista previa (Derecha estilo Magis TV) ──
+        Expanded(
+          child: _buildRightPlayerPanel(),
+        ),
+      ],
     );
-    final curCategory = _categories.firstWhere(
-      (cat) => cat['code'] == (_selectedCategory ?? ''),
-      orElse: () => {'label': 'Todas'},
-    );
+  }
+
+  Widget _buildRightPlayerPanel() {
+    final ch = _selectedChannel;
+    if (ch == null) {
+      return const Center(
+        child: Text(
+          'Selecciona un canal para reproducir',
+          style: TextStyle(color: Colors.white54, fontSize: 16),
+        ),
+      );
+    }
+
+    final totalStreams = ch.allStreamUrls.length;
+    final epg = _channelEpgMap[ch.id];
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
       color: Colors.black,
-      child: Row(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _TvFilterChip(
-            label: 'País: ${curCountry['label']}',
-            onTap: _openCountryPicker,
+          // Pantalla del reproductor
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  // Video o Estado
+                  Container(
+                    color: const Color(0xFF07070A),
+                    child: _previewController != null &&
+                            _previewController!.value.isInitialized &&
+                            !_isPreviewLoading
+                        ? AspectRatio(
+                            aspectRatio: _previewController!.value.aspectRatio,
+                            child: VideoPlayer(_previewController!),
+                          )
+                        : _isPreviewLoading
+                            ? const Center(
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CircularProgressIndicator(color: kBrandOrange),
+                                    SizedBox(height: 12),
+                                    Text(
+                                      'Conectando a señal en vivo...',
+                                      style: TextStyle(color: Colors.white70, fontSize: 13),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.error_outline_rounded, color: kBrandOrange, size: 48),
+                                      const SizedBox(height: 10),
+                                      Text(
+                                        _previewError ?? 'Señal no disponible',
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(color: Colors.white, fontSize: 14),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      ElevatedButton.icon(
+                                        onPressed: () => _initPreviewChannel(ch),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: kBrandOrange,
+                                          foregroundColor: Colors.white,
+                                        ),
+                                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                                        label: const Text('Reintentar señal'),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                  ),
+
+                  // Overlay superior
+                  Positioned(
+                    top: 12,
+                    left: 14,
+                    right: 14,
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withValues(alpha: 0.9),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.fiber_manual_record, color: Colors.white, size: 10),
+                              SizedBox(width: 4),
+                              Text('EN VIVO', style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (ch.isHD)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: kBrandOrange.withValues(alpha: 0.9),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text('HD 1080p', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                          ),
+                        const Spacer(),
+                        if (totalStreams > 1)
+                          InkWell(
+                            onTap: () {
+                              final nextIdx = (_selectedStreamIndex + 1) % totalStreams;
+                              _initPreviewChannel(ch, streamIndex: nextIdx);
+                            },
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withValues(alpha: 0.7),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.white24),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.sensors_rounded, color: kBrandOrange, size: 14),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Señal ${_selectedStreamIndex + 1}/$totalStreams (Cambiar)',
+                                    style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+
+                  // Overlay botón de pantalla completa
+                  Positioned(
+                    bottom: 12,
+                    right: 14,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _openFullScreenPlayer(ch),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black.withOpacity(0.75),
+                        foregroundColor: Colors.white,
+                        elevation: 4,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                          side: const BorderSide(color: Colors.white24),
+                        ),
+                      ),
+                      icon: const Icon(Icons.fullscreen_rounded, size: 20),
+                      label: const Text('Pantalla Completa', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(width: 12),
-          _TvFilterChip(
-            label: 'Categoría: ${curCategory['label']}',
-            onTap: _openCategoryPicker,
-          ),
-          const SizedBox(width: 12),
-          _TvFilterChip(
-            label: 'Refrescar',
-            icon: Icons.refresh_rounded,
-            onTap: () => _loadChannels(force: true),
-          ),
-          const Spacer(),
-          Text(
-            '${_filteredChannels.length} canales disponibles',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12),
+
+          const SizedBox(height: 14),
+
+          // Detalles del canal actual (Nombre, EPG, Señales)
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: kPanelBg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.white10),
+            ),
+            child: Row(
+              children: [
+                if (ch.logo != null && ch.logo!.isNotEmpty)
+                  Container(
+                    width: 50,
+                    height: 50,
+                    margin: const EdgeInsets.only(right: 14),
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: CachedNetworkImage(
+                      imageUrl: ch.logo!,
+                      fit: BoxFit.contain,
+                      errorWidget: (_, __, ___) => const Icon(Icons.tv, color: Colors.white38),
+                    ),
+                  ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        ch.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      if (epg?.now != null) ...[
+                        Text(
+                          'Ahora: ${epg!.now!.title}',
+                          style: const TextStyle(color: kBrandOrange, fontSize: 13, fontWeight: FontWeight.w600),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ] else ...[
+                        Text(
+                          ch.group ?? 'Canal de televisión abierta',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => _openFullScreenPlayer(ch),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: kBrandOrange,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  icon: const Icon(Icons.play_arrow_rounded, size: 22),
+                  label: const Text('Ver en Vivo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -447,10 +721,11 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
           const SizedBox(height: 12),
           Text(_error!, style: const TextStyle(color: Colors.white70, fontSize: 16)),
           const SizedBox(height: 16),
-          _TvActionButton(
-            icon: Icons.refresh_rounded,
-            label: 'Reintentar',
-            onTap: () => _loadChannels(force: true),
+          ElevatedButton.icon(
+            onPressed: () => _loadChannels(force: true),
+            style: ElevatedButton.styleFrom(backgroundColor: kBrandOrange),
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Reintentar'),
           ),
         ],
       ),
@@ -459,205 +734,71 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
 
   Widget _buildEmptyView() {
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.tv_off_rounded, color: Colors.white24, size: 56),
-          const SizedBox(height: 12),
-          Text(
-            'No hay canales disponibles para esta categoría o país.',
-            style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 16),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _TvChannelCard extends StatefulWidget {
-  final LiveChannel channel;
-  final _ChannelEpgState? epg;
-  final VoidCallback onFocused;
-  final VoidCallback onSelect;
-
-  const _TvChannelCard({
-    required this.channel,
-    required this.epg,
-    required this.onFocused,
-    required this.onSelect,
-  });
-
-  @override
-  State<_TvChannelCard> createState() => _TvChannelCardState();
-}
-
-class _TvChannelCardState extends State<_TvChannelCard> {
-  bool _isFocused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    const kBrandOrange = Color(0xFFFF6B35);
-
-    return Focus(
-      onFocusChange: (f) {
-        setState(() => _isFocused = f);
-        if (f) widget.onFocused();
-      },
-      child: InkWell(
-        onTap: widget.onSelect,
-        borderRadius: BorderRadius.circular(16),
-        child: AnimatedScale(
-          scale: _isFocused ? 1.05 : 1.0,
-          duration: const Duration(milliseconds: 150),
-          child: Container(
-            decoration: BoxDecoration(
-              color: _isFocused ? const Color(0xFF222234) : const Color(0xFF14141E),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(
-                color: _isFocused ? kBrandOrange : Colors.white.withValues(alpha: 0.08),
-                width: _isFocused ? 3.0 : 1.0,
-              ),
-              boxShadow: _isFocused
-                  ? [
-                      BoxShadow(
-                        color: kBrandOrange.withValues(alpha: 0.35),
-                        blurRadius: 16,
-                        spreadRadius: 2,
-                      )
-                    ]
-                  : null,
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.tv_off_rounded, color: Colors.white24, size: 48),
+            const SizedBox(height: 12),
+            Text(
+              'No se encontraron canales en esta categoría.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 14),
             ),
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    // Logo
-                    Container(
-                      width: 44,
-                      height: 44,
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.06),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: widget.channel.logo != null && widget.channel.logo!.isNotEmpty
-                          ? CachedNetworkImage(
-                              imageUrl: widget.channel.logo!,
-                              fit: BoxFit.contain,
-                              errorWidget: (_, __, ___) => const Icon(Icons.tv, color: Colors.white38, size: 24),
-                            )
-                          : const Icon(Icons.tv, color: Colors.white38, size: 24),
-                    ),
-                    const Spacer(),
-                    if (widget.channel.isHD)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: kBrandOrange.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: kBrandOrange.withValues(alpha: 0.5)),
-                        ),
-                        child: const Text('HD', style: TextStyle(color: kBrandOrange, fontSize: 10, fontWeight: FontWeight.bold)),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  widget.channel.name,
-                  style: TextStyle(
-                    color: _isFocused ? Colors.white : Colors.white70,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const Spacer(),
-                if (widget.epg?.now != null) ...[
-                  Row(
-                    children: [
-                      const Icon(Icons.fiber_manual_record, color: kBrandOrange, size: 8),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          widget.epg!.now!.title,
-                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: LinearProgressIndicator(
-                      value: widget.epg!.now!.progress,
-                      minHeight: 2.5,
-                      backgroundColor: Colors.white12,
-                      valueColor: const AlwaysStoppedAnimation<Color>(kBrandOrange),
-                    ),
-                  ),
-                ] else ...[
-                  Text(
-                    widget.channel.group ?? 'En vivo',
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 11),
-                  ),
-                ],
-              ],
-            ),
-          ),
+          ],
         ),
       ),
     );
   }
 }
 
-class _TvActionButton extends StatefulWidget {
-  final IconData icon;
+// ── Widget Ítem de Categoría (Izquierda) ──
+class _TvCategoryItem extends StatelessWidget {
   final String label;
+  final String icon;
+  final bool isSelected;
   final VoidCallback onTap;
 
-  const _TvActionButton({
-    required this.icon,
+  const _TvCategoryItem({
     required this.label,
+    required this.icon,
+    required this.isSelected,
     required this.onTap,
   });
 
   @override
-  State<_TvActionButton> createState() => _TvActionButtonState();
-}
-
-class _TvActionButtonState extends State<_TvActionButton> {
-  bool _isFocused = false;
-
-  @override
   Widget build(BuildContext context) {
     const kBrandOrange = Color(0xFFFF6B35);
-
-    return Focus(
-      onFocusChange: (f) => setState(() => _isFocused = f),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
       child: InkWell(
-        onTap: widget.onTap,
-        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           decoration: BoxDecoration(
-            color: _isFocused ? kBrandOrange : Colors.white.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(12),
+            color: isSelected ? kBrandOrange.withValues(alpha: 0.18) : Colors.transparent,
+            borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: _isFocused ? Colors.white : Colors.white.withValues(alpha: 0.15),
+              color: isSelected ? kBrandOrange.withValues(alpha: 0.6) : Colors.transparent,
             ),
           ),
           child: Row(
             children: [
-              Icon(widget.icon, color: Colors.white, size: 18),
-              const SizedBox(width: 8),
-              Text(
-                widget.label,
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13),
+              Text(icon, style: const TextStyle(fontSize: 16)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: isSelected ? kBrandOrange : Colors.white70,
+                    fontSize: 13,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
             ],
           ),
@@ -667,57 +808,139 @@ class _TvActionButtonState extends State<_TvActionButton> {
   }
 }
 
-class _TvFilterChip extends StatefulWidget {
-  final String label;
-  final IconData? icon;
+// ── Widget Fila de Canal en Lista (Centro) ──
+class _TvChannelRowItem extends StatelessWidget {
+  final LiveChannel channel;
+  final _ChannelEpgState? epg;
+  final bool isSelected;
   final VoidCallback onTap;
 
-  const _TvFilterChip({
-    required this.label,
-    this.icon,
+  const _TvChannelRowItem({
+    required this.channel,
+    required this.epg,
+    required this.isSelected,
     required this.onTap,
   });
 
   @override
-  State<_TvFilterChip> createState() => _TvFilterChipState();
-}
-
-class _TvFilterChipState extends State<_TvFilterChip> {
-  bool _isFocused = false;
-
-  @override
   Widget build(BuildContext context) {
     const kBrandOrange = Color(0xFFFF6B35);
+    final totalSignals = channel.allStreamUrls.length;
 
-    return Focus(
-      onFocusChange: (f) => setState(() => _isFocused = f),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
       child: InkWell(
-        onTap: widget.onTap,
-        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: _isFocused ? kBrandOrange.withValues(alpha: 0.3) : const Color(0xFF1B1B26),
-            borderRadius: BorderRadius.circular(10),
+            color: isSelected ? const Color(0xFF222234) : const Color(0xFF161622),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: _isFocused ? kBrandOrange : Colors.white.withValues(alpha: 0.1),
-              width: _isFocused ? 2 : 1,
+              color: isSelected ? kBrandOrange : Colors.white.withValues(alpha: 0.06),
+              width: isSelected ? 2.0 : 1.0,
             ),
+            boxShadow: isSelected
+                ? [
+                    BoxShadow(
+                      color: kBrandOrange.withValues(alpha: 0.25),
+                      blurRadius: 10,
+                      spreadRadius: 1,
+                    )
+                  ]
+                : null,
           ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              if (widget.icon != null) ...[
-                Icon(widget.icon, color: _isFocused ? kBrandOrange : Colors.white70, size: 14),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                widget.label,
-                style: TextStyle(
-                  color: _isFocused ? Colors.white : Colors.white70,
-                  fontSize: 12,
-                  fontWeight: _isFocused ? FontWeight.bold : FontWeight.w500,
+              // Logo del canal
+              Container(
+                width: 38,
+                height: 38,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(8),
                 ),
+                child: channel.logo != null && channel.logo!.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: channel.logo!,
+                        fit: BoxFit.contain,
+                        errorWidget: (_, __, ___) => const Icon(Icons.tv, color: Colors.white38, size: 20),
+                      )
+                    : const Icon(Icons.tv, color: Colors.white38, size: 20),
+              ),
+              const SizedBox(width: 10),
+
+              // Nombre y EPG
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      channel.name,
+                      style: TextStyle(
+                        color: isSelected ? Colors.white : Colors.white70,
+                        fontSize: 14,
+                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 3),
+                    if (epg?.now != null)
+                      Text(
+                        epg!.now!.title,
+                        style: TextStyle(
+                          color: isSelected ? kBrandOrange : Colors.white54,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      )
+                    else
+                      Text(
+                        channel.group ?? 'En vivo',
+                        style: const TextStyle(color: Colors.white38, fontSize: 11),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 6),
+
+              // Badges: HD y Señales
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (channel.isHD)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: kBrandOrange.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: kBrandOrange.withValues(alpha: 0.5)),
+                      ),
+                      child: const Text('HD', style: TextStyle(color: kBrandOrange, fontSize: 9, fontWeight: FontWeight.bold)),
+                    ),
+                  if (totalSignals > 1) ...[
+                    const SizedBox(height: 3),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        '$totalSignals señ.',
+                        style: const TextStyle(color: Colors.white70, fontSize: 9, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),
@@ -730,5 +953,6 @@ class _TvFilterChipState extends State<_TvFilterChip> {
 class _ChannelEpgState {
   final EpgProgram? now;
   final EpgProgram? next;
+
   const _ChannelEpgState({this.now, this.next});
 }

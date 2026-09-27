@@ -161,6 +161,7 @@ class FilmoticLiveTvConfig {
             'group': 'General',
             'country': 'CO',
             'streams': [
+              'http://181.78.211.244:8005/play/a09t/index.m3u8',
               'https://rcntv-rcnmas-1-us.roku.wurl.tv/playlist.m3u8',
               'http://181.78.17.228:8081/RCN-HD/index.m3u8',
               'http://138.121.15.230:9002/RCN/index.m3u8',
@@ -173,8 +174,9 @@ class FilmoticLiveTvConfig {
             'group': 'General',
             'country': 'CO',
             'streams': [
-              'http://181.78.17.228:8081/CARACOL-HD/index.m3u8',
+              'http://181.78.211.244:8005/play/a020/index.m3u8',
               'http://181.79.86.130:8000/play/a077/index.m3u8',
+              'http://181.78.17.228:8081/CARACOL-HD/index.m3u8',
               'http://138.121.15.230:9002/CARACOL/index.m3u8',
             ],
           },
@@ -190,13 +192,13 @@ class FilmoticLiveTvConfig {
           },
           {
             'name': 'Cablenoticias',
-            'aliases': ['cablenoticias', 'cable noticias'],
+            'aliases': ['cablenoticias', 'cable noticias', 'cablenoticias (1080p)'],
             'logo': 'https://i.imgur.com/sWjXjU6.png',
             'group': 'News',
             'country': 'CO',
             'streams': [
+              'http://181.78.211.244:8005/play/a09u/index.m3u8',
               'http://181.78.17.228:8081/CABLENOTICIAS-HD/index.m3u8',
-              'https://play.cdn.enetres.net/621B146D29C541AFB1507809F038F471021/021/playlist.m3u8',
             ],
           },
         ],

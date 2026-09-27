@@ -1081,6 +1081,18 @@ class _MainHomeState extends State<MainHome> {
                       ),
                     ),
                   ),
+                  if (_menuActive)
+                    Positioned.fill(
+                      left: _railWidth,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () {
+                          _collapseMenu();
+                          _unfocusMenu();
+                        },
+                        child: const ColoredBox(color: Colors.transparent),
+                      ),
+                    ),
                   Positioned(
                     left: 0,
                     top: 0,

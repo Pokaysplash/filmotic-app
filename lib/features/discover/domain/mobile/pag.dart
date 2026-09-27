@@ -30,7 +30,7 @@ class _ServiciosPageState extends State<ServiciosPage>
   late Fuente _servicio;
   String _tipo = 'movie';
   String _genero = '';
-  bool _populares = false;
+  bool _populares = true;
 
   bool _loading = true;
   bool _loadingMore = false;
@@ -97,6 +97,21 @@ class _ServiciosPageState extends State<ServiciosPage>
     return f?.label ?? _searchTipo;
   }
 
+  List<ScraperItem> _deduplicate(List<ScraperItem> list) {
+    final seen = <String>{};
+    final out = <ScraperItem>[];
+    for (final item in list) {
+      final key = item.tmdbId != null && item.tmdbId! > 0
+          ? 'tmdb_${item.tmdbId}'
+          : item.titulo.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (!seen.contains(key)) {
+        seen.add(key);
+        out.add(item);
+      }
+    }
+    return out;
+  }
+
   // ── Carga listado ───────────────────────────────────────────────────────
   Future<void> _load({bool reset = false}) async {
     if (reset) {
@@ -151,9 +166,9 @@ class _ServiciosPageState extends State<ServiciosPage>
 
       setState(() {
         if (reset) {
-          _items = result.items;
+          _items = _deduplicate(result.items);
         } else {
-          _items.addAll(result.items);
+          _items = _deduplicate([..._items, ...result.items]);
         }
         _hasNext = result.hasNext;
         _page = result.currentPage + 1;
@@ -670,17 +685,9 @@ class _ServiciosPageState extends State<ServiciosPage>
                   : Column(
                       children: [
                         Padding(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                           child: Row(
                             children: [
-                              Expanded(
-                                child: _FilterChipButton(
-                                  label: _servicioLabel,
-                                  icon: Icons.cloud_rounded,
-                                  onTap: _showServicioSheet,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
                               Expanded(
                                 child: _FilterChipButton(
                                   label: _tipoLabel,
@@ -688,7 +695,7 @@ class _ServiciosPageState extends State<ServiciosPage>
                                   onTap: _showTipoSheet,
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 10),
                               Expanded(
                                 child: _FilterChipButton(
                                   label: _generoLabel,

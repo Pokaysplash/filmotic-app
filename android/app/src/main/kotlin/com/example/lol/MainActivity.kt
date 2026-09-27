@@ -46,6 +46,40 @@ class MainActivity : FlutterActivity() {
                     result.notImplemented()
                 }
             }
+
+        // ── Control y refuerzo de volumen de medios (Audio Boost) ─────────
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.example.lol/audio")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "boostVolume" -> {
+                        try {
+                            val audioManager = getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+                            val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                            val currentVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                            val targetVol = (maxVol * 0.95).toInt().coerceAtLeast(1)
+                            if (currentVol < targetVol) {
+                                audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
+                            }
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    "setVolumePercent" -> {
+                        try {
+                            val pct = call.argument<Double>("percent") ?: 1.0
+                            val audioManager = getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+                            val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                            val targetVol = (maxVol * pct.coerceIn(0.0, 1.0)).toInt()
+                            audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, android.media.AudioManager.FLAG_SHOW_UI)
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     private fun injectNativeClick(flutterX: Float, flutterY: Float) {

@@ -142,6 +142,9 @@ class _LiveTvPageState extends State<LiveTvPage> {
           final isOnline = LiveTvService.instance.isChannelOnline(c.id);
           if (isOnline == false) return false;
         }
+        if (_selectedCategory != null && _selectedCategory!.isNotEmpty) {
+          if (!LiveTvService.matchesCategory(c, _selectedCategory)) return false;
+        }
         if (query.isNotEmpty) {
           final matchesName = c.name.toLowerCase().contains(query);
           final matchesGroup = c.group?.toLowerCase().contains(query) ?? false;
@@ -153,7 +156,12 @@ class _LiveTvPageState extends State<LiveTvPage> {
   }
 
   void _playChannel(LiveChannel channel) {
-    PlayerScreen.openLiveChannel(context, channel);
+    PlayerScreen.openLiveChannel(
+      context,
+      channel,
+      allChannels: _filteredChannels,
+      currentChannelIndex: _filteredChannels.indexOf(channel),
+    );
   }
 
   @override

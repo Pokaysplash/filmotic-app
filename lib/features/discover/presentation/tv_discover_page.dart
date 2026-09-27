@@ -35,7 +35,7 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
   late Fuente _servicio;
   String _tipo = 'movie';
   String _genero = '';
-  bool _populares = false;
+  bool _populares = true;
 
   bool _loading = true;
   bool _loadingMore = false;
@@ -79,7 +79,7 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
 
     // Primer filtro = nodo principal para el menú
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      widget.onMainFocusNodeCreated?.call(_servicioFocus);
+      widget.onMainFocusNodeCreated?.call(_tipoFocus);
     });
 
     _load(reset: true);
@@ -136,6 +136,21 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
       curve: Curves.easeOut,
       alignment: 0.25,
     );
+  }
+
+  List<ScraperItem> _deduplicate(List<ScraperItem> list) {
+    final seen = <String>{};
+    final out = <ScraperItem>[];
+    for (final item in list) {
+      final key = item.tmdbId != null && item.tmdbId! > 0
+          ? 'tmdb_${item.tmdbId}'
+          : item.titulo.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+      if (!seen.contains(key)) {
+        seen.add(key);
+        out.add(item);
+      }
+    }
+    return out;
   }
 
   void _clearPosterFocus() {
@@ -201,9 +216,9 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
 
       setState(() {
         if (reset) {
-          _items = result.items;
+          _items = _deduplicate(result.items);
         } else {
-          _items.addAll(result.items);
+          _items = _deduplicate([..._items, ...result.items]);
         }
         _hasNext = result.hasNext;
         _page = result.currentPage + 1;
@@ -532,7 +547,7 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
   }
 
   // ── Navegación de filtros ────────────────────────────────────────────────
-  // 0=Servicio, 1=Tipo, 2=Género, 3=Buscar
+  // 0=Tipo, 1=Género, 2=Buscar
   KeyEventResult _onFilterKey(FocusNode node, KeyEvent event, int filterIndex) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
@@ -540,20 +555,16 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
       if (filterIndex == 0) {
         widget.onRequestMenuFocus?.call();
       } else if (filterIndex == 1) {
-        _servicioFocus.requestFocus();
-      } else if (filterIndex == 2) {
         _tipoFocus.requestFocus();
-      } else if (filterIndex == 3) {
+      } else if (filterIndex == 2) {
         _generoFocus.requestFocus();
       }
       return KeyEventResult.handled;
     }
     if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       if (filterIndex == 0) {
-        _tipoFocus.requestFocus();
-      } else if (filterIndex == 1) {
         _generoFocus.requestFocus();
-      } else if (filterIndex == 2) {
+      } else if (filterIndex == 1) {
         _buscarFocus.requestFocus();
       }
       return KeyEventResult.handled;
@@ -570,10 +581,9 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
     }
     if (event.logicalKey == LogicalKeyboardKey.select ||
         event.logicalKey == LogicalKeyboardKey.enter) {
-      if (filterIndex == 0) _showServicioMenu();
-      if (filterIndex == 1) _showTipoMenu();
-      if (filterIndex == 2) _showGeneroMenu();
-      if (filterIndex == 3) _openBuscar();
+      if (filterIndex == 0) _showTipoMenu();
+      if (filterIndex == 1) _showGeneroMenu();
+      if (filterIndex == 2) _openBuscar();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -606,7 +616,7 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
           _getPosterFocus(index - _kCols).requestFocus();
         } else {
           // Primera fila → filtros
-          _servicioFocus.requestFocus();
+          _tipoFocus.requestFocus();
         }
         return KeyEventResult.handled;
 
@@ -650,41 +660,30 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
             child: Row(
               children: [
                 Expanded(
-                  flex: 3,
-                  child: _FilterPill(
-                    focusNode: _servicioFocus,
-                    label: 'Fuente',
-                    value: _servicioLabel,
-                    onKeyEvent: (n, e) => _onFilterKey(n, e, 0),
-                    onTap: _showServicioMenu,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 2,
+                  flex: 1,
                   child: _FilterPill(
                     focusNode: _tipoFocus,
                     label: 'Tipo',
                     value: _tipoLabel,
-                    onKeyEvent: (n, e) => _onFilterKey(n, e, 1),
+                    onKeyEvent: (n, e) => _onFilterKey(n, e, 0),
                     onTap: _showTipoMenu,
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  flex: 2,
+                  flex: 1,
                   child: _FilterPill(
                     focusNode: _generoFocus,
                     label: 'Género',
                     value: _generoLabel,
-                    onKeyEvent: (n, e) => _onFilterKey(n, e, 2),
+                    onKeyEvent: (n, e) => _onFilterKey(n, e, 1),
                     onTap: _showGeneroMenu,
                   ),
                 ),
                 const SizedBox(width: 12),
                 _SearchPill(
                   focusNode: _buscarFocus,
-                  onKeyEvent: (n, e) => _onFilterKey(n, e, 3),
+                  onKeyEvent: (n, e) => _onFilterKey(n, e, 2),
                   onTap: _openBuscar,
                 ),
               ],

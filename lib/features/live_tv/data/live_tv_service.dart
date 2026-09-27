@@ -37,7 +37,11 @@ class LiveTvService {
           );
           if (cached.isNotEmpty) {
             final list = cached.map((m) => LiveChannel.fromMap(m)).toList();
-            final enriched = _enrichWithVerifiedSources(list, country);
+            var enriched = _enrichWithVerifiedSources(list, country, group: group);
+            if (group != null && group.isNotEmpty && group != 'ALL') {
+              final filtered = enriched.where((c) => matchesCategory(c, group)).toList();
+              if (filtered.isNotEmpty) enriched = filtered;
+            }
             return _sortChannels(enriched);
           }
         }
@@ -58,6 +62,15 @@ class LiveTvService {
         futures.add(http.get(Uri.parse(streamsUrl)).timeout(const Duration(seconds: 10)));
       }
 
+      // Si se especificó una categoría temática, también descargar canales de esa categoría
+      final hasGroup = group != null && group.isNotEmpty && group != 'ALL';
+      final catUrl = hasGroup
+          ? 'https://iptv-org.github.io/iptv/categories/${group.toLowerCase()}.m3u'
+          : null;
+      if (catUrl != null && catUrl != url) {
+        futures.add(http.get(Uri.parse(catUrl)).timeout(const Duration(seconds: 10)));
+      }
+
       final responses = await Future.wait(futures);
       final mainRes = responses[0];
       if (mainRes.statusCode == 200) {
@@ -70,22 +83,45 @@ class LiveTvService {
         var channels = parseResult.channels;
 
         // Si descargamos la lista de streams completa, combinar fuentes alternativas
-        if (responses.length > 1 && responses[1].statusCode == 200) {
+        if (streamsUrl != null && responses.length > 1 && responses[1].statusCode == 200) {
           try {
             final streamsBody = utf8.decode(responses[1].bodyBytes);
-            final streamsResult = M3UParser.parse(streamsBody, streamsUrl!);
+            final streamsResult = M3UParser.parse(streamsBody, streamsUrl);
             channels = _mergeAlternateStreams(channels, streamsResult.channels);
           } catch (_) {}
         }
 
+        // Si descargamos lista de categoría, agregar canales en español de esa categoría
+        if (catUrl != null) {
+          final catResIndex = futures.length - 1;
+          if (catResIndex < responses.length && responses[catResIndex].statusCode == 200) {
+            try {
+              final catBody = utf8.decode(responses[catResIndex].bodyBytes);
+              final catResult = M3UParser.parse(catBody, catUrl);
+              final esCatChannels = catResult.channels.where((c) {
+                final lang = (c.language ?? '').toLowerCase();
+                final nm = c.name.toLowerCase();
+                return lang == 'spa' || lang == 'es' || nm.contains('esp') || nm.contains('spanish');
+              }).toList();
+              channels = _mergeAlternateStreams(channels, esCatChannels);
+            } catch (_) {}
+          }
+        }
+
         // Enriquecer con verified_sources configuradas remotamente (RCN, Caracol, etc.)
-        channels = _enrichWithVerifiedSources(channels, country);
+        channels = _enrichWithVerifiedSources(channels, country, group: group);
 
         if (channels.isNotEmpty) {
           // Guardar en caché Sembast
           final maps = channels.map((c) => c.toMap()).toList();
           await AppDatabase.instance.saveLiveChannels(listKey, maps);
-          return _sortChannels(channels);
+
+          var result = channels;
+          if (hasGroup) {
+            result = channels.where((c) => matchesCategory(c, group)).toList();
+            if (result.isEmpty) result = channels; // Fallback seguro
+          }
+          return _sortChannels(result);
         }
       }
     } catch (e) {
@@ -100,7 +136,12 @@ class LiveTvService {
     );
     if (fallbackCached.isNotEmpty) {
       final list = fallbackCached.map((m) => LiveChannel.fromMap(m)).toList();
-      return _sortChannels(_enrichWithVerifiedSources(list, country));
+      var enriched = _enrichWithVerifiedSources(list, country, group: group);
+      if (group != null && group.isNotEmpty && group != 'ALL') {
+        final filtered = enriched.where((c) => matchesCategory(c, group)).toList();
+        if (filtered.isNotEmpty) enriched = filtered;
+      }
+      return _sortChannels(enriched);
     }
 
     return [];
@@ -208,7 +249,11 @@ class LiveTvService {
   }
 
   /// Enriquecer canales existentes con fuentes verificadas y canales de alta disponibilidad
-  List<LiveChannel> _enrichWithVerifiedSources(List<LiveChannel> channels, String? country) {
+  List<LiveChannel> _enrichWithVerifiedSources(
+    List<LiveChannel> channels,
+    String? country, {
+    String? group,
+  }) {
     final verifiedList = RemoteConfigService.instance.config.liveTv.verifiedSources;
     if (verifiedList.isEmpty) return channels;
 
@@ -217,8 +262,24 @@ class LiveTvService {
     for (final v in verifiedList) {
       final vName = (v['name'] ?? '').toString();
       final vCountry = (v['country'] ?? '').toString().toUpperCase();
+      final vGroup = (v['group'] ?? '').toString();
+
+      // Si se filtra por país específico pero la fuente es de otro país, permitirla si coincide con el grupo solicitado
       if (country != null && country.isNotEmpty && country != 'ALL' && vCountry.isNotEmpty) {
-        if (country.toUpperCase() != vCountry) continue;
+        final matchesGroupFilter = group != null && group.isNotEmpty && matchesCategory(
+          LiveChannel(
+            id: '',
+            name: vName,
+            group: vGroup,
+            streamUrl: '',
+            sourceList: '',
+            isHD: true,
+          ),
+          group,
+        );
+        if (country.toUpperCase() != vCountry && !matchesGroupFilter) {
+          continue;
+        }
       }
 
       final rawStreams = (v['streams'] as List?)
@@ -261,13 +322,14 @@ class LiveTvService {
           streamUrl: combined.first,
           alternateUrls: combined.length > 1 ? combined.sublist(1) : [],
           isHD: true,
+          group: existing.group ?? vGroup,
         );
       } else {
         final newChannel = LiveChannel(
           id: 'verified_${vName.replaceAll(' ', '_').toLowerCase()}',
           name: vName,
           logo: v['logo']?.toString(),
-          group: v['group']?.toString() ?? 'General',
+          group: vGroup.isNotEmpty ? vGroup : 'General',
           country: vCountry.isNotEmpty ? vCountry : 'CO',
           language: 'spa',
           streamUrl: rawStreams.first,
@@ -280,6 +342,140 @@ class LiveTvService {
     }
 
     return updated;
+  }
+
+  /// Clasificador y comparador de categorías para LiveChannel
+  static bool matchesCategory(LiveChannel channel, String? categoryCode) {
+    if (categoryCode == null ||
+        categoryCode.isEmpty ||
+        categoryCode == 'ALL' ||
+        categoryCode == 'todas') {
+      return true;
+    }
+    final cat = categoryCode.toLowerCase().trim();
+    final group = (channel.group ?? '').toLowerCase();
+    final name = channel.name.toLowerCase();
+
+    switch (cat) {
+      case 'sports':
+      case 'deportes':
+        return group.contains('sport') ||
+            group.contains('deport') ||
+            name.contains('sport') ||
+            name.contains('deport') ||
+            name.contains('win') ||
+            name.contains('espn') ||
+            name.contains('fox') ||
+            name.contains('directv') ||
+            name.contains('dsports') ||
+            name.contains('tyc') ||
+            name.contains('claro') ||
+            name.contains('gol') ||
+            name.contains('futbol') ||
+            name.contains('racing') ||
+            name.contains('nba') ||
+            name.contains('tudn') ||
+            name.contains('red bull');
+
+      case 'news':
+      case 'noticias':
+        return group.contains('news') ||
+            group.contains('noticia') ||
+            name.contains('noticia') ||
+            name.contains('news') ||
+            name.contains('ntn24') ||
+            name.contains('cablenoticias') ||
+            name.contains('cable noticias') ||
+            name.contains('cnn') ||
+            name.contains('dw') ||
+            name.contains('france 24') ||
+            name.contains('telesur') ||
+            name.contains('euronews') ||
+            name.contains('rt') ||
+            name.contains('hora 20');
+
+      case 'kids':
+      case 'infantil':
+        return group.contains('kid') ||
+            group.contains('infantil') ||
+            group.contains('anim') ||
+            name.contains('cartoon') ||
+            name.contains('disney') ||
+            name.contains('nickelodeon') ||
+            name.contains('nick') ||
+            name.contains('boing') ||
+            name.contains('clan') ||
+            name.contains('baby') ||
+            name.contains('infantil') ||
+            name.contains('discovery kids') ||
+            name.contains('toonz') ||
+            name.contains('anime');
+
+      case 'movies':
+      case 'peliculas':
+      case 'cine':
+        return group.contains('movie') ||
+            group.contains('cine') ||
+            group.contains('film') ||
+            name.contains('cine') ||
+            name.contains('movie') ||
+            name.contains('film') ||
+            name.contains('cinema') ||
+            name.contains('hbo') ||
+            name.contains('cinemax') ||
+            name.contains('tnt') ||
+            name.contains('star channel') ||
+            name.contains('warner') ||
+            name.contains('space') ||
+            name.contains('universal') ||
+            name.contains('paramount') ||
+            name.contains('sony') ||
+            name.contains('axn') ||
+            name.contains('golden') ||
+            name.contains('pluto tv cine') ||
+            name.contains('runtime');
+
+      case 'music':
+      case 'musica':
+        return group.contains('music') ||
+            group.contains('musica') ||
+            name.contains('music') ||
+            name.contains('musica') ||
+            name.contains('mtv') ||
+            name.contains('htv') ||
+            name.contains('vh1') ||
+            name.contains('hits') ||
+            name.contains('radio');
+
+      case 'documentary':
+      case 'documentales':
+        return group.contains('doc') ||
+            name.contains('doc') ||
+            name.contains('discovery') ||
+            name.contains('natgeo') ||
+            name.contains('national geographic') ||
+            name.contains('history') ||
+            name.contains('animal planet');
+
+      case 'nacionales':
+      case 'locales':
+        return name.contains('rcn') ||
+            name.contains('caracol') ||
+            name.contains('canal 1') ||
+            name.contains('canal uno') ||
+            name.contains('señal colombia') ||
+            name.contains('teleantioquia') ||
+            name.contains('telecaribe') ||
+            name.contains('telepacifico') ||
+            name.contains('telecafe') ||
+            name.contains('canal tro') ||
+            name.contains('citytv') ||
+            name.contains('canal trece') ||
+            group.contains('general');
+
+      default:
+        return group.contains(cat) || name.contains(cat);
+    }
   }
 
   /// Combina streams alternativos descargados de la lista general

@@ -23,6 +23,9 @@ import '../widgets/screensaver_overlay.dart';
 import '../../../../data/datasources/remote/tmdb/tmdb_player_api.dart';
 import 'tv_player_controller.dart';
 import '../widgets/because_you_watched_overlay.dart';
+import '../../../../core/services/audio_service.dart';
+import '../../../live_tv/data/live_tv_service.dart';
+import '../../../live_tv/domain/channel.dart';
 class _SubtitleCue {
   final Duration start;
   final Duration end;
@@ -163,33 +166,63 @@ class PlayerScreen extends StatefulWidget {
     this.isLive = false,
     this.liveLogo,
     this.liveStreams,
+    this.initialLiveIndex = 0,
+    this.allChannels,
+    this.initialChannelIndex = -1,
   });
 
   final List<String>? liveStreams;
+  final int initialLiveIndex;
+  final List<dynamic>? allChannels;
+  final int initialChannelIndex;
 
-  static void openLiveChannel(BuildContext context, dynamic channel) {
+  static Future<void> openLiveChannel(
+    BuildContext context,
+    dynamic channel, {
+    int initialStreamIndex = 0,
+    String? streamUrl,
+    List<String>? allStreams,
+    List<dynamic>? allChannels,
+    int? currentChannelIndex,
+  }) async {
     List<String> streams = [];
-    try {
-      streams = List<String>.from(channel.allStreamUrls);
-    } catch (_) {
+    if (allStreams != null && allStreams.isNotEmpty) {
+      streams = List<String>.from(allStreams);
+    } else {
       try {
-        streams = [channel.streamUrl?.toString() ?? ''];
-      } catch (_) {}
-    }
-    if (streams.isEmpty && channel.streamUrl != null) {
-      streams = [channel.streamUrl.toString()];
+        streams = List<String>.from(channel.allStreamUrls);
+      } catch (_) {
+        try {
+          streams = [channel.streamUrl?.toString() ?? ''];
+        } catch (_) {}
+      }
+      if (streams.isEmpty && channel.streamUrl != null) {
+        streams = [channel.streamUrl.toString()];
+      }
     }
 
-    Navigator.of(context).push(
+    final safeIndex = streams.isNotEmpty
+        ? initialStreamIndex.clamp(0, streams.length - 1)
+        : 0;
+    final activeUrl = (streamUrl != null && streamUrl.isNotEmpty)
+        ? streamUrl
+        : (streams.isNotEmpty ? streams[safeIndex] : (channel.streamUrl ?? ''));
+
+    final chanIdx = currentChannelIndex ?? (allChannels != null ? allChannels.indexOf(channel) : -1);
+
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
-          videoUrl: streams.isNotEmpty ? streams.first : (channel.streamUrl ?? ''),
+          videoUrl: activeUrl,
           idcontenido: channel.id.hashCode,
           tipo: 'live',
           titulo: channel.name,
           isLive: true,
           liveLogo: channel.logo,
           liveStreams: streams,
+          initialLiveIndex: safeIndex,
+          allChannels: allChannels,
+          initialChannelIndex: chanIdx,
         ),
       ),
     );
@@ -209,6 +242,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
   List<Map<String, dynamic>> _fallbackServers = [];
   int _fallbackIndex = 0;
   int _currentLiveIndex = 0;
+  List<dynamic> _allChannels = [];
+  int _currentChannelIndex = -1;
+  String _currentChannelName = '';
+  String? _currentChannelLogo;
+  List<String> _liveStreams = [];
+  final FocusNode _channelsDrawerFocusNode = FocusNode();
+  final FocusNode _prevChannelFocusNode = FocusNode();
+  final FocusNode _nextChannelFocusNode = FocusNode();
+  final FocusNode _cycleStreamFocusNode = FocusNode();
+  final FocusNode _errorNextChannelFocusNode = FocusNode();
+  final FocusNode _errorChannelListFocusNode = FocusNode();
+  Timer? _vodWatchdogTimer;
+  bool _isSwitchingServerNotice = false;
   bool _isResolving = false;
   bool _allServersFailed = false;
   bool _preloadTriggered = false;
@@ -555,6 +601,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    _currentLiveIndex = widget.initialLiveIndex;
+    _allChannels = widget.allChannels != null ? List<dynamic>.from(widget.allChannels!) : [];
+    _currentChannelIndex = widget.initialChannelIndex;
+    _currentChannelName = widget.titulo;
+    _currentChannelLogo = widget.liveLogo;
+    _liveStreams = widget.liveStreams != null ? List<String>.from(widget.liveStreams!) : [];
+    try {
+      AudioBoostService.instance.boostVolume();
+    } catch (_) {}
+    if (widget.isLive && _allChannels.isEmpty) {
+      _loadChannelsIfEmpty();
+    }
     _actionNodes = [
       _playPauseFocusNode,
       _restartFocusNode,
@@ -1509,6 +1567,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _controller.addListener(_videoListener);
       _controllerReady = true;
+      try {
+        await _controller.setVolume(1.0);
+        AudioBoostService.instance.boostVolume();
+      } catch (_) {}
+
+      // ── Watchdog de 5 segundos para VOD ─────────────────────────────────
+      _vodWatchdogTimer?.cancel();
+      if (!widget.isLive) {
+        _vodWatchdogTimer = Timer(const Duration(seconds: 5), () {
+          if (!mounted || _isDisposing || widget.isLive) return;
+          final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
+          final playing = _controllerReady && _controller.value.isPlaying;
+          final hasError = _controllerReady && _controller.value.hasError;
+          if (!playing || pos < 300 || hasError || !_controllerReady) {
+            debugPrint('[TV VOD Watchdog] Servidor tardó más de 5s sin reproducir. Cambiando servidor...');
+            if (mounted) {
+              setState(() {
+                _isSwitchingServerNotice = true;
+              });
+            }
+            if (_fallbackIndex < _fallbackServers.length) {
+              _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
+            }
+            _tryNextServer(reason: 'El servidor tardó más de lo esperado en iniciar');
+          }
+        });
+      }
 
       final saved = await _getSavedPosition();
       if (saved != null && saved > 5) {
@@ -1530,7 +1615,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } catch (e) {
       debugPrint('Error al reproducir URL TV: $e');
       if (widget.isLive) {
-        final streams = widget.liveStreams ?? [widget.videoUrl];
+        final streams = _liveStreams.isNotEmpty
+            ? _liveStreams
+            : (widget.liveStreams ?? [widget.videoUrl]);
         if (_currentLiveIndex + 1 < streams.length) {
           _currentLiveIndex++;
           final nextStream = streams[_currentLiveIndex];
@@ -1548,6 +1635,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _allServersFailed = true;
         });
         return;
+      }
+      if (mounted) {
+        setState(() {
+          _isSwitchingServerNotice = true;
+        });
       }
       if (_fallbackIndex < _fallbackServers.length) {
         _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
@@ -1583,6 +1675,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!mounted || _isDisposing) return;
     setState(() {
       _isLoading = false;
+      _isSwitchingServerNotice = false;
       _allServersFailed = true;
       _errorMessage = reason != null && reason.isNotEmpty
           ? 'Ningún servidor funcionó.\n$reason'
@@ -1695,6 +1788,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final pos = value.position;
     final dur = value.duration;
     bool needsSetState = false;
+
+    // Si ya comenzó a reproducir (>300ms de posición), cancelar watchdog y ocultar aviso
+    if (!widget.isLive && (_isSwitchingServerNotice || _vodWatchdogTimer != null) && newPlaying && nowMs > 300) {
+      _vodWatchdogTimer?.cancel();
+      _vodWatchdogTimer = null;
+      if (_isSwitchingServerNotice) {
+        _isSwitchingServerNotice = false;
+        needsSetState = true;
+      }
+    }
 
     if (shouldUpdatePosition) {
       _currentPosition = value.position;
@@ -1908,6 +2011,348 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _hideToolbarOnlyTimer?.cancel();
     if (!_showToolbarOnly) return;
     _hideToolbarOnlyTimer?.cancel();
+  }
+
+  void _toggleControlsOnTap() {
+    if (_showScreensaver) {
+      setState(() => _showScreensaver = false);
+      _resetScreensaverTimer();
+      return;
+    }
+    if (_showControls || _showToolbarOnly) {
+      _hideControlsNow();
+    } else {
+      _showControlsOverlayNow();
+    }
+  }
+
+  void _hideControlsNow() {
+    _hideControlsTimer?.cancel();
+    _hideToolbarOnlyTimer?.cancel();
+    if (!_showControls && !_showToolbarOnly) return;
+    setState(() {
+      _showControls = false;
+      _showToolbarOnly = false;
+      _currentRow = 0;
+    });
+    _resumeSkipIntroHideTimer();
+    _updateSkipIntroVisibility();
+    _videoFocusNode.requestFocus();
+  }
+
+  Future<void> _loadChannelsIfEmpty() async {
+    try {
+      final channels = await LiveTvService.instance.loadChannels(country: 'co');
+      if (mounted && channels.isNotEmpty) {
+        setState(() {
+          _allChannels = channels;
+          if (_currentChannelIndex < 0) {
+            _currentChannelIndex = channels.indexWhere(
+              (c) =>
+                  c.name.toLowerCase() == widget.titulo.toLowerCase() ||
+                  c.id.hashCode == widget.idcontenido,
+            );
+            if (_currentChannelIndex < 0) _currentChannelIndex = 0;
+          }
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _changeChannel(int delta) {
+    if (!widget.isLive || _allChannels.isEmpty) return;
+    int nextIndex = _currentChannelIndex + delta;
+    if (nextIndex < 0) {
+      nextIndex = _allChannels.length - 1;
+    } else if (nextIndex >= _allChannels.length) {
+      nextIndex = 0;
+    }
+    _switchToChannel(nextIndex);
+  }
+
+  Future<void> _switchToChannel(int index) async {
+    if (index < 0 || index >= _allChannels.length) return;
+    final ch = _allChannels[index];
+    List<String> streams = [];
+    try {
+      streams = List<String>.from(ch.allStreamUrls);
+    } catch (_) {
+      try {
+        streams = [ch.streamUrl?.toString() ?? ''];
+      } catch (_) {}
+    }
+    if (streams.isEmpty && ch.streamUrl != null) {
+      streams = [ch.streamUrl.toString()];
+    }
+
+    setState(() {
+      _currentChannelIndex = index;
+      _currentChannelName = ch.name?.toString() ?? 'Canal';
+      _currentChannelLogo = ch.logo?.toString();
+      _liveStreams = streams;
+      _currentLiveIndex = 0;
+      _fitToastLabel = '${_currentChannelIndex + 1}. $_currentChannelName';
+    });
+
+    _fitToastTimer?.cancel();
+    _fitToastTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted) setState(() => _fitToastLabel = null);
+    });
+
+    final activeUrl = streams.isNotEmpty ? streams[0] : (ch.streamUrl?.toString() ?? '');
+    if (activeUrl.isNotEmpty) {
+      await _startControllerWithUrl(activeUrl, {});
+    } else {
+      setState(() {
+        _errorMessage = 'No hay señales disponibles para este canal.';
+      });
+    }
+  }
+
+  void _cycleLiveStream() {
+    if (_liveStreams.length <= 1) return;
+    _currentLiveIndex = (_currentLiveIndex + 1) % _liveStreams.length;
+    final nextUrl = _liveStreams[_currentLiveIndex];
+    setState(() {
+      _fitToastLabel = 'Señal ${_currentLiveIndex + 1}/${_liveStreams.length}';
+    });
+    _fitToastTimer?.cancel();
+    _fitToastTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _fitToastLabel = null);
+    });
+    _startControllerWithUrl(nextUrl, {});
+  }
+
+  void _openQuickChannelDrawer() {
+    _hideControlsTimer?.cancel();
+    if (_allChannels.isEmpty) {
+      _loadChannelsIfEmpty().then((_) {
+        if (mounted && _allChannels.isNotEmpty) {
+          _openQuickChannelDrawer();
+        }
+      });
+      return;
+    }
+
+    final initialIndex = _currentChannelIndex >= 0 ? _currentChannelIndex : 0;
+    final scrollController = ScrollController(
+      initialScrollOffset: initialIndex > 3 ? (initialIndex - 1) * 58.0 : 0.0,
+    );
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.65),
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: const Color(0xFF141414),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.15), width: 1.5),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 580, maxHeight: 460),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.tv_rounded, color: accentOrange, size: 24),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Canales en Vivo',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text(
+                          '${_allChannels.length} canales',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white54, size: 20),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Expanded(
+                    child: ListView.builder(
+                      controller: scrollController,
+                      itemCount: _allChannels.length,
+                      itemBuilder: (context, index) {
+                        final ch = _allChannels[index];
+                        final isSelected = index == _currentChannelIndex;
+                        final name = ch.name?.toString() ?? 'Canal ${index + 1}';
+                        final logo = ch.logo?.toString();
+                        final group = ch.group?.toString() ?? '';
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Focus(
+                            autofocus: isSelected,
+                            onKeyEvent: (node, event) {
+                              if (event is KeyDownEvent) {
+                                if (event.logicalKey == LogicalKeyboardKey.select ||
+                                    event.logicalKey == LogicalKeyboardKey.enter ||
+                                    event.logicalKey == LogicalKeyboardKey.space ||
+                                    event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+                                  Navigator.pop(ctx);
+                                  _switchToChannel(index);
+                                  return KeyEventResult.handled;
+                                }
+                                if (_isBackKey(event)) {
+                                  Navigator.pop(ctx);
+                                  return KeyEventResult.handled;
+                                }
+                              }
+                              return KeyEventResult.ignored;
+                            },
+                            child: Builder(
+                              builder: (fCtx) {
+                                final hasFocus = Focus.of(fCtx).hasFocus;
+                                return GestureDetector(
+                                  behavior: HitTestBehavior.opaque,
+                                  onTap: () {
+                                    Navigator.pop(ctx);
+                                    _switchToChannel(index);
+                                  },
+                                  child: Material(
+                                    color: Colors.transparent,
+                                    child: InkWell(
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        _switchToChannel(index);
+                                      },
+                                      borderRadius: BorderRadius.circular(10),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 140),
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                    decoration: BoxDecoration(
+                                      color: hasFocus
+                                          ? accentOrange.withValues(alpha: 0.25)
+                                          : (isSelected
+                                              ? Colors.white.withValues(alpha: 0.1)
+                                              : Colors.white.withValues(alpha: 0.03)),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: hasFocus
+                                            ? accentOrange
+                                            : (isSelected ? Colors.white24 : Colors.transparent),
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        SizedBox(
+                                          width: 28,
+                                          child: Text(
+                                            '${index + 1}',
+                                            style: TextStyle(
+                                              color: isSelected ? accentOrange : Colors.white38,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        if (logo != null && logo.isNotEmpty)
+                                          ClipRRect(
+                                            borderRadius: BorderRadius.circular(6),
+                                            child: CachedNetworkImage(
+                                              imageUrl: logo,
+                                              width: 32,
+                                              height: 32,
+                                              fit: BoxFit.contain,
+                                              memCacheWidth: 64,
+                                              errorWidget: (_, __, ___) => const Icon(
+                                                Icons.tv,
+                                                color: Colors.white38,
+                                                size: 20,
+                                              ),
+                                            ),
+                                          )
+                                        else
+                                          const Icon(Icons.tv, color: Colors.white38, size: 20),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                name,
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 14,
+                                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              if (group.isNotEmpty)
+                                                Text(
+                                                  group,
+                                                  style: TextStyle(
+                                                    color: Colors.white.withValues(alpha: 0.4),
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (isSelected)
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: accentOrange,
+                                              borderRadius: BorderRadius.circular(5),
+                                            ),
+                                            child: const Text(
+                                              'EN VIVO',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 9,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    _scheduleHideControls();
   }
 
   void _handleBackPressed() {
@@ -2183,6 +2628,207 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _scheduleHideControls();
       });
     });
+  }
+
+  String _langLabel(String raw) {
+    final s = raw.toLowerCase().trim();
+    if (s.contains('lat') || s == 'es_mx') return 'Español Latino';
+    if (s.contains('cast') || s == 'es_es' || s.contains('esp')) return 'Español Castellano';
+    if (s.contains('sub') || s.contains('jap') || s.contains('vose')) return 'Subtitulado';
+    if (s.contains('ing') || s.contains('eng') || s == 'en') return 'Inglés';
+    if (s.isEmpty) return 'Español Latino';
+    return s[0].toUpperCase() + s.substring(1);
+  }
+
+  Future<void> _showAudioLanguageSelectorTv() async {
+    _hideControlsTimer?.cancel();
+
+    final Map<String, List<Map<String, dynamic>>> byLang = {};
+    for (final srv in _fallbackServers) {
+      final rawLang = srv['idioma']?.toString() ?? '';
+      final label = _langLabel(rawLang);
+      byLang.putIfAbsent(label, () => []).add(srv);
+    }
+
+    if (byLang.isEmpty) {
+      await _openServersModal();
+      return;
+    }
+
+    final currentLangLabel = _langLabel(_idioma);
+
+    await showDialog(
+      context: context,
+      builder: (ctx) {
+        return Dialog(
+          backgroundColor: const Color(0xFF141414),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+          ),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.headphones_rounded, color: accentOrange, size: 24),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Idioma de Audio',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        icon: const Icon(Icons.close, color: Colors.white54, size: 20),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  ...byLang.entries.map((entry) {
+                    final isSelected = entry.key == currentLangLabel;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Focus(
+                        autofocus: isSelected,
+                        child: Builder(
+                          builder: (fCtx) {
+                            final hasFocus = Focus.of(fCtx).hasFocus;
+                            return InkWell(
+                              onTap: () {
+                                Navigator.pop(ctx);
+                                if (!isSelected) {
+                                  _switchToServerLanguageTv(entry.value);
+                                }
+                              },
+                              borderRadius: BorderRadius.circular(10),
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 140),
+                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                                decoration: BoxDecoration(
+                                  color: hasFocus
+                                      ? accentOrange.withValues(alpha: 0.25)
+                                      : (isSelected
+                                          ? Colors.white.withValues(alpha: 0.1)
+                                          : Colors.white.withValues(alpha: 0.04)),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                    color: hasFocus
+                                        ? accentOrange
+                                        : (isSelected ? Colors.white24 : Colors.transparent),
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      isSelected
+                                          ? Icons.check_circle_rounded
+                                          : Icons.radio_button_unchecked_rounded,
+                                      color: isSelected ? accentOrange : Colors.white38,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        entry.key,
+                                        style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 15,
+                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      '${entry.value.length} fuente(s)',
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(alpha: 0.4),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    );
+                  }),
+                  const SizedBox(height: 12),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: () {
+                        Navigator.pop(ctx);
+                        _openServersModal();
+                      },
+                      icon: const Icon(Icons.tune_rounded, size: 16, color: Colors.white54),
+                      label: const Text(
+                        'Más opciones y servidores...',
+                        style: TextStyle(color: Colors.white54, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    _scheduleHideControls();
+  }
+
+  Future<void> _switchToServerLanguageTv(List<Map<String, dynamic>> targetServers) async {
+    final targetPosition = _controllerReady ? _controller.value.position : _currentPosition;
+    final wasPlaying = _isPlaying;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    for (final targetServer in targetServers) {
+      try {
+        final playable = await _serverLoader.tryResolveServer(
+          targetServer,
+          context: mounted ? context : null,
+        );
+
+        if (playable != null && playable.url.isNotEmpty) {
+          _activeUrl = playable.url;
+          _idioma = playable.idioma;
+          final remainingSameLang = targetServers.where((s) => s != targetServer).toList();
+          final others = _fallbackServers.where((s) => !targetServers.contains(s)).toList();
+          _fallbackServers = [targetServer, ...remainingSameLang, ...others];
+          _fallbackIndex = 0;
+
+          await _startControllerWithUrl(playable.url, playable.headers);
+          if (_controllerReady) {
+            await _controller.seekTo(targetPosition);
+            if (wasPlaying) {
+              await _controller.play();
+            }
+          }
+          return;
+        }
+      } catch (_) {
+        _serverLoader.markServerAsInvalid(targetServer);
+      }
+    }
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
   }
 
   Future<void> _openServersModal({
@@ -3049,6 +3695,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _isDisposing = true;
+    _vodWatchdogTimer?.cancel();
     _hideControlsTimer?.cancel();
     _hideToolbarOnlyTimer?.cancel();
     _clockTimer?.cancel();
@@ -3088,6 +3735,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     _skipIntroFocusNode.dispose();
     _nextPromptFocusNode.dispose();
+    _channelsDrawerFocusNode.dispose();
+    _prevChannelFocusNode.dispose();
+    _nextChannelFocusNode.dispose();
+    _cycleStreamFocusNode.dispose();
+    _errorNextChannelFocusNode.dispose();
+    _errorChannelListFocusNode.dispose();
     _errorServersFocusNode.dispose();
     _errorBackFocusNode.dispose();
     _exitContinueFocusNode.dispose();
@@ -3161,6 +3814,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 if (_showScreensaver) {
                   setState(() => _showScreensaver = false);
                 }
+                if (widget.isLive && !_showControls && !_showToolbarOnly) {
+                  _changeChannel(1);
+                  return KeyEventResult.handled;
+                }
                 _moveFocusDown();
                 return KeyEventResult.handled;
               }
@@ -3169,7 +3826,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   if (_showScreensaver) {
                     setState(() => _showScreensaver = false);
                   }
+                  if (widget.isLive) {
+                    _changeChannel(-1);
+                    return KeyEventResult.handled;
+                  }
                   _openActoresModal();
+                  return KeyEventResult.handled;
+                }
+              }
+              if (event.logicalKey == LogicalKeyboardKey.channelUp) {
+                if (widget.isLive) {
+                  _changeChannel(1);
+                  return KeyEventResult.handled;
+                }
+              }
+              if (event.logicalKey == LogicalKeyboardKey.channelDown) {
+                if (widget.isLive) {
+                  _changeChannel(-1);
                   return KeyEventResult.handled;
                 }
               }
@@ -3178,6 +3851,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 if (!_showControls && !_showToolbarOnly) {
                   if (_showScreensaver) {
                     setState(() => _showScreensaver = false);
+                  }
+                  if (widget.isLive && event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                    _openQuickChannelDrawer();
+                    return KeyEventResult.handled;
                   }
                   _showToolbarOnlyNow();
                   return KeyEventResult.handled;
@@ -3208,16 +3885,73 @@ class _PlayerScreenState extends State<PlayerScreen> {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              Container(
-                color: Colors.black,
-                child: Center(
-                  child: _isLoading
-                      ? _buildLoadingScreen()
-                      : _errorMessage.isNotEmpty
-                      ? _buildErrorScreen()
-                      : _buildVideoSurface(),
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _toggleControlsOnTap,
+                child: Container(
+                  color: Colors.black,
+                  child: Center(
+                    child: _isLoading
+                        ? _buildLoadingScreen()
+                        : _errorMessage.isNotEmpty
+                        ? _buildErrorScreen()
+                        : _buildVideoSurface(),
+                  ),
                 ),
               ),
+
+              // Aviso de cambio de servidor si tarda más de 5s
+              if (_isSwitchingServerNotice)
+                Positioned(
+                  top: 50,
+                  left: 40,
+                  right: 40,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.88),
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: const Color(0xFFFF6B35).withOpacity(0.85),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.6),
+                            blurRadius: 20,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6B35)),
+                            ),
+                          ),
+                          SizedBox(width: 14),
+                          Text(
+                            'Está tomando más tiempo de lo normal, cambiando servidor...',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
 
               if (_fitToastLabel != null)
                 Positioned(
@@ -3668,8 +4402,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
           const SizedBox(height: 28),
           if (widget.isLive) ...[
-            Row(
-              mainAxisSize: MainAxisSize.min,
+            Wrap(
+              spacing: 12,
+              runSpacing: 10,
+              alignment: WrapAlignment.center,
               children: [
                 errorBtn(
                   node: _errorServersFocusNode,
@@ -3684,10 +4420,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     _initializePlayer();
                   },
                   primary: true,
-                  other: _errorBackFocusNode,
+                  other: _allChannels.length > 1
+                      ? _errorNextChannelFocusNode
+                      : _errorChannelListFocusNode,
                   autofocus: true,
                 ),
-                const SizedBox(width: 16),
+                if (_allChannels.length > 1)
+                  errorBtn(
+                    node: _errorNextChannelFocusNode,
+                    icon: Icons.skip_next_rounded,
+                    label: 'Siguiente canal',
+                    onTap: () => _changeChannel(1),
+                    primary: true,
+                    other: _errorChannelListFocusNode,
+                  ),
+                errorBtn(
+                  node: _errorChannelListFocusNode,
+                  icon: Icons.format_list_bulleted_rounded,
+                  label: 'Lista de canales',
+                  onTap: _openQuickChannelDrawer,
+                  primary: false,
+                  other: _errorBackFocusNode,
+                ),
                 errorBtn(
                   node: _errorBackFocusNode,
                   icon: Icons.arrow_back_rounded,
@@ -3761,11 +4515,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
             _fitModeLabel,
             _cycleFitMode,
           ),
+          const SizedBox(width: 12),
+          if (_allChannels.length > 1) ...[
+            _buildActionBtn(
+              _prevChannelFocusNode,
+              Icons.skip_previous_rounded,
+              'Canal ant.',
+              () => _changeChannel(-1),
+              iconOnly: true,
+            ),
+            const SizedBox(width: 8),
+            _buildActionBtn(
+              _nextChannelFocusNode,
+              Icons.skip_next_rounded,
+              'Canal sig.',
+              () => _changeChannel(1),
+              iconOnly: true,
+            ),
+            const SizedBox(width: 12),
+          ],
+          _buildActionBtn(
+            _channelsDrawerFocusNode,
+            Icons.format_list_bulleted_rounded,
+            'Canales',
+            _openQuickChannelDrawer,
+          ),
+          if (_liveStreams.length > 1) ...[
+            const SizedBox(width: 12),
+            _buildActionBtn(
+              _cycleStreamFocusNode,
+              Icons.alt_route_rounded,
+              'Señal ${_currentLiveIndex + 1}/${_liveStreams.length}',
+              _cycleLiveStream,
+            ),
+          ],
           const Spacer(),
           _buildActionBtn(
             _infoFocusNode,
-            Icons.tv_rounded,
-            'Volver a Canales',
+            Icons.arrow_back_rounded,
+            'Salir',
             () => Navigator.of(context).pop(),
           ),
         ],
@@ -3807,7 +4595,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _serversFocusNode,
           Icons.translate_rounded,
           'Idiomas',
-          () => _openServersModal(),
+          () => _showAudioLanguageSelectorTv(),
         ),
         const SizedBox(width: 10),
         QualityActionButton(
@@ -3865,9 +4653,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   Expanded(
                     child: Row(
                       children: [
-                        if (widget.isLive && widget.liveLogo != null && widget.liveLogo!.isNotEmpty) ...[
+                        if (widget.isLive &&
+                            ((_currentChannelLogo != null && _currentChannelLogo!.isNotEmpty) ||
+                                (widget.liveLogo != null && widget.liveLogo!.isNotEmpty))) ...[
                           CachedNetworkImage(
-                            imageUrl: widget.liveLogo!,
+                            imageUrl: (_currentChannelLogo != null && _currentChannelLogo!.isNotEmpty)
+                                ? _currentChannelLogo!
+                                : widget.liveLogo!,
                             height: 38,
                             fit: BoxFit.contain,
                             memCacheHeight: 76,
@@ -3894,7 +4686,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             children: [
                               if (widget.isLive) ...[
                                 Text(
-                                  widget.titulo,
+                                  _currentChannelName.isNotEmpty ? _currentChannelName : widget.titulo,
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 18,
@@ -4037,7 +4829,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             ),
 
-            const Spacer(),
+            Expanded(
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _toggleControlsOnTap,
+                child: const SizedBox.expand(),
+              ),
+            ),
 
             if (!widget.isLive) ...[
               Focus(

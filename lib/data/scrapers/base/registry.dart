@@ -18,6 +18,44 @@ import 'buscador.dart';
 import '../../../core/services/remote_config_service.dart';
 /// Todas las fuentes disponibles (listado + búsqueda).
 final List<Fuente> fuentesRegistry = [
+  // ── Cuevana ────────────────────────────────────────────────────────────
+  Fuente(
+    id: 'cuevana',
+    label: 'Cuevana',
+    tipos: CuevanaScraper.tiposDisponibles(),
+    generos: CuevanaScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return CuevanaScraper.fetch(
+        tipo: populares ? 'tendencias' : (genero == null || genero.isEmpty ? tipo : null),
+        genero: genero == null || genero.isEmpty ? null : genero,
+        page: page,
+      );
+    },
+    search: BuscadorScraper.searchCuevana,
+  ),
+
+  // ── PelisPlus ──────────────────────────────────────────────────────────
+  Fuente(
+    id: 'pelisplus',
+    label: 'PelisPlus',
+    tipos: PelisPlusScraper.tiposDisponibles(),
+    generos: PelisPlusScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return PelisPlusScraper.fetch(
+        tipo: genero == null || genero.isEmpty ? tipo : null,
+        genero: genero == null || genero.isEmpty ? null : genero,
+        page: page,
+      );
+    },
+    search: BuscadorScraper.searchPelisPlus,
+  ),
+
   // ── SeriesKao ──────────────────────────────────────────────────────────
   Fuente(
     id: 'serieskao',
@@ -51,6 +89,7 @@ final List<Fuente> fuentesRegistry = [
       'romance',
       'ciencia-ficcion',
     ],
+    supportsPopulares: true,
     hasListing: true,
     hasSearch: true,
     fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
@@ -61,42 +100,6 @@ final List<Fuente> fuentesRegistry = [
       );
     },
     search: BuscadorScraper.searchTioPlus,
-  ),
-
-  // ── Cuevana ────────────────────────────────────────────────────────────
-  Fuente(
-    id: 'cuevana',
-    label: 'Cuevana',
-    tipos: CuevanaScraper.tiposDisponibles(),
-    generos: CuevanaScraper.generos,
-    hasListing: true,
-    hasSearch: true,
-    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
-      return CuevanaScraper.fetch(
-        tipo: genero == null || genero.isEmpty ? tipo : null,
-        genero: genero == null || genero.isEmpty ? null : genero,
-        page: page,
-      );
-    },
-    search: BuscadorScraper.searchCuevana,
-  ),
-
-  // ── PelisPlus ──────────────────────────────────────────────────────────
-  Fuente(
-    id: 'pelisplus',
-    label: 'PelisPlus',
-    tipos: PelisPlusScraper.tiposDisponibles(),
-    generos: PelisPlusScraper.generos,
-    hasListing: true,
-    hasSearch: true,
-    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
-      return PelisPlusScraper.fetch(
-        tipo: genero == null || genero.isEmpty ? tipo : null,
-        genero: genero == null || genero.isEmpty ? null : genero,
-        page: page,
-      );
-    },
-    search: BuscadorScraper.searchPelisPlus,
   ),
 
   // ── CineHax (solo búsqueda) ────────────────────────────────────────────

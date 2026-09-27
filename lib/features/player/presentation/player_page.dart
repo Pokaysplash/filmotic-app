@@ -18,6 +18,7 @@ import 'widgets/cast_button.dart'; // ← CAST
 import 'widgets/mobile_skip_next_overlay.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_player_api.dart';
 import 'player_controller.dart'; // Módulo independiente de servidores / HLS
+import '../../../core/services/audio_service.dart';
 
 class _SubtitleCue {
   final Duration start;
@@ -60,11 +61,20 @@ class PlayerScreen extends StatefulWidget {
     this.isLive = false,
     this.liveLogo,
     this.liveStreams,
+    this.allChannels,
+    this.initialChannelIndex = -1,
   });
 
   final List<String>? liveStreams;
+  final List<dynamic>? allChannels;
+  final int initialChannelIndex;
 
-  static void openLiveChannel(BuildContext context, dynamic channel) {
+  static void openLiveChannel(
+    BuildContext context,
+    dynamic channel, {
+    List<dynamic>? allChannels,
+    int? currentChannelIndex,
+  }) {
     List<String> streams = [];
     try {
       streams = List<String>.from(channel.allStreamUrls);
@@ -77,6 +87,8 @@ class PlayerScreen extends StatefulWidget {
       streams = [channel.streamUrl.toString()];
     }
 
+    final chanIdx = currentChannelIndex ?? (allChannels != null ? allChannels.indexOf(channel) : -1);
+
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
@@ -87,6 +99,8 @@ class PlayerScreen extends StatefulWidget {
           isLive: true,
           liveLogo: channel.logo,
           liveStreams: streams,
+          allChannels: allChannels,
+          initialChannelIndex: chanIdx,
         ),
       ),
     );
@@ -120,6 +134,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _showControls = true;
   bool _isBuffering = false;
   Timer? _hideControlsTimer;
+  Timer? _vodWatchdogTimer;
+  bool _isSwitchingServerNotice = false;
   bool _isDragging = false;
   bool _isDisposing = false;
   bool _controllerReady = false;
@@ -799,6 +815,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _controller.addListener(_videoListener);
       _controllerReady = true;
+      try {
+        await _controller.setVolume(1.0);
+        AudioBoostService.instance.boostVolume();
+      } catch (_) {}
+
+      // ── Watchdog de 5 segundos para VOD ─────────────────────────────────
+      _vodWatchdogTimer?.cancel();
+      if (!widget.isLive) {
+        _vodWatchdogTimer = Timer(const Duration(seconds: 5), () {
+          if (!mounted || _isDisposing || widget.isLive) return;
+          final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
+          final playing = _controllerReady && _controller.value.isPlaying;
+          final hasError = _controllerReady && _controller.value.hasError;
+          if (!playing || pos < 300 || hasError || !_controllerReady) {
+            debugPrint('[VOD Watchdog] Servidor tardó más de 5s sin reproducir. Cambiando servidor...');
+            if (mounted) {
+              setState(() {
+                _isSwitchingServerNotice = true;
+              });
+            }
+            if (_fallbackIndex < _fallbackServers.length) {
+              _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
+            }
+            _tryNextServer(reason: 'El servidor tardó más de lo esperado en iniciar');
+          }
+        });
+      }
 
       final saved = await _getSavedPosition();
       if (saved != null && saved > 5) {
@@ -846,6 +889,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return;
       }
       // Marcar inválido y probar siguiente
+      if (mounted) {
+        setState(() {
+          _isSwitchingServerNotice = true;
+        });
+      }
       if (_fallbackIndex < _fallbackServers.length) {
         final cur = _fallbackServers[_fallbackIndex];
         _serverLoader.markServerAsInvalid(cur);
@@ -894,6 +942,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!mounted || _isDisposing) return;
     setState(() {
       _isLoading = false;
+      _isSwitchingServerNotice = false;
       _allServersFailed = true;
       _errorMessage = reason != null && reason.isNotEmpty
           ? 'Ningún servidor funcionó.\n$reason'
@@ -1015,7 +1064,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         onTap: () {
                           Navigator.pop(ctx);
                           if (!isSelected) {
-                            _switchToServerLanguage(entry.value.first);
+                            _switchToServerLanguage(entry.value);
                           }
                         },
                       ),
@@ -1032,7 +1081,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _scheduleHideControls();
   }
 
-  Future<void> _switchToServerLanguage(Map<String, dynamic> targetServer) async {
+  Future<void> _switchToServerLanguage(List<Map<String, dynamic>> targetServers) async {
     final targetPosition = _controllerReady ? _controller.value.position : _currentPosition;
     final wasPlaying = _isPlaying;
 
@@ -1041,43 +1090,44 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _errorMessage = '';
     });
 
-    try {
-      final playable = await _serverLoader.tryResolveServer(
-        targetServer,
-        context: mounted ? context : null,
-      );
-
-      if (playable != null && playable.url.isNotEmpty) {
-        _activeUrl = playable.url;
-        _idioma = playable.idioma;
-        await _startControllerWithUrl(playable.url, playable.headers);
-        if (_controllerReady) {
-          await _controller.seekTo(targetPosition);
-          if (wasPlaying) {
-            await _controller.play();
-          }
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No se pudo conectar al servidor en este idioma'),
-              backgroundColor: Color(0xFF1a1a1a),
-            ),
-          );
-        }
-        setState(() => _isLoading = false);
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al cambiar de servidor: $e'),
-            backgroundColor: const Color(0xFF1a1a1a),
-          ),
+    for (final targetServer in targetServers) {
+      try {
+        final playable = await _serverLoader.tryResolveServer(
+          targetServer,
+          context: mounted ? context : null,
         );
-        setState(() => _isLoading = false);
+
+        if (playable != null && playable.url.isNotEmpty) {
+          _activeUrl = playable.url;
+          _idioma = playable.idioma;
+          // Reorganizar fallbackServers para priorizar los de este idioma
+          final remainingSameLang = targetServers.where((s) => s != targetServer).toList();
+          final others = _fallbackServers.where((s) => !targetServers.contains(s)).toList();
+          _fallbackServers = [targetServer, ...remainingSameLang, ...others];
+          _fallbackIndex = 0;
+
+          await _startControllerWithUrl(playable.url, playable.headers);
+          if (_controllerReady) {
+            await _controller.seekTo(targetPosition);
+            if (wasPlaying) {
+              await _controller.play();
+            }
+          }
+          return;
+        }
+      } catch (_) {
+        _serverLoader.markServerAsInvalid(targetServer);
       }
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo conectar a los servidores disponibles en este idioma'),
+          backgroundColor: Color(0xFF1a1a1a),
+        ),
+      );
+      setState(() => _isLoading = false);
     }
   }
 
@@ -1347,6 +1397,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final newDuration = value.duration;
 
     bool needsSetState = false;
+
+    // Si ya comenzó a reproducir (>300ms de posición), cancelar watchdog y ocultar aviso
+    if (!widget.isLive && (_isSwitchingServerNotice || _vodWatchdogTimer != null) && newPlaying && nowMs > 300) {
+      _vodWatchdogTimer?.cancel();
+      _vodWatchdogTimer = null;
+      if (_isSwitchingServerNotice) {
+        _isSwitchingServerNotice = false;
+        needsSetState = true;
+      }
+    }
 
     if (shouldUpdatePosition) {
       _currentPosition = value.position;
@@ -1739,6 +1799,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _controller.addListener(_videoListener);
       _controllerReady = true;
+      try {
+        await _controller.setVolume(1.0);
+        AudioBoostService.instance.boostVolume();
+      } catch (_) {}
 
       if (savedPos > const Duration(seconds: 2)) {
         await _controller.seekTo(savedPos);
@@ -1876,6 +1940,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _isDisposing = true;
+    _vodWatchdogTimer?.cancel();
     _hideControlsTimer?.cancel();
     _positionNotifier.dispose();
 
@@ -2012,6 +2077,59 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     width: _controller.value.size.width,
                     height: _controller.value.size.height,
                     child: VideoPlayer(_controller),
+                  ),
+                ),
+              ),
+
+            // Aviso de cambio de servidor si tarda más de 5s
+            if (_isSwitchingServerNotice)
+              Positioned(
+                top: 48,
+                left: 20,
+                right: 20,
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.88),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(
+                        color: const Color(0xFFFF6B35).withOpacity(0.85),
+                        width: 1.5,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.6),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6B35)),
+                          ),
+                        ),
+                        SizedBox(width: 12),
+                        Flexible(
+                          child: Text(
+                            'Está tomando más tiempo de lo normal, cambiando servidor...',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

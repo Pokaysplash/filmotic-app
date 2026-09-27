@@ -98,16 +98,16 @@ class _HomePageState extends State<HomePage>
     }
 
     addSection('continue_watching');
-    addSection('recent_movies');
-    addSection('recent_tv');
+    addSection('popular_movies');
+    addSection('trending_movies');
+    addSection('popular_tv');
+    addSection('trending_tv');
     addSection('top_movies');
     addSection('top_tv');
-    addSection('popular_movies');
-    addSection('popular_tv');
     addSection('year_movies');
     addSection('year_tv');
-    addSection('trending_movies');
-    addSection('trending_tv');
+    addSection('recent_movies');
+    addSection('recent_tv');
     addSection('recent_episodes', horizontalCards: true);
 
     final genreSliders = data['movie_genre_sliders'];
@@ -130,16 +130,16 @@ class _HomePageState extends State<HomePage>
   Map<String, dynamic>? _pickInitialFocusedItem(Map<String, dynamic> data) {
     const candidates = [
       'continue_watching',
-      'recent_movies',
-      'recent_tv',
+      'popular_movies',
+      'trending_movies',
+      'popular_tv',
+      'trending_tv',
       'top_movies',
       'top_tv',
-      'popular_movies',
-      'popular_tv',
+      'recent_movies',
+      'recent_tv',
       'year_movies',
       'year_tv',
-      'trending_movies',
-      'trending_tv',
       'recent_episodes',
     ];
     for (final key in candidates) {
@@ -356,73 +356,71 @@ class _HomePageState extends State<HomePage>
             ),
           ),
           const _HomeOverlayGradient(),
-          Column(
-            children: [
-              SizedBox(
-                height: heroHeight,
-                width: double.infinity,
-                child: RepaintBoundary(
-                  child: ValueListenableBuilder<Map<String, dynamic>?>(
-                    valueListenable: _focusedItemNotifier,
-                    builder: (context, item, _) => _HeroSection(
-                      item: item,
-                      focusNode: _sectionFocusNodes[0],
-                      onRequestMenuFocus: widget.onRequestMenuFocus,
-                      onRequestNextFocus: sections.isNotEmpty
-                          ? () => _sectionFocusNodes[1].requestFocus()
-                          : null,
-                      onTap: _openContent,
+          Positioned.fill(
+            child: CustomScrollView(
+              cacheExtent: 300,
+              slivers: [
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: heroHeight,
+                    width: double.infinity,
+                    child: RepaintBoundary(
+                      child: ValueListenableBuilder<Map<String, dynamic>?>(
+                        valueListenable: _focusedItemNotifier,
+                        builder: (context, item, _) => _HeroSection(
+                          item: item,
+                          focusNode: _sectionFocusNodes[0],
+                          onRequestMenuFocus: widget.onRequestMenuFocus,
+                          onRequestNextFocus: sections.isNotEmpty
+                              ? () => _sectionFocusNodes[1].requestFocus()
+                              : null,
+                          onTap: _openContent,
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: CustomScrollView(
-                  cacheExtent: 300,
-                  slivers: [
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, i) {
-                          if (i + 1 >= _sectionFocusNodes.length) {
-                            return const SizedBox.shrink();
-                          }
-                          final section = sections[i];
-                          final node = _sectionFocusNodes[i + 1];
-                          final upNode = _sectionFocusNodes[i];
-                          final hasDown =
-                              (i + 2) < _sectionFocusNodes.length &&
-                                  (i + 1) < sections.length;
-                          final downNode = hasDown &&
-                                  (i + 2) < _sectionFocusNodes.length
-                              ? _sectionFocusNodes[i + 2]
-                              : null;
+                SliverList(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, i) {
+                      if (i + 1 >= _sectionFocusNodes.length) {
+                        return const SizedBox.shrink();
+                      }
+                      final section = sections[i];
+                      final node = _sectionFocusNodes[i + 1];
+                      final upNode = _sectionFocusNodes[i];
+                      final hasDown =
+                          (i + 2) < _sectionFocusNodes.length &&
+                              (i + 1) < sections.length;
+                      final downNode = hasDown &&
+                              (i + 2) < _sectionFocusNodes.length
+                          ? _sectionFocusNodes[i + 2]
+                          : null;
 
-                          return RepaintBoundary(
-                            child: _HorizontalSlider(
-                              title: section.title,
-                              items: section.items,
-                              onTap: _openContent,
-                              focusNode: node,
-                              onRequestFocusUp: () => upNode.requestFocus(),
-                              onRequestFocusDown: downNode != null &&
-                                      (i + 1) < sections.length
-                                  ? () => downNode.requestFocus()
-                                  : null,
-                              onRequestMenuFocus: widget.onRequestMenuFocus,
-                              onItemFocused: _onItemFocused,
-                              horizontalCards: section.horizontalCards,
-                            ),
-                          );
-                        },
-                        childCount: sections.length,
-                        addRepaintBoundaries: false,
-                      ),
-                    ),
-                    const SliverToBoxAdapter(child: SizedBox(height: 48)),
-                  ],
+                      return RepaintBoundary(
+                        child: _HorizontalSlider(
+                          title: section.title,
+                          items: section.items,
+                          onTap: _openContent,
+                          focusNode: node,
+                          onRequestFocusUp: () => upNode.requestFocus(),
+                          onRequestFocusDown: downNode != null &&
+                                  (i + 1) < sections.length
+                              ? () => downNode.requestFocus()
+                              : null,
+                          onRequestMenuFocus: widget.onRequestMenuFocus,
+                          onItemFocused: _onItemFocused,
+                          horizontalCards: section.horizontalCards,
+                        ),
+                      );
+                    },
+                    childCount: sections.length,
+                    addRepaintBoundaries: false,
+                  ),
                 ),
-              ),
-            ],
+                const SliverToBoxAdapter(child: SizedBox(height: 48)),
+              ],
+            ),
           ),
         ],
       ),
