@@ -394,12 +394,20 @@ footer {
 
 /* Responsive */
 @media (max-width: 768px) {
+  .hero {
+    padding: 40px 0 30px;
+  }
   .hero-title {
-    font-size: 36px;
+    font-size: 34px;
     letter-spacing: -0.8px;
   }
   .hero-subtitle {
     font-size: 16px;
+  }
+  .download-meta {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 10px;
   }
   .btn-primary {
     width: 100%;
@@ -409,6 +417,66 @@ footer {
   .footer-content {
     flex-direction: column;
     text-align: center;
+    gap: 14px;
+  }
+  .footer-meta {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .beta-banner {
+    flex-direction: column;
+    text-align: center;
+    gap: 10px;
+    padding: 14px 18px;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 0 16px;
+  }
+  .brand-name {
+    font-size: 20px;
+  }
+  .brand-icon {
+    width: 34px;
+    height: 34px;
+  }
+  .nav-actions {
+    gap: 8px;
+  }
+  .nav-link {
+    padding: 6px 11px;
+    font-size: 13px;
+    gap: 6px;
+  }
+  .hero-title {
+    font-size: 26px;
+    line-height: 1.25;
+  }
+  .hero-subtitle {
+    font-size: 14px;
+  }
+  .section-title {
+    font-size: 24px;
+  }
+  .steps-container {
+    grid-template-columns: 1fr;
+  }
+  .features-grid {
+    grid-template-columns: 1fr;
+  }
+  .feature-card {
+    padding: 24px 20px;
+  }
+  .step-card {
+    padding: 24px 20px;
+  }
+  .community-title {
+    font-size: 20px;
+  }
+  .community-desc {
+    font-size: 14px;
   }
 }
 
