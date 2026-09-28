@@ -463,8 +463,14 @@ footer {
 }
 
 .warning-box a {
-  color: #FF8552;
+  color: #229ED9;
   text-decoration: underline;
+  font-weight: 600;
+  transition: color 0.2s ease;
+}
+
+.warning-box a:hover {
+  color: #55b9eb;
 }
 
 /* Botón de Telegram Oficial */

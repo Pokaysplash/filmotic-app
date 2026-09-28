@@ -1,6 +1,6 @@
 > ⚠️ **Versión Beta en desarrollo activo**  
 > Filmotic está en fase beta. La mayoría de funciones están operativas, pero puedes encontrar errores.  
-> 💬 Únete al grupo oficial de soporte y feedback: [**Filmotic Comunidad en Telegram**](https://t.me/+GFmv2pzxes8yNTcx) o reporta incidencias en [Issues](https://github.com/Pokaysplash/filmotic-app/issues).
+> 💬 Únete y reporta cualquier error en el grupo oficial: [**Filmotic Comunidad en Telegram**](https://t.me/+GFmv2pzxes8yNTcx).
 
 <div align="center">
 
