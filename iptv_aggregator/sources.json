@@ -7,46 +7,28 @@
       "category": "colombia"
     },
     {
-      "name": "Colombia IPTV (comunidad)",
-      "url": "https://raw.githubusercontent.com/luishumberto43/IPTV-Colombia-luishumberto43/main/colombia.m3u",
+      "name": "IPTV-org Deportes",
+      "url": "https://iptv-org.github.io/iptv/categories/sports.m3u",
       "priority": 1,
-      "category": "colombia"
+      "category": "deportes"
     },
     {
-      "name": "Free-TV IPTV",
-      "url": "https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8",
+      "name": "IPTV-org España",
+      "url": "https://iptv-org.github.io/iptv/countries/es.m3u",
       "priority": 1,
-      "category": "general"
-    },
-    {
-      "name": "IPTV-org Español",
-      "url": "https://iptv-org.github.io/iptv/languages/spa.m3u",
-      "priority": 2,
-      "category": "espanol"
+      "category": "espana"
     },
     {
       "name": "IPTV-org México",
       "url": "https://iptv-org.github.io/iptv/countries/mx.m3u",
-      "priority": 3,
+      "priority": 2,
       "category": "mexico"
     },
     {
       "name": "IPTV-org Argentina",
       "url": "https://iptv-org.github.io/iptv/countries/ar.m3u",
-      "priority": 3,
+      "priority": 2,
       "category": "argentina"
-    },
-    {
-      "name": "IPTV-org España",
-      "url": "https://iptv-org.github.io/iptv/countries/es.m3u",
-      "priority": 3,
-      "category": "espana"
-    },
-    {
-      "name": "IPTV-org Perú",
-      "url": "https://iptv-org.github.io/iptv/countries/pe.m3u",
-      "priority": 3,
-      "category": "peru"
     },
     {
       "name": "IPTV-org Chile",
@@ -55,10 +37,10 @@
       "category": "chile"
     },
     {
-      "name": "IPTV-org Ecuador",
-      "url": "https://iptv-org.github.io/iptv/countries/ec.m3u",
+      "name": "IPTV-org Peru",
+      "url": "https://iptv-org.github.io/iptv/countries/pe.m3u",
       "priority": 3,
-      "category": "ecuador"
+      "category": "peru"
     },
     {
       "name": "IPTV-org Venezuela",
@@ -67,81 +49,27 @@
       "category": "venezuela"
     },
     {
-      "name": "IPTV-org Uruguay",
-      "url": "https://iptv-org.github.io/iptv/countries/uy.m3u",
-      "priority": 3,
-      "category": "uruguay"
-    },
-    {
-      "name": "IPTV-org Bolivia",
-      "url": "https://iptv-org.github.io/iptv/countries/bo.m3u",
-      "priority": 3,
-      "category": "bolivia"
-    },
-    {
-      "name": "IPTV-org Deportes",
-      "url": "https://iptv-org.github.io/iptv/categories/sports.m3u",
-      "priority": 4,
-      "category": "deportes"
-    },
-    {
       "name": "IPTV-org Noticias",
       "url": "https://iptv-org.github.io/iptv/categories/news.m3u",
-      "priority": 4,
+      "priority": 2,
       "category": "noticias"
     },
     {
       "name": "IPTV-org Infantil",
       "url": "https://iptv-org.github.io/iptv/categories/kids.m3u",
-      "priority": 4,
+      "priority": 3,
       "category": "infantil"
     },
     {
       "name": "IPTV-org Películas",
       "url": "https://iptv-org.github.io/iptv/categories/movies.m3u",
-      "priority": 4,
+      "priority": 3,
       "category": "peliculas"
-    },
-    {
-      "name": "IPTV-org Series",
-      "url": "https://iptv-org.github.io/iptv/categories/series.m3u",
-      "priority": 4,
-      "category": "series"
-    },
-    {
-      "name": "IPTV-org Documentales",
-      "url": "https://iptv-org.github.io/iptv/categories/documentary.m3u",
-      "priority": 4,
-      "category": "documentales"
-    },
-    {
-      "name": "IPTV-org Animación",
-      "url": "https://iptv-org.github.io/iptv/categories/animation.m3u",
-      "priority": 4,
-      "category": "animacion"
-    },
-    {
-      "name": "IPTV-org Entretenimiento",
-      "url": "https://iptv-org.github.io/iptv/categories/entertainment.m3u",
-      "priority": 4,
-      "category": "entretenimiento"
-    },
-    {
-      "name": "IPTV-org Clásicos",
-      "url": "https://iptv-org.github.io/iptv/categories/classic.m3u",
-      "priority": 4,
-      "category": "clasicos"
-    },
-    {
-      "name": "IPTV-org Index Global",
-      "url": "https://iptv-org.github.io/iptv/index.m3u",
-      "priority": 9,
-      "category": "global"
     }
   ],
   "verification": {
-    "timeout_seconds": 10,
-    "concurrent_checks": 60,
+    "timeout_seconds": 5,
+    "concurrent_checks": 150,
     "user_agent": "Mozilla/5.0 (Linux; Android 10) AppleWebKit/537.36",
     "retry_failed": false
   },

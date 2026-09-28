@@ -2,12 +2,13 @@ name: Update IPTV Playlist
 
 on:
   schedule:
-    - cron: '0 */6 * * *'  # Cada 6 horas
+    - cron: '0 6 * * *'  # Cada día a las 6:00 UTC (1:00 AM Colombia)
   workflow_dispatch:  # Ejecución manual
 
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

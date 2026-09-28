@@ -538,11 +538,17 @@ Para mitigar la alta tasa de canales caídos en listas públicas, se creó un mo
 ### 17.3 Limpieza de Texto de Fuente en "Todas las películas/series"
 - En `lib/features/discover/domain/mobile/pag.dart`, se eliminó el bloque de texto con el nombre de la fuente activa (`$_servicioLabel · $_tipoLabel · $_generoLabel`) para mantener la interfaz completamente limpia y desvinculada de nombres de proveedores externos.
 
-### 17.4 Ampliación y Tolerancia del Agregador IPTV (`iptv_aggregator/`)
-- **Timeout y Verificación Tolerante**: En `sources.json`, el timeout de verificación subió a 10s. En `aggregator.py`, se consideran válidas las respuestas HTTP 200–399 y 401/403 (para streams que requieren cabeceras específicas en reproducción). Si una petición HEAD falla o es rechazada (ej. 405 Method Not Allowed), se realiza un fallback automático a GET parcial con `Range: bytes=0-1024`.
-- **Ampliación de Listas Regionales y Temáticas**: Se añadieron fuentes específicas para Perú, Chile, Ecuador, Venezuela, Uruguay y Bolivia, además de listas especializadas en Series, Documentales, Animación, Entretenimiento, Clásicos y el índice global de `iptv-org` con prioridad 9.
-- **Deduplicación Inteligente**: Priorización por `tvg-id` normalizado y fallback a nombre normalizado (sin caracteres especiales ni acentos), conservando la versión de mayor calidad (HD/FHD).
-- **Reporte Estadístico Detallado**: Desglose al finalizar el script mostrando canales crudos por fuente, canales únicos, canales verificados activos, top 10 fuentes más productivas y canales válidos por categoría.
+### 17.4 Optimización del Agregador IPTV con Prioridad Deportiva y Española (`iptv_aggregator/`)
+- **Estrategia de Filtrado por Prioridad (100% Deportes y España)**:
+  - **Prioridad 1**: Todos los canales deportivos (fútbol, ESPN, Fox Sports, DAZN, Movistar Deportes, Eurosport, etc.) y todos los canales de España (`ES`). Se preservan al 100% sin importar límites y se colocan al inicio del archivo M3U para acceso prioritario.
+  - **Prioridad 2**: Canales principales de LATAM (Colombia, México y Argentina).
+  - **Prioridad 3**: Resto de LATAM (Chile, Perú, Venezuela, Ecuador, Uruguay, Bolivia, Paraguay) y categorías temáticas en español (Noticias, Infantil, Películas, Documentales).
+  - **Prioridad 4**: Canales irrelevantes descartados previo a la verificación (fuera de la región, sin grupo o con palabras clave como `test`, `backup`, `offline`, `[not 24/7]`).
+- **Curaduría de Fuentes (`sources.json`)**: Reducido a 11 fuentes clave de alta fidelidad (Colombia, Deportes, España, México, Argentina, Chile, Perú, Venezuela, Noticias, Infantil y Películas), eliminando índices globales saturados.
+- **Verificación Asíncrona Acelerada**: 150 tareas concurrentes, timeout estricto por canal (`asyncio.wait_for` a 5s + 1.5s), HEAD prioritario con fallback a GET `Range: bytes=0-512`, reduciendo el tiempo de ejecución de 16m 31s a tan solo **31 segundos**.
+- **Límite Suave (Soft Cap a 1200)**: Si la lista de canales activos supera los 1200, se conservan todos los de Prioridad 1 y se recorta del final de categorías secundarias. En la ejecución local se obtuvieron **1,131 canales activos** (351 deportivos, 152 de España).
+- **Automatización Diaria (`update_playlist.yml`)**: Frecuencia ajustada a cada 24 horas (`0 6 * * *` UTC) con un timeout de seguridad de 15 minutos en GitHub Actions.
+
 
 
 

@@ -1,12 +1,31 @@
 # Filmotic IPTV Aggregator
 
-Un motor automatizado para descargar, verificar, deduplicar y agrupar múltiples listas M3U en una única lista maestra limpia (`filmotic_playlist.m3u`). Este agregador asegura que Filmotic ofrezca siempre canales verificados (solo aquellos que respondan a peticiones HTTP en tiempo real) descartando canales caídos.
+Un motor automatizado para descargar, pre-filtrar, verificar, deduplicar y agrupar múltiples listas M3U en una única lista maestra limpia (`filmotic_playlist.m3u`). Este agregador asegura que Filmotic ofrezca siempre canales verificados en un rango óptimo (600–1200 canales), priorizando al 100% las señales deportivas y de España.
 
-## Requisitos
+## Características Principales
 
-- Python 3.9 o superior.
+- **Priorización Deportiva y España (Prioridad 1)**: Nunca se descartan canales deportivos (fútbol, ESPN, Fox Sports, DAZN, Movistar Deportes, Eurosport, etc.) ni canales de España, ubicándolos al inicio del archivo M3U.
+- **Pre-filtrado Inteligente**: Descarta nombres irrelevantes (`test`, `backup`, `offline`, `[not 24/7]`) y señales fuera del ámbito hispanohablante antes de verificar, reduciendo el tiempo de procesamiento drásticamente.
+- **Verificación Asíncrona Ultrarrápida**: Peticiones HEAD concurrentes (150 tareas en paralelo) con fallback a GET parcial (`Range: bytes=0-512`) y timeout de 5s.
+- **Límite Suave (Soft Cap)**: Si la lista de canales activos excede 1200, preserva todos los canales de Prioridad 1 y ajusta el resto para no saturar dispositivos como Android TV.
+- **Actualización Automática**: GitHub Actions programado cada 24 horas (`0 6 * * *` UTC) con límite de tiempo de 15 minutos.
 
-## Instalación local
+## Sistema de Clasificación de Prioridad
+
+Cada canal se clasifica según su nombre, grupo, país (`tvg-country`) e idioma (`tvg-language`):
+
+1. **Prioridad 1 (Máxima - Preservación 100%)**:
+   - Todo canal deportivo de cualquier país (palabras clave: `sport`, `deport`, `futbol`, `soccer`, `espn`, `fox`, `directv`, `movistar`, `dazn`, `gol`, `teledeporte`, `tdp`, etc.).
+   - Todo canal originario de España (`country: ES`).
+2. **Prioridad 2 (LATAM Principal)**:
+   - Canales nacionales y regionales de Colombia (`CO`), México (`MX`) y Argentina (`AR`).
+3. **Prioridad 3 (Resto de LATAM y Español temático)**:
+   - Canales de Chile (`CL`), Perú (`PE`), Venezuela (`VE`), Ecuador (`EC`), Uruguay (`UY`), Bolivia (`BO`) y Paraguay (`PY`).
+   - Canales en español de categorías de interés: Noticias, Infantil, Películas y Documentales.
+4. **Prioridad 4 (Descartable)**:
+   - Canales de otras regiones, idiomas no latinos o sin coincidencia relevante (se descartan antes de verificar).
+
+## Instalación y Ejecución Local
 
 1. Instala las dependencias:
    ```bash
@@ -18,30 +37,8 @@ Un motor automatizado para descargar, verificar, deduplicar y agrupar múltiples
    python aggregator.py
    ```
 
-3. El archivo resultante estará en `output/filmotic_playlist.m3u` (y si existe la carpeta `../docs/`, también se guardará allí para facilitar su publicación en GitHub Pages).
+3. El archivo resultante se guardará en `output/filmotic_playlist.m3u` y en `../docs/filmotic_playlist.m3u`.
 
-## Funcionamiento
+## Notas Legales
 
-El script funciona en 5 etapas rápidas:
-1. **Descarga**: Obtiene todos los M3U declarados en `sources.json`.
-2. **Parseo**: Extrae información vital (`tvg-id`, `tvg-logo`, grupos, nombre y URL) de la etiqueta `#EXTINF`.
-3. **Deduplicación**: Agrupa canales similares por `tvg-id` o nombre normalizado, descartando duplicados priorizando según el orden `priority` en el `sources.json` y dando preferencia a calidades HD.
-4. **Verificación Activa**: Realiza peticiones asíncronas (HTTP HEAD, si falla hace HTTP GET Byte-Range) a la URL de stream de cada canal. Los canales con `Timeout` (5s por defecto) o errores 404/500 son descartados y no ingresan al archivo final.
-5. **Generación**: Crea el M3U maestro categorizado y limpio.
-
-## Añadir nuevas listas
-
-Abre `sources.json` y añade un bloque en la sección `"sources"`:
-```json
-{
-  "name": "Nombre de tu lista",
-  "url": "https://url.al.m3u",
-  "priority": 1,
-  "category": "Mi Categoria"
-}
-```
-*Las listas con menor número en `priority` (1 es mejor que 2) sobreescribirán los canales con el mismo nombre de otras listas.*
-
-## Notas legales
-
-Filmotic y este agregador utilizan estrictamente listas IPTV **públicas y de libre acceso (open source)** como `iptv-org` y equivalentes comunitarios. Este script **NO** aloja, retransmite, guarda ni redistribuye el contenido de las señales de video; funciona puramente como un buscador asíncrono que valida si un enlace de terceros (URL) reporta estatus activo o no.
+Filmotic y este agregador utilizan estrictamente listas IPTV **públicas y de libre acceso (open source)** como `iptv-org`. Este script **NO** aloja ni retransmite señales de video; funciona puramente como un filtro y validador de disponibilidad HTTP.
