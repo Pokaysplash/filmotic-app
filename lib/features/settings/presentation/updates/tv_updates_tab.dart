@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../tv_config_shared.dart';
 import '../../../../core/constants/versiones.dart'; // ← VersionService
 
@@ -36,6 +37,7 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
   String? _downloadError;
 
   late final FocusNode _btnVersion;
+  late final FocusNode _btnCommunity;
 
   FocusNode get firstFocusNode => _btnVersion;
 
@@ -46,12 +48,14 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
   void initState() {
     super.initState();
     _btnVersion = FocusNode(debugLabel: 'cfg_version');
+    _btnCommunity = FocusNode(debugLabel: 'cfg_community');
     _checkVersion();
   }
 
   @override
   void dispose() {
     _btnVersion.dispose();
+    _btnCommunity.dispose();
     super.dispose();
   }
 
@@ -205,12 +209,26 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
           error: _error ?? _downloadError,
           onTap: _onVersionTap,
           onArrowUp: widget.onRequestTabFocus,
+          onArrowDown: () => _btnCommunity.requestFocus(),
+          onArrowLeft: widget.onRequestTabFocus,
+        ),
+        const SizedBox(height: 24),
+        sectionTitle('COMUNIDAD Y SOPORTE'),
+        _CommunityCard(
+          focusNode: _btnCommunity,
+          onTap: _openTelegram,
+          onArrowUp: () => _btnVersion.requestFocus(),
           onArrowDown: null,
           onArrowLeft: widget.onRequestTabFocus,
         ),
         const SizedBox(height: 24),
       ],
     );
+  }
+
+  Future<void> _openTelegram() async {
+    final uri = Uri.parse('https://t.me/+GFmv2pzxes8yNTcx');
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 }
 
@@ -440,6 +458,167 @@ class _VersionCard extends StatelessWidget {
                       ),
                     ),
                   ],
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CommunityCard extends StatelessWidget {
+  final FocusNode focusNode;
+  final VoidCallback onTap;
+  final VoidCallback onArrowUp;
+  final VoidCallback? onArrowDown;
+  final VoidCallback? onArrowLeft;
+
+  const _CommunityCard({
+    required this.focusNode,
+    required this.onTap,
+    required this.onArrowUp,
+    this.onArrowDown,
+    this.onArrowLeft,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: focusNode,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.arrowUp) {
+          onArrowUp();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowDown) {
+          onArrowDown?.call();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowLeft) {
+          onArrowLeft?.call();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.enter) {
+          onTap();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      onFocusChange: (hasFocus) {
+        if (hasFocus) {
+          final ctx = focusNode.context;
+          if (ctx != null) {
+            Scrollable.ensureVisible(
+              ctx,
+              alignment: 0.2,
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+            );
+          }
+        }
+      },
+      child: Builder(
+        builder: (context) {
+          final hasFocus = Focus.of(context).hasFocus;
+          return GestureDetector(
+            onTap: onTap,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 150),
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color: kConfigCard,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: hasFocus
+                      ? kConfigAccent
+                      : Colors.white.withValues(alpha: 0.08),
+                  width: hasFocus ? 2.5 : 1.5,
+                ),
+                boxShadow: hasFocus
+                    ? [
+                        BoxShadow(
+                          color: kConfigAccent.withValues(alpha: 0.35),
+                          blurRadius: 16,
+                          spreadRadius: 2,
+                        ),
+                      ]
+                    : null,
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: kConfigAccent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: const Icon(
+                      Icons.groups_rounded,
+                      color: kConfigAccent,
+                      size: 24,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Comunidad y soporte',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          'Únete al grupo oficial de Filmotic en Telegram para reportes y sugerencias',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.55),
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: hasFocus
+                          ? kConfigAccent
+                          : Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.open_in_new_rounded,
+                          color: hasFocus ? Colors.white : Colors.white70,
+                          size: 16,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Abrir',
+                          style: TextStyle(
+                            color: hasFocus ? Colors.white : Colors.white70,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),

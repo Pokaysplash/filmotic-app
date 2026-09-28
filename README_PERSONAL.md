@@ -579,6 +579,19 @@ Para mitigar la alta tasa de canales caídos en listas públicas, se creó un mo
   - `docs/index.html` & `docs/style.css`: banner superior de Beta, pill de versión actualizado y caja de advertencia en las instrucciones de instalación.
   - `README.md`: bloque de aviso superior informando del estado de Beta en desarrollo activo.
 
+---
+
+## 19. Comunidad y Soporte Oficial (Telegram)
+
+- **Grupo Oficial**: [Filmotic Comunidad](https://t.me/+GFmv2pzxes8yNTcx) (`https://t.me/+GFmv2pzxes8yNTcx`).
+- **Objetivo**: Punto de encuentro y canal directo para soporte al usuario, reporte de fallos, sugerencias y anuncios durante la fase de desarrollo beta.
+- **Integraciones implementadas**:
+  - **Ajustes en App Móvil (`settings_page.dart`)**: Nuevo ítem de configuración *"Comunidad y soporte"* con icono `Icons.groups_rounded`, color de acento `#FF6B35` y apertura de enlace externo mediante `url_launcher`.
+  - **Ajustes en Android TV (`tv_updates_tab.dart`)**: Tarjeta interactiva *"Comunidad y soporte"* con soporte D-Pad nativo, borde animado de foco en naranja Filmotic (`#FF6B35`) y confirmación con tecla Select / Enter.
+  - **Aviso de bienvenida en móvil (`filmotic_welcome_dialog.dart`)**: Diálogo informativo desplegado una única vez (`has_seen_welcome_dialog` en persistencia) que invita al usuario a sumarse a Telegram para reportar cualquier incidencia. Omitido en Android TV para preservar una experiencia limpia de sala.
+  - **Landing Page (`docs/index.html` & `docs/style.css`)**: Botón oficial de Telegram en el header, sección *"Soporte y comunidad"* tras la cuadrícula de características y enlace en el footer.
+
+
 
 
 

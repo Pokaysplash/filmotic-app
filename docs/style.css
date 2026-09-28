@@ -466,3 +466,99 @@ footer {
   color: #FF8552;
   text-decoration: underline;
 }
+
+/* Botón de Telegram Oficial */
+.btn-telegram {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #229ED9;
+  color: #FFFFFF;
+  text-decoration: none;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 14px 28px;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(34, 158, 217, 0.35);
+  transition: all 0.25s ease;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.btn-telegram:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(34, 158, 217, 0.5);
+  background: #2BA7E0;
+}
+
+/* Sección Soporte y Comunidad */
+.community-section {
+  margin: 50px 0;
+}
+
+.community-card {
+  background: linear-gradient(135deg, rgba(34, 158, 217, 0.08) 0%, rgba(20, 20, 25, 0.85) 100%);
+  border: 1px solid rgba(34, 158, 217, 0.3);
+  border-radius: var(--radius-lg);
+  padding: 36px 40px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.community-icon-wrapper {
+  background: rgba(34, 158, 217, 0.15);
+  width: 68px;
+  height: 68px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid rgba(34, 158, 217, 0.25);
+}
+
+.community-content {
+  flex: 1;
+}
+
+.community-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #FFFFFF;
+  margin-bottom: 8px;
+  letter-spacing: -0.3px;
+}
+
+.community-desc {
+  font-size: 15px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  max-width: 600px;
+}
+
+.community-action {
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .community-card {
+    flex-direction: column;
+    text-align: center;
+    padding: 28px 20px;
+  }
+  .community-desc {
+    margin: 0 auto;
+  }
+  .community-action {
+    width: 100%;
+  }
+  .btn-telegram {
+    width: 100%;
+  }
+}
+

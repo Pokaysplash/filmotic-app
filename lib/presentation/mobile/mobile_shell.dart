@@ -24,6 +24,7 @@ import '../../core/storage/app_database.dart';
 import '../../core/services/remote_config_service.dart';
 import '../../features/live_tv/presentation/live_tv_page.dart';
 import '../shared/modals/playback_setup_modal.dart';
+import '../shared/widgets/filmotic_welcome_dialog.dart';
 
 const _kAccentColor = Color(0xFFFF6B35);
 
@@ -100,6 +101,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _bootstrapOfflineOrSetup();
       _checkForUpdate();
+      FilmoticWelcomeDialog.checkAndShow(context);
     });
   }
 

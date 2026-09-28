@@ -1123,6 +1123,17 @@ class _ConfigPageState extends State<ConfigPage> {
                   ),
                   const SizedBox(height: 8),
                   _buildVersionCard(),
+                  const SizedBox(height: 8),
+                  _buildSectionCard(
+                    title: 'Comunidad y soporte',
+                    subtitle: 'Únete al grupo oficial de Filmotic',
+                    icon: Icons.groups_rounded,
+                    accent: const Color(0xFFFF6B35),
+                    onTap: () async {
+                      final uri = Uri.parse('https://t.me/+GFmv2pzxes8yNTcx');
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    },
+                  ),
                 ],
               ),
             ),

@@ -1,6 +1,6 @@
 > ⚠️ **Versión Beta en desarrollo activo**  
 > Filmotic está en fase beta. La mayoría de funciones están operativas, pero puedes encontrar errores.  
-> Reporta problemas en [Issues](https://github.com/Pokaysplash/filmotic-app/issues).
+> 💬 Únete al grupo oficial de soporte y feedback: [**Filmotic Comunidad en Telegram**](https://t.me/+GFmv2pzxes8yNTcx) o reporta incidencias en [Issues](https://github.com/Pokaysplash/filmotic-app/issues).
 
 <div align="center">
 
@@ -14,9 +14,10 @@ Aplicación multiplataforma desarrollada con **Flutter** para dispositivos móvi
 
 <br/>
 
+[![Telegram Community](https://img.shields.io/badge/Telegram-Filmotic%20Comunidad-229ED9?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/+GFmv2pzxes8yNTcx)
 ![Version](https://img.shields.io/badge/version-1.0.0-E50914?style=for-the-badge)
-![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?style=for-the-badge\&logo=flutter)
-![Android](https://img.shields.io/badge/Android-Mobile%20%7C%20TV-3DDC84?style=for-the-badge\&logo=android)
+![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?style=for-the-badge&logo=flutter)
+![Android](https://img.shields.io/badge/Android-Mobile%20%7C%20TV-3DDC84?style=for-the-badge&logo=android)
 ![License](https://img.shields.io/badge/license-Personal%20Use-lightgrey?style=for-the-badge)
 
 </div>

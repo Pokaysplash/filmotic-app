@@ -7,6 +7,7 @@ import '../../../presentation/mobile/mobile_shell.dart' as mobile;
 import '../../../presentation/tv/tv_shell.dart' as tv;
 import '../../content/presentation/content_page.dart';
 import 'transfer_screen.dart';
+import '../../../presentation/shared/widgets/filmotic_welcome_dialog.dart';
 
 const _kAccent = Color(0xFFFF6B35);
 
@@ -151,6 +152,7 @@ class _ProfileSelectionPageState extends State<ProfileSelectionPage> {
       } else {
         _addNode.requestFocus();
       }
+      FilmoticWelcomeDialog.checkAndShow(context);
     });
   }
 
