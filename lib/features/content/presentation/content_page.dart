@@ -169,6 +169,7 @@ class _PageContenidoState extends State<PageContenido>
         _loadEpisodeProgress();
         _loadDownloadedState();
         _checkAiring();
+        _preResolveServers();
       } else {
         setState(() {
           _error = json['error']?.toString() ?? 'No se encontró el contenido';
@@ -181,6 +182,21 @@ class _PageContenidoState extends State<PageContenido>
         _loading = false;
       });
     }
+  }
+
+  void _preResolveServers() {
+    try {
+      final isMovie = _resolvedMediaType != 'tv';
+      final season = isMovie ? 0 : 1;
+      final episode = isMovie ? 0 : 1;
+      ServerLoader().preResolve(
+        contentId: _resolvedTmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+        context: mounted ? context : null,
+      );
+    } catch (_) {}
   }
 
   Future<void> _loadSavedState() async {
@@ -337,7 +353,8 @@ class _PageContenidoState extends State<PageContenido>
     final posterUrl = _firstUrl(data['poster_path']);
     final backdropUrl = _firstUrl(data['backdrop_path']);
     final year = data['release_date'] ?? data['first_air_date'] ?? data['año'] ?? data['year'] ?? '';
-    final title = (data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? '').toString();
+    final rawTitle = (data['name'] ?? data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? data['nombre'] ?? '').toString().trim();
+    final title = rawTitle.isNotEmpty ? rawTitle : 'Sin título';
 
     final item = <String, dynamic>{
       'idcontenido': _resolvedTmdbId,
@@ -349,6 +366,7 @@ class _PageContenidoState extends State<PageContenido>
       'media_type': tipo,
       'title': title,
       'titulo': title,
+      'name': title,
       'poster': posterUrl,
       'poster_path': posterUrl,
       'backdrop': backdropUrl,
@@ -364,8 +382,38 @@ class _PageContenidoState extends State<PageContenido>
       'addedAt': DateTime.now().toIso8601String(),
     };
 
+    final nextSaved = !_isSaved;
+    setState(() => _isSaved = nextSaved);
+
     final nowSaved = await GuardadosCache.toggle(item);
-    if (mounted) setState(() => _isSaved = nowSaved);
+    if (mounted) {
+      if (_isSaved != nowSaved) {
+        setState(() => _isSaved = nowSaved);
+      }
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              Icon(
+                nowSaved ? Icons.check_circle_rounded : Icons.bookmark_remove_rounded,
+                color: Colors.white,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                nowSaved ? 'Añadido a Mi lista' : 'Eliminado de Mi lista',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          backgroundColor: nowSaved ? const Color(0xFFFF6B35) : const Color(0xFF2C2C30),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
   List<Map<String, dynamic>> get _seasons =>
@@ -1338,52 +1386,56 @@ class _PageContenidoState extends State<PageContenido>
                             // Botón B.5: + Agregar a favoritos / ✓ En favoritos
                             Expanded(
                               flex: 2,
-                              child: GestureDetector(
-                                onTap: _toggleSaved,
-                                child: Container(
-                                  height: 50,
-                                  decoration: BoxDecoration(
-                                    color: _isSaved
-                                        ? const Color(0xFFFF6B35).withValues(alpha: 0.2)
-                                        : Colors.white.withValues(alpha: 0.12),
-                                    borderRadius: BorderRadius.circular(25),
-                                    border: Border.all(
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: _toggleSaved,
+                                  borderRadius: BorderRadius.circular(25),
+                                  child: Container(
+                                    height: 50,
+                                    decoration: BoxDecoration(
                                       color: _isSaved
-                                          ? const Color(0xFFFF6B35)
-                                          : Colors.white.withValues(alpha: 0.2),
-                                      width: 1.2,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        _isSaved
-                                            ? Icons.check_rounded
-                                            : Icons.add_rounded,
+                                          ? const Color(0xFFFF6B35).withValues(alpha: 0.2)
+                                          : Colors.white.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(25),
+                                      border: Border.all(
                                         color: _isSaved
                                             ? const Color(0xFFFF6B35)
-                                            : Colors.white,
-                                        size: 20,
+                                            : Colors.white.withValues(alpha: 0.2),
+                                        width: 1.2,
                                       ),
-                                      const SizedBox(width: 4),
-                                      Flexible(
-                                        child: Text(
+                                    ),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
                                           _isSaved
-                                              ? 'Favorito'
-                                              : 'Favoritos',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            color: _isSaved
-                                                ? const Color(0xFFFF6B35)
-                                                : Colors.white,
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w600,
+                                              ? Icons.check_rounded
+                                              : Icons.add_rounded,
+                                          color: _isSaved
+                                              ? const Color(0xFFFF6B35)
+                                              : Colors.white,
+                                          size: 20,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Flexible(
+                                          child: Text(
+                                            _isSaved
+                                                ? 'Favorito'
+                                                : 'Favoritos',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              color: _isSaved
+                                                  ? const Color(0xFFFF6B35)
+                                                  : Colors.white,
+                                              fontSize: 12.5,
+                                              fontWeight: FontWeight.w600,
+                                            ),
                                           ),
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),

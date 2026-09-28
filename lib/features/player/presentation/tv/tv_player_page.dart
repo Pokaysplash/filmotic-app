@@ -257,6 +257,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isSwitchingServerNotice = false;
   bool _isResolving = false;
   bool _allServersFailed = false;
+  int _consecutiveServerFailures = 0;
+  Timer? _loadingLongTimer;
+  bool _showTryAnotherServer = false;
+
+  void _startLoadingTimer() {
+    _loadingLongTimer?.cancel();
+    _showTryAnotherServer = false;
+    _loadingLongTimer = Timer(const Duration(seconds: 8), () {
+      if (mounted && _isLoading) {
+        setState(() => _showTryAnotherServer = true);
+      }
+    });
+  }
+
+  void _stopLoadingTimer() {
+    _loadingLongTimer?.cancel();
+    _loadingLongTimer = null;
+    if (_showTryAnotherServer && mounted) {
+      setState(() => _showTryAnotherServer = false);
+    }
+  }
+
   bool _preloadTriggered = false;
   /// true cuando ya se precargó el siguiente (botón naranja).
   bool _nextPreloaded = false;
@@ -1558,7 +1580,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
           },
         );
       } else {
-        await _controller.initialize();
+        await _controller.initialize().timeout(
+          const Duration(seconds: 8),
+          onTimeout: () {
+            throw TimeoutException('Tiempo de espera agotado al conectar con el servidor.');
+          },
+        );
       }
 
       if (!mounted || _isDisposing) {
@@ -1608,16 +1635,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
         });
       }
 
-      // ── Watchdog de 5 segundos para VOD ─────────────────────────────────
+      // ── Watchdog de 8 segundos para VOD ─────────────────────────────────
       _vodWatchdogTimer?.cancel();
       if (!widget.isLive) {
-        _vodWatchdogTimer = Timer(const Duration(seconds: 5), () {
+        _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
           if (!mounted || _isDisposing || widget.isLive) return;
           final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
           final playing = _controllerReady && _controller.value.isPlaying;
           final hasError = _controllerReady && _controller.value.hasError;
           if (!playing || pos < 300 || hasError || !_controllerReady) {
-            debugPrint('[TV VOD Watchdog] Servidor tardó más de 5s sin reproducir. Cambiando servidor...');
+            debugPrint('[TV VOD Watchdog] Servidor tardó más de 8s sin reproducir. Cambiando servidor...');
             if (mounted) {
               setState(() {
                 _isSwitchingServerNotice = true;
@@ -1626,7 +1653,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (_fallbackIndex < _fallbackServers.length) {
               _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
             }
-            _tryNextServer(reason: 'El servidor tardó más de lo esperado en iniciar');
+            _tryNextServer(reason: 'El servidor tardó más de 8s en iniciar reproducción');
           }
         });
       }
@@ -1637,6 +1664,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       if (!mounted || _isDisposing) return;
+      _stopLoadingTimer();
       setState(() {
         _isLoading = false;
         _totalDuration = _controller.value.duration;
@@ -1649,6 +1677,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _resetScreensaverTimer();
       WidgetsBinding.instance.addPostFrameCallback((_) => _claimPlayerFocus());
     } catch (e) {
+      _stopLoadingTimer();
       debugPrint('Error al reproducir URL TV: $e');
       if (widget.isLive) {
         final streams = _liveStreams.isNotEmpty
@@ -1690,6 +1719,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _isLoading = true;
       _errorMessage = '';
     });
+    _startLoadingTimer();
+    _consecutiveServerFailures++;
+
+    // Si van 3 o más fallos seguidos, mostrar diálogo de fallback visible
+    if (_consecutiveServerFailures >= 3) {
+      if (!mounted || _isDisposing) return;
+      _stopLoadingTimer();
+      setState(() {
+        _isLoading = false;
+        _isSwitchingServerNotice = false;
+        _allServersFailed = true;
+        _errorMessage = reason != null && reason.isNotEmpty
+            ? 'Ningún servidor funcionó.\n$reason'
+            : 'Ningún servidor disponible para este contenido.';
+      });
+      _showAllServersFailedDialog();
+      return;
+    }
+
     _fallbackIndex++;
     while (_fallbackIndex < _fallbackServers.length) {
       final srv = _fallbackServers[_fallbackIndex];
@@ -1709,6 +1757,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _fallbackIndex++;
     }
     if (!mounted || _isDisposing) return;
+    _stopLoadingTimer();
     setState(() {
       _isLoading = false;
       _isSwitchingServerNotice = false;
@@ -1717,6 +1766,57 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ? 'Ningún servidor funcionó.\n$reason'
           : 'Ningún servidor disponible para este contenido.';
     });
+    _showAllServersFailedDialog();
+  }
+
+  void _showAllServersFailedDialog() {
+    if (!mounted || _isDisposing) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: accentOrange, size: 30),
+            SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Fallo de reproducción',
+                style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'No se pudo reproducir el contenido en ninguno de los servidores disponibles. ¿Quieres probar otra fuente?',
+          style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.of(context).pop();
+            },
+            child: const Text('Volver', style: TextStyle(color: Colors.white60, fontSize: 16)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _showAudioLanguageSelectorTv();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: accentOrange,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text('Elegir servidor / fuente', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _loadSubtitles() async {
@@ -1813,6 +1913,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!mounted || _isDisposing) return;
 
     final value = _controller.value;
+
+    // ── Detección inmediata de fallo en el player ───────────────────────
+    if (value.hasError && !_isSwitchingServerNotice && !_allServersFailed) {
+      debugPrint('[TV Player] Error detectado en VideoPlayer: ${value.errorDescription}');
+      _vodWatchdogTimer?.cancel();
+      _vodWatchdogTimer = null;
+      if (_fallbackIndex < _fallbackServers.length) {
+        _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
+      }
+      if (mounted) {
+        setState(() {
+          _isSwitchingServerNotice = true;
+        });
+      }
+      _tryNextServer(reason: value.errorDescription ?? 'Error al procesar flujo de video');
+      return;
+    }
+
     final nowMs = value.position.inMilliseconds;
     final shouldUpdatePosition =
         _isDragging ||
@@ -1827,6 +1945,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     // Si ya comenzó a reproducir (>300ms de posición), cancelar watchdog y ocultar aviso
     if (!widget.isLive && (_isSwitchingServerNotice || _vodWatchdogTimer != null) && newPlaying && nowMs > 300) {
+      _consecutiveServerFailures = 0;
+      _stopLoadingTimer();
       _vodWatchdogTimer?.cancel();
       _vodWatchdogTimer = null;
       if (_isSwitchingServerNotice) {
@@ -3966,6 +4086,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _isDisposing = true;
+    _loadingLongTimer?.cancel();
     _vodWatchdogTimer?.cancel();
     _audioCheckTimer?.cancel();
     _hideControlsTimer?.cancel();
@@ -4613,14 +4734,50 @@ class _PlayerScreenState extends State<PlayerScreen> {
             errorWidget: (_, __, ___) => const ColoredBox(color: Colors.black),
           ),
         ColoredBox(color: Colors.black.withValues(alpha: 0.55)),
-        const Center(
-          child: SizedBox(
-            width: 48,
-            height: 48,
-            child: CircularProgressIndicator(
-              color: accentOrange,
-              strokeWidth: 3.5,
-            ),
+        Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 48,
+                height: 48,
+                child: CircularProgressIndicator(
+                  color: accentOrange,
+                  strokeWidth: 3.5,
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                _isSwitchingServerNotice
+                    ? 'Cambiando de servidor...'
+                    : 'Conectando al servidor...',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.4,
+                ),
+              ),
+              if (_showTryAnotherServer) ...[
+                const SizedBox(height: 20),
+                OutlinedButton.icon(
+                  onPressed: () {
+                    _tryNextServer(reason: 'Solicitado por el usuario');
+                  },
+                  icon: const Icon(Icons.sync_rounded, color: Colors.white, size: 20),
+                  label: const Text(
+                    'Probar otro servidor',
+                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: accentOrange, width: 2),
+                    backgroundColor: Colors.black54,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
       ],

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../data/aggregators/source_aggregator.dart'; // Ajusta el import según tu estructura real
+import '../../../../core/storage/app_database.dart';
 
 /// Preferencias de audio/subtítulo/selección (las 3 nuevas opciones)
 class ServerLoaderPrefs {
@@ -244,6 +245,33 @@ class ServerLoader {
     final order = _prefs!.idiomaFallbackOrder;
     final s = isMovie ? 0 : season;
     final e = isMovie ? 0 : episode;
+
+    // 0) Comprobar caché Sembast de servidor exitoso (TTL 30 min)
+    if (!forceRefresh) {
+      final cachedWin = await AppDatabase.instance.getSuccessfulServer(
+        contentId: contentId,
+        season: s,
+        episode: e,
+      );
+      if (cachedWin != null && cachedWin['url'] != null) {
+        final winUrl = cachedWin['url'].toString();
+        final isBlacklisted = await AppDatabase.instance.isServerBlacklisted(winUrl);
+        if (!isBlacklisted && winUrl.isNotEmpty) {
+          debugPrint('[TV ServerLoader] Hit Caché Sembast Win → ${cachedWin['server_name'] ?? 'Server'}');
+          return PlayableSource(
+            url: winUrl,
+            headers: Map<String, String>.from(cachedWin['headers'] ?? {}),
+            quality: cachedWin['quality']?.toString() ?? 'Auto',
+            serverName: cachedWin['server_name']?.toString() ?? 'Server',
+            idioma: cachedWin['idioma']?.toString() ?? 'LAT',
+            rawServer: cachedWin['raw_server'] is Map
+                ? Map<String, dynamic>.from(cachedWin['raw_server'])
+                : {},
+          );
+        }
+      }
+    }
+
     final key = _cacheKey(
       contentId: contentId,
       season: s,
@@ -289,7 +317,10 @@ class ServerLoader {
     final url = server['servidor_url']?.toString() ??
         server['resolved_m3u8']?.toString() ??
         '';
-    if (url.isNotEmpty) _invalidUrls.add(url);
+    if (url.isNotEmpty) {
+      _invalidUrls.add(url);
+      AppDatabase.instance.blacklistServer(url, ttl: const Duration(minutes: 30));
+    }
   }
 
   bool _isInvalid(Map<String, dynamic> server) {
@@ -297,6 +328,25 @@ class ServerLoader {
         server['resolved_m3u8']?.toString() ??
         '';
     return url.isNotEmpty && _invalidUrls.contains(url);
+  }
+
+  Future<void> preResolve({
+    required int contentId,
+    required bool isMovie,
+    int season = 0,
+    int episode = 0,
+    BuildContext? context,
+  }) async {
+    try {
+      await resolvePlayable(
+        contentId: contentId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+        context: context,
+        forceRefresh: false,
+      );
+    } catch (_) {}
   }
 
   bool isServerInvalid(Map<String, dynamic> server) => _isInvalid(server);
@@ -412,29 +462,91 @@ class ServerLoader {
     if (collected.isEmpty) return null;
 
     for (final code in order) {
-      for (final srv in collected) {
+      final forLang = collected.where((srv) {
         final idioma = MainFuentes.normalizeIdioma(srv['idioma']?.toString());
-        if (idioma != code) continue;
-        final playable = await tryResolveServer(srv, context: context);
-        if (playable != null) {
-          await _persistWin(
-            cacheKey: cacheKey,
-            contentId: contentId,
-            isMovie: isMovie,
-            season: season,
-            episode: episode,
-            playable: playable,
-            server: srv,
-            allKnown: collected,
-          );
-          debugPrint(
-            '[ServerLoader] Caché lista → ${playable.serverName} ($idioma)',
-          );
-          return playable;
-        }
-        markServerAsInvalid(srv);
+        return idioma == code && !_isInvalid(srv);
+      }).toList();
+
+      if (forLang.isEmpty) continue;
+
+      final playable = await _resolveServersInParallel(
+        forLang,
+        context: context,
+        maxParallel: 3,
+      );
+      if (playable != null) {
+        await _persistWin(
+          cacheKey: cacheKey,
+          contentId: contentId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+          playable: playable,
+          server: playable.rawServer,
+          allKnown: collected,
+        );
+        debugPrint(
+          '[TV ServerLoader] Caché lista paralela → ${playable.serverName} ($code)',
+        );
+        return playable;
       }
     }
+    return null;
+  }
+
+  Future<PlayableSource?> _resolveServersInParallel(
+    List<Map<String, dynamic>> servers, {
+    BuildContext? context,
+    int maxParallel = 3,
+  }) async {
+    if (servers.isEmpty) return null;
+
+    for (int i = 0; i < servers.length; i += maxParallel) {
+      final chunk = servers.sublist(i, (i + maxParallel).clamp(0, servers.length));
+      final completer = Completer<PlayableSource?>();
+      int pending = 0;
+      bool completed = false;
+
+      final validServers = <Map<String, dynamic>>[];
+      for (final srv in chunk) {
+        if (!_isInvalid(srv)) validServers.add(srv);
+      }
+
+      if (validServers.isEmpty) continue;
+      pending = validServers.length;
+
+      for (final srv in validServers) {
+        tryResolveServer(srv, context: context).then((playable) {
+          if (completed) return;
+          if (playable != null && playable.url.isNotEmpty) {
+            completed = true;
+            completer.complete(playable);
+          } else {
+            markServerAsInvalid(srv);
+            pending--;
+            if (pending <= 0 && !completed) {
+              completed = true;
+              completer.complete(null);
+            }
+          }
+        }).catchError((_) {
+          if (completed) return;
+          markServerAsInvalid(srv);
+          pending--;
+          if (pending <= 0 && !completed) {
+            completed = true;
+            completer.complete(null);
+          }
+        });
+      }
+
+      final result = await completer.future.timeout(
+        const Duration(seconds: 8),
+        onTimeout: () => null,
+      );
+      if (result != null) return result;
+    }
+
     return null;
   }
 
@@ -573,6 +685,20 @@ class ServerLoader {
   }) async {
     try {
       await _saveCacheA(cacheKey, playable);
+      await AppDatabase.instance.saveSuccessfulServer(
+        contentId: contentId,
+        season: isMovie ? 0 : season,
+        episode: isMovie ? 0 : episode,
+        data: {
+          'url': playable.url,
+          'headers': playable.headers,
+          'quality': playable.quality,
+          'server_name': playable.serverName,
+          'idioma': playable.idioma,
+          'raw_server': server,
+        },
+        ttl: const Duration(minutes: 30),
+      );
       if (allKnown.isNotEmpty) {
         await _saveCacheB(cacheKey, allKnown);
         await FuentesCache.saveServers(

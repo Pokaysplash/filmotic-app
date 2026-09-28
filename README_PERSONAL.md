@@ -591,8 +591,29 @@ Para mitigar la alta tasa de canales caídos en listas públicas, se creó un mo
   - **Aviso de bienvenida en móvil (`filmotic_welcome_dialog.dart`)**: Diálogo informativo desplegado una única vez (`has_seen_welcome_dialog` en persistencia) que invita al usuario a sumarse a Telegram para reportar cualquier incidencia. Omitido en Android TV para preservar una experiencia limpia de sala.
   - **Landing Page (`docs/index.html` & `docs/style.css`)**: Botón oficial de Telegram en el header, sección *"Soporte y comunidad"* tras la cuadrícula de características y enlace en el footer.
 
+---
 
+## 20. WAVE 8 – Optimización de reproducción y fix de favoritos
 
+### 20.1 Corrección de Bugs Críticos de UX
 
+- **BLOQUE B: Fallback Inteligente y Recuperación Automática de Servidores**:
+  - **Detección Inmediata de Fallo**: `VideoPlayerController.value.hasError` se supervisa activamente en `_videoListener` tanto en móvil (`player_page.dart`) como en TV (`tv_player_page.dart`). Ante cualquier excepción o caída de stream, se marca el servidor inválido y se dispara el fallback inmediato sin forzar al usuario a abandonar la pantalla.
+  - **Timeout de Inicialización y Watchdog de 8 Segundos**: Se añadió un timeout estricto de 8 segundos a `_controller.initialize()` en VOD (evitando que ExoPlayer quede congelado indefinidamente en peticiones socket) y se elevó el watchdog de arranque a 8 segundos. Si la posición no avanza más allá de 300 ms en 8s, se activa automáticamente la alternancia de servidor mostrando un aviso discreto: *"Cambiando de servidor..."*.
+  - **Blacklist Temporal de Servidores en Sembast (TTL 30 min)**: Todo servidor caído se guarda con marca temporal en `server_blacklist` en Sembast (`AppDatabase.instance.blacklistServer` / `isServerBlacklisted`). Mientras esté en lista negra, no vuelve a ser consultado durante la sesión, impidiendo que el usuario reincida en un servidor defectuoso.
+  - **Fallback Visible (3 Intentos)**: Contador `_consecutiveServerFailures`. Si tras 3 intentos consecutivos ningún servidor arranca, se presenta un diálogo claro: *"No se pudo reproducir el contenido en ninguno de los servidores disponibles. ¿Quieres probar otra fuente?"*, con opciones para seleccionar manualmente otro servidor o regresar a la navegación.
+  - **Preservación de Cola de Alternativas**: En URLs de stream directo ya resueltas (`_isDirectStreamUrl`), se mantiene y actualiza en segundo plano la lista de servidores de respaldo (`_fallbackServers`), evitando listas vacías al producirse un fallo repentino.
 
+- **BLOQUE C: Fix del Botón "+ Favoritos" en la Ficha del Contenido**:
+  - **Soporte de Título para Series (TMDB `name`)**: Se solventó la omisión del campo `name` devuelto por la API de TMDB para series televisivas tanto en `content_page.dart` como en `tv_content_page.dart`. Anteriormente, el título evaluaba a cadena vacía `''`, lo cual invalidaba los metadatos completos y ocultaba la serie en *"Mi lista"*.
+  - **Protección en Sembast (`AppDatabase.toggleFavorite`)**: Se blindó la extracción de título ante cadenas vacías (`item['titulo']?.trim().isNotEmpty == true`), garantizando que siempre se seleccione un título válido (`item['name']` / `item['title']`).
+  - **Resolución de ID y Estado Inicial**: En `tv_content_page.dart`, `_loadSavedState()` evalúa `widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId`, sincronizando fielmente el estado guardado.
+  - **Interactividad y Hit Testing**: En móvil, el botón "+ Favoritos" fue envuelto en `Material` con `InkWell` (soporte táctil opaco y ripple animado).
+  - **Navegación D-Pad en Android TV**: En `tv_content_page.dart`, se corrigió la navegación hacia la derecha desde el botón *"Ver Ahora"* para películas (`onRequestEpisodesView == null`), permitiendo al usuario alcanzar directamente el botón de favoritos con el control remoto.
+  - **Feedback Visual Inmediato**: Actualización de estado visual inmediata (`setState` / `ValueNotifier`) y despliegue de SnackBar flotante claro: *"Añadido a Mi lista"* / *"Eliminado de Mi lista"*.
 
+- **BLOQUE A: Optimización del Tiempo de Arranque de Reproducción**:
+  - **Resolución en Paralelo (Top 3 Servidores)**: Se implementó `_resolveServersInParallel` en `ServerLoader` (`player_controller.dart` y `tv_player_controller.dart`). Los 3 primeros servidores por prioridad se prueban concurrentemente con un `Completer`; el primero en responder satisfactoriamente gana y cancela/ignora los restantes, reduciendo el arranque de ~15s a menos de ~3-5s.
+  - **Pre-calentamiento en Fondo (`preResolve`)**: Al ingresar a la ficha del contenido (`content_page.dart` y `tv_content_page.dart`), se dispara en background `ServerLoader.preResolve()`. Al pulsar *"Ver ahora"*, la fuente ya se encuentra precargada en memoria/caché.
+  - **Caché Sembast de Servidor Exitoso (TTL 30 min)**: Al reproducir con éxito un contenido, se guarda en el store `server_win_cache` con TTL de 30 minutos. Al volver a reproducir el mismo contenido dentro de la ventana de validez, el arranque es instantáneo.
+  - **Overlay de Carga Informativo**: La pantalla de carga ahora indica *"Conectando al servidor..."* (o *"Cambiando de servidor..."*), y si la conexión supera los 8 segundos, se muestra el botón *"Probar otro servidor"* para evitar cualquier sensación de bloqueo.

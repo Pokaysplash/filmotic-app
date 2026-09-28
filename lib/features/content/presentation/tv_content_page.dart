@@ -220,6 +220,7 @@ class _PageContenidoState extends State<PageContenido>
         _loadSavedState();
         await _loadFullProgress();
         _startLiveRefresh();
+        _preResolveServers();
 
         // Aviso superior: solo para TV, dura 10s y luego se borra.
         if (_resolvedMediaType == 'tv' && _seasons.isNotEmpty) {
@@ -243,8 +244,24 @@ class _PageContenidoState extends State<PageContenido>
     }
   }
 
+  void _preResolveServers() {
+    try {
+      final isMovie = _resolvedMediaType != 'tv';
+      final season = isMovie ? 0 : 1;
+      final episode = isMovie ? 0 : 1;
+      ServerLoader().preResolve(
+        contentId: _resolvedTmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+        context: mounted ? context : null,
+      );
+    } catch (_) {}
+  }
+
   Future<void> _loadSavedState() async {
-    final saved = await GuardadosCache.isSaved(widget.idcontenido);
+    final targetId = widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId;
+    final saved = await GuardadosCache.isSaved(targetId);
     if (mounted) _isSavedNotifier.value = saved;
   }
 
@@ -398,11 +415,13 @@ class _PageContenidoState extends State<PageContenido>
     final backdropUrl = _firstUrl(data['backdrop_path']);
     final tipo = (data['type'] ?? data['media_type'] ?? _resolvedMediaType).toString().toLowerCase();
     final year = data['release_date'] ?? data['first_air_date'] ?? data['año'] ?? data['year'] ?? '';
-    final title = (data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? '').toString();
+    final rawTitle = (data['name'] ?? data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? data['nombre'] ?? '').toString().trim();
+    final title = rawTitle.isNotEmpty ? rawTitle : 'Sin título';
+    final targetContentId = widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId;
 
     final item = <String, dynamic>{
-      'idcontenido': widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId,
-      'contenido_id': widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId,
+      'idcontenido': targetContentId,
+      'contenido_id': targetContentId,
       'tmdb_id': _resolvedTmdbId,
       'idtmdb': _resolvedTmdbId,
       'media_type': _resolvedMediaType,
@@ -410,6 +429,7 @@ class _PageContenidoState extends State<PageContenido>
       'type': tipo,
       'title': title,
       'titulo': title,
+      'name': title,
       'poster': posterUrl,
       'poster_path': posterUrl,
       'backdrop': backdropUrl,
@@ -421,8 +441,39 @@ class _PageContenidoState extends State<PageContenido>
       'metadatos_completos': true,
       'addedAt': DateTime.now().toIso8601String(),
     };
+
+    final nextSaved = !_isSavedNotifier.value;
+    _isSavedNotifier.value = nextSaved;
+
     final nowSaved = await GuardadosCache.toggle(item);
-    if (mounted) _isSavedNotifier.value = nowSaved;
+    if (mounted) {
+      _isSavedNotifier.value = nowSaved;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                nowSaved ? Icons.check_circle_rounded : Icons.bookmark_remove_rounded,
+                color: Colors.white,
+                size: 22,
+              ),
+              const SizedBox(width: 10),
+              Text(
+                nowSaved ? 'Añadido a Mi lista' : 'Eliminado de Mi lista',
+                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          backgroundColor: nowSaved ? const Color(0xFFFF6B35) : const Color(0xFF2C2C30),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          duration: const Duration(seconds: 2),
+          width: 320,
+        ),
+      );
+    }
   }
 
   Future<void> _clearProgress() async {
@@ -2020,6 +2071,9 @@ class _InfoColumn extends StatelessWidget {
                 if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
                   if (onRequestEpisodesView != null && episodesFocusNode != null) {
                     episodesFocusNode!.requestFocus();
+                    return KeyEventResult.handled;
+                  } else if (secondaryButtons.isNotEmpty) {
+                    secondaryButtons.first.focusNode.requestFocus();
                     return KeyEventResult.handled;
                   }
                 }

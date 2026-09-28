@@ -1,9 +1,6 @@
-import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:sembast/sembast.dart';
 import 'package:sembast/sembast_io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -123,6 +120,8 @@ class AppDatabase {
   final _epgProgramsStore = stringMapStoreFactory.store('epg_programs');
   final _epgMetaStore = stringMapStoreFactory.store('epg_meta');
   final _serverValidationStore = stringMapStoreFactory.store('server_validation_cache');
+  final _serverBlacklistStore = stringMapStoreFactory.store('server_blacklist');
+  final _serverWinCacheStore = stringMapStoreFactory.store('server_win_cache');
 
   final ValueNotifier<LocalProfile?> activeProfileNotifier =
       ValueNotifier<LocalProfile?>(null);
@@ -392,7 +391,14 @@ class AppDatabase {
       await _favoritosStore.record(key).delete(db);
       return false; // Removido
     } else {
-      final titulo = (item['titulo'] ?? item['title'] ?? item['name'] ?? 'Sin título').toString().trim();
+      final String rawTitulo = (item['titulo']?.toString().trim().isNotEmpty == true)
+          ? item['titulo'].toString().trim()
+          : (item['title']?.toString().trim().isNotEmpty == true)
+              ? item['title'].toString().trim()
+              : (item['name']?.toString().trim().isNotEmpty == true)
+                  ? item['name'].toString().trim()
+                  : 'Sin título';
+      final titulo = rawTitulo;
       final poster = item['poster'] ?? item['poster_path'] ?? item['imagen'];
       final backdrop = item['backdrop'] ?? item['backdrop_path'];
       final rawTipo = (item['tipo'] ?? item['type'] ?? item['media_type'] ?? item['mediaType'] ?? 'movie').toString().toLowerCase();
@@ -596,6 +602,91 @@ class AppDatabase {
         'cached_at': DateTime.now().toIso8601String(),
       });
     } catch (_) {}
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // BLACKLIST TEMPORAL DE SERVIDORES CAÍDOS (TTL 30 min)
+  // ══════════════════════════════════════════════════════════════
+
+  Future<void> blacklistServer(String url, {Duration ttl = const Duration(minutes: 30)}) async {
+    final cleanUrl = url.trim();
+    if (cleanUrl.isEmpty) return;
+    try {
+      final db = await database;
+      await _serverBlacklistStore.record(cleanUrl).put(db, {
+        'blacklist_hasta': DateTime.now().add(ttl).toIso8601String(),
+        'url': cleanUrl,
+      });
+    } catch (_) {}
+  }
+
+  Future<bool> isServerBlacklisted(String url) async {
+    final cleanUrl = url.trim();
+    if (cleanUrl.isEmpty) return false;
+    try {
+      final db = await database;
+      final record = await _serverBlacklistStore.record(cleanUrl).get(db);
+      if (record == null) return false;
+      final untilStr = record['blacklist_hasta']?.toString();
+      if (untilStr == null) return false;
+      final until = DateTime.tryParse(untilStr);
+      if (until == null || DateTime.now().isAfter(until)) {
+        await _serverBlacklistStore.record(cleanUrl).delete(db);
+        return false;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // CACHÉ DE SERVIDOR EXITOSO POR CONTENIDO (TTL 30 min)
+  // ══════════════════════════════════════════════════════════════
+
+  Future<void> saveSuccessfulServer({
+    required int contentId,
+    required int season,
+    required int episode,
+    required Map<String, dynamic> data,
+    Duration ttl = const Duration(minutes: 30),
+  }) async {
+    if (contentId <= 0) return;
+    try {
+      final db = await database;
+      final key = '${contentId}_${season}_$episode';
+      await _serverWinCacheStore.record(key).put(db, {
+        'data': data,
+        'cached_at': DateTime.now().toIso8601String(),
+        'expires_at': DateTime.now().add(ttl).toIso8601String(),
+      });
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>?> getSuccessfulServer({
+    required int contentId,
+    required int season,
+    required int episode,
+  }) async {
+    if (contentId <= 0) return null;
+    try {
+      final db = await database;
+      final key = '${contentId}_${season}_$episode';
+      final record = await _serverWinCacheStore.record(key).get(db);
+      if (record == null) return null;
+      final expStr = record['expires_at']?.toString();
+      if (expStr == null) return null;
+      final exp = DateTime.tryParse(expStr);
+      if (exp == null || DateTime.now().isAfter(exp)) {
+        await _serverWinCacheStore.record(key).delete(db);
+        return null;
+      }
+      final data = record['data'];
+      if (data is Map) return Map<String, dynamic>.from(data);
+      return null;
+    } catch (_) {
+      return null;
+    }
   }
 
   // ══════════════════════════════════════════════════════════════
