@@ -334,41 +334,7 @@ class _ServiciosPageState extends State<ServiciosPage>
   }
 
   // ── Bottom sheets ───────────────────────────────────────────────────────
-  void _showSearchFilterSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _buildSheet(
-        title: 'Buscar en',
-        children: [
-          _sheetOption(
-            _searchItems.isNotEmpty && _searchTipo == 'todas'
-                ? 'Todas las fuentes (${_searchItems.length})'
-                : 'Todas las fuentes',
-            _searchTipo == 'todas',
-            () {
-              Navigator.pop(ctx);
-              setState(() => _searchTipo = 'todas');
-              if (_searchCtrl.text.trim().isNotEmpty) _doSearch();
-            },
-          ),
-          ...fuentesConBusqueda.map((f) {
-            final count = _lastResultados[f.id]?.length;
-            final label = count != null ? '${f.label} ($count)' : f.label;
-            return _sheetOption(
-              label,
-              _searchTipo == f.id,
-              () {
-                Navigator.pop(ctx);
-                setState(() => _searchTipo = f.id);
-                if (_searchCtrl.text.trim().isNotEmpty) _doSearch();
-              },
-            );
-          }),
-        ],
-      ),
-    );
-  }
+
 
   void _showServicioSheet() {
     showModalBottomSheet(
@@ -634,46 +600,6 @@ class _ServiciosPageState extends State<ServiciosPage>
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Material(
-                    color: kCardBg,
-                    borderRadius: BorderRadius.circular(10),
-                    child: InkWell(
-                      onTap: _showSearchFilterSheet,
-                      borderRadius: BorderRadius.circular(10),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 14,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.1),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              Icons.filter_list_rounded,
-                              size: 18,
-                              color: kAccentColor,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              _searchTipo == 'todas' ? 'Todas' : _searchTipoLabel,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -704,17 +630,6 @@ class _ServiciosPageState extends State<ServiciosPage>
                                 ),
                               ),
                             ],
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                          child: Text(
-                            '$_servicioLabel · $_tipoLabel · $_generoLabel',
-                            style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.7),
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                            ),
                           ),
                         ),
                         Expanded(child: _buildListBody(bottomPad)),

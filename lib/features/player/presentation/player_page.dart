@@ -10,7 +10,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/storage/app_database.dart';
 
 import '../../content/presentation/content_page.dart';
-import '../../servers/presentation/servers_modal.dart';
 import 'subtitles/subtitle_widget.dart';
 import 'quality/quality_selector.dart';
 import 'subtitles/subtitle_selector.dart'; // ← NUEVO
@@ -135,6 +134,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isBuffering = false;
   Timer? _hideControlsTimer;
   Timer? _vodWatchdogTimer;
+  Timer? _audioCheckTimer;
   bool _isSwitchingServerNotice = false;
   bool _isDragging = false;
   bool _isDisposing = false;
@@ -815,10 +815,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _controller.addListener(_videoListener);
       _controllerReady = true;
+      _currentQualityLabel = 'Auto';
+      _currentQualityUrl = null;
+      if (_apiData == null && !widget.isLive) {
+        unawaited(_loadApiData());
+      }
+      if (_subtitlesEnabled && _subtitleCues.isEmpty && !widget.isLive) {
+        unawaited(_loadSubtitles());
+      }
       try {
         await _controller.setVolume(1.0);
         AudioBoostService.instance.boostVolume();
+        final currentVol = await AudioBoostService.instance.getVolumePercent();
+        if (currentVol <= 0.05 && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sube el volumen de tu dispositivo para escuchar.'),
+              backgroundColor: Color(0xFF1E1E24),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
       } catch (_) {}
+
+      // ── Detección de servidor sin audio (3 segundos) ────────────────────
+      _audioCheckTimer?.cancel();
+      if (!widget.isLive) {
+        _audioCheckTimer = Timer(const Duration(seconds: 3), () async {
+          if (!mounted || _isDisposing || !_controllerReady) return;
+          final currentServer = (_fallbackIndex < _fallbackServers.length)
+              ? _fallbackServers[_fallbackIndex]
+              : null;
+          final isMutedServer = currentServer?['sin_audio'] == true ||
+              currentServer?['has_audio'] == false ||
+              currentServer?['hasAudio'] == false;
+          if (isMutedServer && mounted) {
+            _showNoAudioFallbackPrompt();
+          }
+        });
+      }
 
       // ── Watchdog de 5 segundos para VOD ─────────────────────────────────
       _vodWatchdogTimer?.cancel();
@@ -963,8 +998,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _showAudioLanguageSelector() async {
     _hideControlsTimer?.cancel();
 
-    if (_fallbackServers.isEmpty) {
-      await _prepareFallbackServers(_activeUrl);
+    if (_fallbackServers.isEmpty ||
+        _fallbackServers.map((s) => _langLabel(s['idioma']?.toString() ?? '')).toSet().length <= 1) {
+      try {
+        final all = await _serverLoader.getAllServers(
+          contentId: _resolvedId,
+          isMovie: _mediaType != 'tv',
+          season: widget.temporada ?? 0,
+          episode: widget.capitulo ?? 0,
+          context: mounted ? context : null,
+        );
+        if (all.isNotEmpty) {
+          final existingUrls = _fallbackServers.map((s) => s['servidor_url']?.toString()).toSet();
+          for (final s in all) {
+            final u = s['servidor_url']?.toString();
+            if (u != null && !existingUrls.contains(u)) {
+              _fallbackServers.add(s);
+            }
+          }
+        }
+      } catch (_) {}
     }
 
     final Map<String, List<Map<String, dynamic>>> byLang = {};
@@ -978,7 +1031,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('No hay información de idiomas adicionales'),
+            content: Text('Este servidor no soporta pistas de audio múltiples. Cambia de servidor para otro idioma.'),
             backgroundColor: Color(0xFF1a1a1a),
           ),
         );
@@ -988,6 +1041,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     final currentLangLabel = _langLabel(_idioma);
+
+    // Cargar caché Sembast de servidores validados (TTL 1h)
+    final invalidKeys = <String>{};
+    final noAudioKeys = <String>{};
+    for (final srv in _fallbackServers) {
+      final key = _serverKey(srv);
+      final cached = await AppDatabase.instance.getCachedServerStatus(key);
+      if (cached != null) {
+        if (cached['is_valid'] == false) invalidKeys.add(key);
+        if (cached['has_audio'] == false) noAudioKeys.add(key);
+      }
+    }
 
     if (!mounted) return;
 
@@ -1026,7 +1091,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       Icon(Icons.headphones_rounded, color: Color(0xFFFF6B35), size: 22),
                       SizedBox(width: 8),
                       Text(
-                        'Idioma de Audio del Servidor',
+                        'Idioma y Servidor',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 18,
@@ -1036,40 +1101,111 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     ],
                   ),
                   const SizedBox(height: 14),
-                  ...byLang.entries.map((entry) {
-                    final isSelected = entry.key == currentLangLabel;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        tileColor: isSelected
-                            ? const Color(0xFFFF6B35).withValues(alpha: 0.15)
-                            : Colors.white.withValues(alpha: 0.04),
-                        leading: Icon(
-                          isSelected ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-                          color: isSelected ? const Color(0xFFFF6B35) : Colors.white54,
-                        ),
-                        title: Text(
-                          entry.key,
-                          style: TextStyle(
-                            color: isSelected ? const Color(0xFFFF6B35) : Colors.white,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  Theme(
+                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                    child: Column(
+                      children: byLang.entries.map((entry) {
+                        final isSelected = entry.key == currentLangLabel;
+                        final servers = entry.value;
+                        final validServers = servers.where((s) =>
+                            !_serverLoader.isServerInvalid(s) && !invalidKeys.contains(_serverKey(s))).toList();
+                        final allInvalid = validServers.isEmpty;
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Material(
+                              color: allInvalid
+                                  ? Colors.white.withValues(alpha: 0.02)
+                                  : isSelected
+                                      ? const Color(0xFFFF6B35).withValues(alpha: 0.15)
+                                      : Colors.white.withValues(alpha: 0.04),
+                              child: ExpansionTile(
+                                iconColor: allInvalid ? Colors.white24 : Colors.white,
+                                collapsedIconColor: allInvalid ? Colors.white24 : Colors.white54,
+                                initiallyExpanded: isSelected && !allInvalid,
+                                title: Text(
+                                  entry.key,
+                                  style: TextStyle(
+                                    color: allInvalid
+                                        ? Colors.white38
+                                        : isSelected
+                                            ? const Color(0xFFFF6B35)
+                                            : Colors.white,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  allInvalid
+                                      ? 'No disponible'
+                                      : '${validServers.length} servidor(es) disponibles',
+                                  style: TextStyle(
+                                    color: allInvalid ? Colors.white24 : Colors.white38,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                leading: Icon(
+                                  allInvalid
+                                      ? Icons.block_rounded
+                                      : isSelected
+                                          ? Icons.check_circle_rounded
+                                          : Icons.language_rounded,
+                                  color: allInvalid
+                                      ? Colors.white24
+                                      : isSelected
+                                          ? const Color(0xFFFF6B35)
+                                          : Colors.white54,
+                                ),
+                                children: validServers.map((srv) {
+                                  final srvName = srv['fuente_label']?.toString() ??
+                                      srv['servidor_nombre']?.toString() ??
+                                      srv['server']?.toString() ??
+                                      'Server';
+                                  final quality = srv['quality']?.toString() ??
+                                      srv['calidad']?.toString() ??
+                                      'Auto';
+                                  final isCurrentServer = _activeUrl == srv['servidor_url'] || _activeUrl == srv['resolved_m3u8'];
+                                  
+                                  return Container(
+                                    color: Colors.black12,
+                                    child: ListTile(
+                                      contentPadding: const EdgeInsets.only(left: 54, right: 16),
+                                      title: Text(
+                                        srvName,
+                                        style: TextStyle(
+                                          color: isCurrentServer ? const Color(0xFFFF6B35) : Colors.white70,
+                                          fontSize: 14,
+                                          fontWeight: isCurrentServer ? FontWeight.bold : FontWeight.normal,
+                                        ),
+                                      ),
+                                      trailing: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white12,
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          quality,
+                                          style: const TextStyle(color: Colors.white54, fontSize: 10),
+                                        ),
+                                      ),
+                                      onTap: () {
+                                        Navigator.pop(ctx);
+                                        if (!isCurrentServer) {
+                                          _switchToServerLanguage([srv]);
+                                        }
+                                      },
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
                           ),
-                        ),
-                        subtitle: Text(
-                          '${entry.value.length} servidor(es) disponibles',
-                          style: const TextStyle(color: Colors.white38, fontSize: 12),
-                        ),
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          if (!isSelected) {
-                            _switchToServerLanguage(entry.value);
-                          }
-                        },
-                      ),
-                    );
-                  }),
+                        );
+                      }).toList(),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1081,8 +1217,64 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _scheduleHideControls();
   }
 
+  String _serverKey(Map<String, dynamic> srv) {
+    final url = srv['servidor_url'] ?? srv['resolved_m3u8'] ?? srv['server'] ?? srv['nombre'] ?? '';
+    return '${widget.tmdbId ?? widget.idcontenido}_${widget.temporada ?? 0}_${widget.capitulo ?? 0}_$url';
+  }
+
+  void _showNoAudioFallbackPrompt() {
+    if (!mounted || _isDisposing) return;
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.volume_off_rounded, color: Colors.orangeAccent, size: 24),
+              SizedBox(width: 10),
+              Text(
+                '¿Sin audio?',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Este servidor no tiene audio. ¿Cambiar a otro?',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('No, continuar', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _tryNextServer(reason: 'Servidor sin audio reportado');
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B35),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('Sí, cambiar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _switchToServerLanguage(List<Map<String, dynamic>> targetServers) async {
     final targetPosition = _controllerReady ? _controller.value.position : _currentPosition;
+    final previousUrl = _activeUrl;
+    final previousHeaders = _activeHeaders;
     final wasPlaying = _isPlaying;
 
     setState(() {
@@ -1091,20 +1283,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
 
     for (final targetServer in targetServers) {
+      final srvKey = _serverKey(targetServer);
       try {
         final playable = await _serverLoader.tryResolveServer(
           targetServer,
           context: mounted ? context : null,
-        );
+        ).timeout(const Duration(seconds: 8));
 
         if (playable != null && playable.url.isNotEmpty) {
           _activeUrl = playable.url;
+          _activeHeaders = playable.headers;
           _idioma = playable.idioma;
           // Reorganizar fallbackServers para priorizar los de este idioma
           final remainingSameLang = targetServers.where((s) => s != targetServer).toList();
           final others = _fallbackServers.where((s) => !targetServers.contains(s)).toList();
           _fallbackServers = [targetServer, ...remainingSameLang, ...others];
           _fallbackIndex = 0;
+
+          await AppDatabase.instance.setCachedServerStatus(
+            srvKey,
+            isValid: true,
+            hasAudio: targetServer['sin_audio'] != true && targetServer['has_audio'] != false,
+          );
 
           await _startControllerWithUrl(playable.url, playable.headers);
           if (_controllerReady) {
@@ -1117,14 +1317,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
       } catch (_) {
         _serverLoader.markServerAsInvalid(targetServer);
+        await AppDatabase.instance.setCachedServerStatus(
+          srvKey,
+          isValid: false,
+          hasAudio: false,
+        );
       }
+    }
+
+    // Si falló el cambio, restaurar el servidor anterior
+    if (previousUrl.isNotEmpty) {
+      try {
+        await _startControllerWithUrl(previousUrl, previousHeaders);
+        if (_controllerReady) {
+          await _controller.seekTo(targetPosition);
+          if (wasPlaying) {
+            await _controller.play();
+          }
+        }
+      } catch (_) {}
     }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No se pudo conectar a los servidores disponibles en este idioma'),
-          backgroundColor: Color(0xFF1a1a1a),
+          content: Text('No se pudo cambiar el idioma. Intenta con otro servidor.'),
+          backgroundColor: Color(0xFFD32F2F),
+          duration: Duration(seconds: 3),
         ),
       );
       setState(() => _isLoading = false);
@@ -1330,6 +1549,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _openSubtitlesModal() async {
     _hideControlsTimer?.cancel();
 
+    if (_subtitleCues.isEmpty) {
+      await _loadSubtitles();
+    }
+
     final imdb = (_apiData?['imdb_id'] ?? '').toString().trim();
 
     final cuesForModal = _subtitleCues.map((c) {
@@ -1339,6 +1562,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await OpenSubtitlesModal.show(
       context: context,
       imdbId: imdb.isEmpty ? null : imdb,
+      tmdbId: _resolvedId > 0 ? _resolvedId : null,
       mediaType: _mediaType,
       season: widget.temporada ?? _apiData?['temporada'],
       episode: widget.capitulo ?? _apiData?['numero_capitulo'],
@@ -1534,44 +1758,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _controller.seekTo(Duration.zero);
     _controller.play();
     _scheduleHideControls();
-  }
-
-  Future<void> _openServersModal({
-    int? idcontenido,
-    int? temporada,
-    int? capitulo,
-    String? tipo,
-    bool isNext = false,
-  }) async {
-    _hideControlsTimer?.cancel();
-    await _saveCache();
-
-    final wasPlaying = _isPlaying;
-    if (_isPlaying) _controller.pause();
-
-    final id = idcontenido ?? _resolvedId;
-    final media = tipo ?? _mediaType;
-
-    await showDialog(
-      context: context,
-      builder: (_) => ServidoresModal(
-        idcontenido: id,
-        tmdbId: id,
-        temporada: temporada ?? widget.temporada,
-        capitulo: capitulo ?? widget.capitulo,
-        tipo: media,
-        titulo: _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
-        fromPlayer: true,
-        esSiguienteCapitulo: isNext,
-        backdropUrl: _backdropUrl,
-        logoUrl: _logoUrl,
-      ),
-    );
-
-    if (mounted && !_isDisposing && wasPlaying) {
-      _controller.play();
-      _scheduleHideControls();
-    }
   }
 
   void _openInfoModal() {
@@ -1941,6 +2127,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _isDisposing = true;
     _vodWatchdogTimer?.cancel();
+    _audioCheckTimer?.cancel();
     _hideControlsTimer?.cancel();
     _positionNotifier.dispose();
 
@@ -2339,8 +2526,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             ] else if (_allServersFailed) ...[
               ElevatedButton.icon(
-                onPressed: () => _openServersModal(),
-                icon: const Icon(Icons.dns_rounded),
+                onPressed: () => _showAudioLanguageSelector(),
+                icon: const Icon(Icons.translate_rounded),
                 label: const Text('Abrir lista de servidores'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: accentOrange,
@@ -2779,7 +2966,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     _actionIcon(
                       Icons.translate_rounded,
                       'Idiomas',
-                      () => _openServersModal(),
+                      () => _showAudioLanguageSelector(),
                     ),
                     _actionIcon(
                       Icons.high_quality_rounded,

@@ -25,4 +25,15 @@ class AudioBoostService {
       debugPrint('[AudioBoostService] Error setting volume: $e');
     }
   }
+
+  /// Obtiene el porcentaje actual del volumen multimedia (0.0 a 1.0)
+  Future<double> getVolumePercent() async {
+    try {
+      final res = await _channel.invokeMethod<num>('getVolumePercent');
+      return (res ?? 1.0).toDouble();
+    } catch (e) {
+      debugPrint('[AudioBoostService] Error getting volume: $e');
+      return 1.0;
+    }
+  }
 }

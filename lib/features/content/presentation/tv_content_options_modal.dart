@@ -314,11 +314,17 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
     try {
       final item = <String, dynamic>{
         'idcontenido': widget.idcontenido,
+        'contenido_id': widget.idcontenido,
         'tmdb_id': widget.tmdbId,
+        'idtmdb': widget.tmdbId,
         'media_type': widget.tipo,
+        'tipo': widget.tipo,
         'type': widget.tipo,
         'title': _titulo,
+        'titulo': _titulo,
+        'poster': _poster,
         'poster_path': _poster,
+        'backdrop': _backdrop.isNotEmpty ? _backdrop : _poster,
         'backdrop_path': _backdrop.isNotEmpty ? _backdrop : _poster,
         'addedAt': DateTime.now().toIso8601String(),
       };

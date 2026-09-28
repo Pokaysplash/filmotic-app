@@ -5,7 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../../../data/models/scraper/detalle_model.dart';
 import '../../../../data/scrapers/base/detalle_scraper.dart';
-import 'servidores_modal.dart';
+import '../../../player/presentation/player_page.dart';
 import '../../../content/presentation/content_page.dart'; // ← PageContenido
 
 const kAccentColor = Color(0xFFE50914);
@@ -149,37 +149,34 @@ class _DerivarPageState extends State<DerivarPage> {
         );
         return;
       }
-      ServidoresModal.show(
-        context,
-        tmdbId: _data?.tmdbId ?? 0,
-        tipo: _data?.tipo ?? widget.tipo,
-        fuente: widget.servicio,
-        tituloContenido: _data?.titulo ?? widget.titulo,
-        temporada: _isMovie ? null : (cap?.temporada ?? 1),
-        capitulo: _isMovie ? null : (cap?.numero ?? 1),
-      );
-      return;
+    } else {
+      final tmdbId = _data?.tmdbId ?? 0;
+      if (tmdbId <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No hay TMDB ID para buscar servidores'),
+            backgroundColor: kCardBg,
+          ),
+        );
+        return;
+      }
     }
 
     final tmdbId = _data?.tmdbId ?? 0;
-    if (tmdbId <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No hay TMDB ID para buscar servidores'),
-          backgroundColor: kCardBg,
-        ),
-      );
-      return;
-    }
 
-    ServidoresModal.show(
+    Navigator.push(
       context,
-      tmdbId: tmdbId,
-      tipo: _data?.tipo ?? widget.tipo,
-      fuente: widget.servicio,
-      tituloContenido: _data?.titulo ?? widget.titulo,
-      temporada: _isMovie ? null : (cap?.temporada ?? 1),
-      capitulo: _isMovie ? null : (cap?.numero ?? 1),
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          videoUrl: '',
+          idcontenido: tmdbId > 0 ? tmdbId : 0,
+          tmdbId: tmdbId,
+          temporada: _isMovie ? null : (cap?.temporada ?? 1),
+          capitulo: _isMovie ? null : (cap?.numero ?? 1),
+          tipo: _data?.tipo ?? widget.tipo,
+          titulo: _data?.titulo ?? widget.titulo,
+        ),
+      ),
     );
   }
 

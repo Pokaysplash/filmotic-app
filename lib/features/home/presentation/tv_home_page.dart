@@ -8,6 +8,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../content/presentation/tv_content_page.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_home_api.dart';
+import 'category_list_page.dart';
+import '../../../core/services/ad_service.dart';
+
 const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
 
@@ -82,7 +85,11 @@ class _HomePageState extends State<HomePage>
   List<_SectionData> _buildSections(Map<String, dynamic> data) {
     final sections = <_SectionData>[];
 
-    void addSection(String key, {bool horizontalCards = false}) {
+    void addSection(
+      String key, {
+      bool horizontalCards = false,
+      bool isMovie = true,
+    }) {
       final section = data[key];
       if (section != null && section['items'] != null) {
         final items = List<Map<String, dynamic>>.from(section['items']);
@@ -92,23 +99,46 @@ class _HomePageState extends State<HomePage>
             title: section['title'] ?? key,
             items: items,
             horizontalCards: horizontalCards,
+            isMovie: isMovie,
+            categoryKey: key,
           ),
         );
       }
     }
 
-    addSection('continue_watching');
-    addSection('popular_movies');
-    addSection('trending_movies');
-    addSection('popular_tv');
-    addSection('trending_tv');
-    addSection('top_movies');
-    addSection('top_tv');
-    addSection('year_movies');
-    addSection('year_tv');
-    addSection('recent_movies');
-    addSection('recent_tv');
-    addSection('recent_episodes', horizontalCards: true);
+    addSection('continue_watching', isMovie: true);
+    addSection('popular_movies', isMovie: true);
+    addSection('trending_movies', isMovie: true);
+    addSection('popular_tv', isMovie: false);
+    addSection('trending_tv', isMovie: false);
+    addSection('top_movies', isMovie: true);
+    addSection('top_tv', isMovie: false);
+
+    // Native Banner cada 6-8 filas de tarjetas en el catálogo de TV
+    sections.add(
+      _SectionData(
+        title: 'Publicidad',
+        items: const [],
+        isAd: true,
+        isNativeAd: true,
+      ),
+    );
+
+    addSection('year_movies', isMovie: true);
+    addSection('year_tv', isMovie: false);
+    addSection('recent_movies', isMovie: true);
+    addSection('recent_tv', isMovie: false);
+    addSection('recent_episodes', horizontalCards: true, isMovie: false);
+
+    // Banner 320x50 entre secciones horizontales de películas y series
+    sections.add(
+      _SectionData(
+        title: 'Publicidad',
+        items: const [],
+        isAd: true,
+        isNativeAd: false,
+      ),
+    );
 
     final genreSliders = data['movie_genre_sliders'];
     if (genreSliders is List) {
@@ -119,6 +149,8 @@ class _HomePageState extends State<HomePage>
           _SectionData(
             title: genre['name'] ?? 'Género',
             items: items,
+            isMovie: true,
+            categoryKey: 'genre_${genre['id'] ?? ''}',
           ),
         );
       }
@@ -176,7 +208,7 @@ class _HomePageState extends State<HomePage>
 
         // Primero solo 3 sliders para que el inicio no demore
         final firstBatch = allSections.take(3).toList();
-        _syncFocusNodes(1 + allSections.length);
+        _syncFocusNodes(2 + allSections.length);
 
         setState(() {
           _data = data;
@@ -270,6 +302,44 @@ class _HomePageState extends State<HomePage>
           tmdbId: id,
           mediaType: tipo,
         ),
+      ),
+    );
+  }
+
+  void _openCategoryList({
+    required String title,
+    required List<Map<String, dynamic>> items,
+    bool isMovie = true,
+    String? categoryKey,
+  }) {
+    if (items.isEmpty) return;
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            CategoryListPage(
+          title: title,
+          items: items,
+          isMovie: isMovie,
+          categoryKey: categoryKey,
+          isTv: true,
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curve = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return FadeTransition(
+            opacity: curve,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.06, 0.0),
+                end: Offset.zero,
+              ).animate(curve),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 260),
       ),
     );
   }
@@ -386,6 +456,69 @@ class _HomePageState extends State<HomePage>
                     ),
                   ),
                 ),
+                SliverToBoxAdapter(
+                  child: Container(
+                    margin: const EdgeInsets.fromLTRB(40, 20, 40, 10),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF1C1C1E),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: kAccentColor.withValues(alpha: 0.3),
+                        width: 1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: kAccentColor.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.rocket_launch_rounded,
+                            color: kAccentColor,
+                            size: 24,
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '¡Bienvenido a Filmotic!',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                              SizedBox(height: 4),
+                              Text(
+                                'Esta aplicación aún se encuentra en fase de desarrollo activo. Ya puedes disfrutar del contenido, pero te pedimos un poco de paciencia si encuentras algún error o enlace roto. ¡Seguimos mejorando para ti todos los días!',
+                                style: TextStyle(
+                                  color: Colors.white70,
+                                  fontSize: 14,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 SliverList(
                   delegate: SliverChildBuilderDelegate(
                     (context, i) {
@@ -401,17 +534,46 @@ class _HomePageState extends State<HomePage>
                       final downNode = hasDown &&
                               (i + 2) < _sectionFocusNodes.length
                           ? _sectionFocusNodes[i + 2]
-                          : null;
+                          : (_sectionFocusNodes.length > sections.length + 1
+                              ? _sectionFocusNodes[sections.length + 1]
+                              : null);
+
+                      if (section.isAd) {
+                        return RepaintBoundary(
+                          child: _TvAdBannerWrapper(
+                            focusNode: node,
+                            onRequestFocusUp: () => upNode.requestFocus(),
+                            onRequestFocusDown: downNode != null
+                                ? () => downNode.requestFocus()
+                                : null,
+                            onRequestMenuFocus: widget.onRequestMenuFocus,
+                            child: section.isNativeAd
+                                ? AdService.instance
+                                    .buildNativeBanner(height: 200)
+                                : Center(
+                                    child: AdService.instance.buildBanner(
+                                      margin: const EdgeInsets.symmetric(
+                                          vertical: 8),
+                                    ),
+                                  ),
+                          ),
+                        );
+                      }
 
                       return RepaintBoundary(
                         child: _HorizontalSlider(
                           title: section.title,
                           items: section.items,
                           onTap: _openContent,
+                          onSeeMore: () => _openCategoryList(
+                            title: section.title,
+                            items: section.items,
+                            isMovie: section.isMovie,
+                            categoryKey: section.categoryKey,
+                          ),
                           focusNode: node,
                           onRequestFocusUp: () => upNode.requestFocus(),
-                          onRequestFocusDown: downNode != null &&
-                                  (i + 1) < sections.length
+                          onRequestFocusDown: downNode != null
                               ? () => downNode.requestFocus()
                               : null,
                           onRequestMenuFocus: widget.onRequestMenuFocus,
@@ -424,6 +586,30 @@ class _HomePageState extends State<HomePage>
                     addRepaintBoundaries: false,
                   ),
                 ),
+                if (sections.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: RepaintBoundary(
+                      child: _TvAdBannerWrapper(
+                        focusNode:
+                            _sectionFocusNodes.length > sections.length + 1
+                                ? _sectionFocusNodes[sections.length + 1]
+                                : FocusNode(),
+                        onRequestFocusUp: () {
+                          if (sections.isNotEmpty &&
+                              _sectionFocusNodes.length > sections.length) {
+                            _sectionFocusNodes[sections.length].requestFocus();
+                          }
+                        },
+                        onRequestMenuFocus: widget.onRequestMenuFocus,
+                        child: Center(
+                          child: AdService.instance.buildBanner(
+                            margin:
+                                const EdgeInsets.only(top: 16, bottom: 24),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
                 const SliverToBoxAdapter(child: SizedBox(height: 48)),
               ],
             ),
@@ -652,11 +838,19 @@ class _SectionData {
   final String title;
   final List<Map<String, dynamic>> items;
   final bool horizontalCards;
+  final bool isMovie;
+  final String? categoryKey;
+  final bool isAd;
+  final bool isNativeAd;
 
   _SectionData({
     required this.title,
     required this.items,
     this.horizontalCards = false,
+    this.isMovie = true,
+    this.categoryKey,
+    this.isAd = false,
+    this.isNativeAd = false,
   });
 }
 
@@ -1027,6 +1221,7 @@ class _HorizontalSlider extends StatefulWidget {
   final String title;
   final List<Map<String, dynamic>> items;
   final void Function(Map<String, dynamic> item) onTap;
+  final VoidCallback? onSeeMore;
   final FocusNode focusNode;
   final VoidCallback? onRequestFocusUp;
   final VoidCallback? onRequestFocusDown;
@@ -1038,6 +1233,7 @@ class _HorizontalSlider extends StatefulWidget {
     required this.title,
     required this.items,
     required this.onTap,
+    this.onSeeMore,
     required this.focusNode,
     required this.onItemFocused,
     this.onRequestFocusUp,
@@ -1055,17 +1251,36 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
   static const double _backdropH = 118;
   static const double _episodeW = 210;
   static const double _episodeH = 118;
-  static const int _maxVisible = 7;
 
   int _focusedIndex = 0;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
 
   void _cycle(int delta) {
     if (widget.items.isEmpty) return;
-    final len = widget.items.length;
+    final total = widget.items.length + (widget.onSeeMore != null ? 1 : 0);
     final next = _focusedIndex + delta;
-    if (next < 0 || next >= len) return;
+    if (next < 0 || next >= total) return;
+    
     setState(() => _focusedIndex = next);
-    widget.onItemFocused(widget.items[_focusedIndex]);
+    
+    if (next < widget.items.length) {
+      widget.onItemFocused(widget.items[_focusedIndex]);
+    }
+
+    final cardW = widget.horizontalCards ? _episodeW : _backdropW;
+    final offset = _focusedIndex * (cardW + 10);
+    
+    _scrollController.animateTo(
+      offset,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
   }
 
   @override
@@ -1073,6 +1288,9 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.items.length != widget.items.length) {
       _focusedIndex = 0;
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
     }
   }
 
@@ -1112,8 +1330,8 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
     final memW = (cardW * dpr).round();
     final memH = (cardH * dpr).round();
 
-    final visibleCount =
-        widget.items.length < _maxVisible ? widget.items.length : _maxVisible;
+    final totalCount =
+        widget.items.length + (widget.onSeeMore != null ? 1 : 0);
 
     return Focus(
       focusNode: widget.focusNode,
@@ -1142,7 +1360,12 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
         }
         if (event.logicalKey == LogicalKeyboardKey.select ||
             event.logicalKey == LogicalKeyboardKey.enter) {
-          widget.onTap(widget.items[_focusedIndex]);
+          if (_focusedIndex == widget.items.length &&
+              widget.onSeeMore != null) {
+            widget.onSeeMore!();
+          } else if (_focusedIndex < widget.items.length) {
+            widget.onTap(widget.items[_focusedIndex]);
+          }
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
@@ -1150,7 +1373,9 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
       onFocusChange: (hasFocus) {
         setState(() {});
         if (hasFocus) {
-          widget.onItemFocused(widget.items[_focusedIndex]);
+          if (_focusedIndex < widget.items.length) {
+            widget.onItemFocused(widget.items[_focusedIndex]);
+          }
           Scrollable.ensureVisible(
             context,
             alignment: 0.25,
@@ -1168,48 +1393,71 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(28, 0, 28, 8),
-                  child: Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          widget.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 17,
-                            fontWeight: FontWeight.w700,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(28, 0, 28, 8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            widget.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        'ver más +',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.5),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
+                        if (widget.onSeeMore != null)
+                          GestureDetector(
+                            onTap: widget.onSeeMore,
+                            child: Container(
+                              margin: const EdgeInsets.only(left: 12),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: const Text(
+                                'ver más +',
+                                style: TextStyle(
+                                  color: kAccentColor,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
                 SizedBox(
                   height: cardH + 6,
                   child: ListView.builder(
+                    controller: _scrollController,
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 22),
-                    itemCount: visibleCount,
+                    itemCount: totalCount,
                     physics: const NeverScrollableScrollPhysics(),
-                    itemBuilder: (context, slot) {
-                      final itemIndex = _focusedIndex + slot;
-                      if (itemIndex >= widget.items.length) {
-                        return const SizedBox.shrink();
-                      }
-                      final item = widget.items[itemIndex];
-                      final isFocusedSlot = slot == 0 && hasFocus;
+                    itemBuilder: (context, itemIndex) {
+                      final isFocusedSlot = itemIndex == _focusedIndex && hasFocus;
 
+                      if (itemIndex == widget.items.length) {
+                        return Padding(
+                          padding: const EdgeInsets.only(right: 10),
+                          child: _TvSeeMoreCard(
+                            isFocused: isFocusedSlot,
+                            width: cardW,
+                            height: cardH,
+                            onTap: () => widget.onSeeMore?.call(),
+                          ),
+                        );
+                      }
+
+                      final item = widget.items[itemIndex];
                       return Padding(
                         padding: const EdgeInsets.only(right: 10),
                         child: _PosterCard(
@@ -1347,6 +1595,156 @@ class _PosterCard extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Contenedor de publicidad para TV con navegación D-Pad accesible
+class _TvAdBannerWrapper extends StatefulWidget {
+  final Widget child;
+  final FocusNode focusNode;
+  final VoidCallback? onRequestFocusUp;
+  final VoidCallback? onRequestFocusDown;
+  final VoidCallback? onRequestMenuFocus;
+
+  const _TvAdBannerWrapper({
+    required this.child,
+    required this.focusNode,
+    this.onRequestFocusUp,
+    this.onRequestFocusDown,
+    this.onRequestMenuFocus,
+  });
+
+  @override
+  State<_TvAdBannerWrapper> createState() => _TvAdBannerWrapperState();
+}
+
+class _TvAdBannerWrapperState extends State<_TvAdBannerWrapper> {
+  bool _isFocused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: widget.focusNode,
+      onFocusChange: (hasFocus) {
+        setState(() => _isFocused = hasFocus);
+        if (hasFocus) {
+          Scrollable.ensureVisible(
+            context,
+            alignment: 0.3,
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeInOut,
+          );
+        }
+      },
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+          widget.onRequestFocusUp?.call();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          widget.onRequestFocusDown?.call();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          widget.onRequestMenuFocus?.call();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 28, vertical: 8),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: _isFocused ? kAccentColor : Colors.transparent,
+            width: 2.5,
+          ),
+          boxShadow: _isFocused
+              ? [
+                  BoxShadow(
+                    color: kAccentColor.withValues(alpha: 0.35),
+                    blurRadius: 10,
+                  ),
+                ]
+              : null,
+        ),
+        child: widget.child,
+      ),
+    );
+  }
+}
+
+/// Tarjeta "Ver todo" al final de cada carrusel en Android TV
+class _TvSeeMoreCard extends StatelessWidget {
+  final bool isFocused;
+  final double width;
+  final double height;
+  final VoidCallback onTap;
+
+  const _TvSeeMoreCard({
+    required this.isFocused,
+    required this.width,
+    required this.height,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    const radius = 12.0;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          color: const Color(0xFF16161A),
+          borderRadius: BorderRadius.circular(radius),
+          border: Border.all(
+            color: isFocused
+                ? Colors.white
+                : Colors.white.withValues(alpha: 0.12),
+            width: isFocused ? 2.5 : 1.0,
+          ),
+          boxShadow: isFocused
+              ? [
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.25),
+                    blurRadius: 8,
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: kAccentColor.withValues(alpha: 0.2),
+              ),
+              child: const Icon(
+                Icons.grid_view_rounded,
+                color: kAccentColor,
+                size: 22,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Ver todo',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
         ),
       ),
     );

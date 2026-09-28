@@ -455,3 +455,94 @@ La sección `"live_tv"` permite habilitar/deshabilitar o personalizar el comport
 ### 12.5 Aviso Legal y Exención de Responsabilidad (Disclaimer)
 Filmotic no transmite, aloja, retransmite ni almacena ninguna señal audiovisual o contenido multimedia en sus propios servidores. Todas las listas M3U y fuentes de streaming utilizadas provienen del repositorio público y colaborativo de código abierto [iptv-org/iptv](https://github.com/iptv-org/iptv), el cual recopila únicamente enlaces y transmisiones oficiales de libre acceso público transmitidas por sus respectivos titulares de derechos por internet. Filmotic actúa exclusivamente como un software cliente/reproductor multimedia.
 
+---
+
+## 13. Limpieza de Ajustes y Comunicaciones
+- **Redes Sociales**: Se eliminaron completamente los enlaces directos y códigos QR a redes sociales en la configuración de la app tanto en Móvil (`settings_page.dart`) como en TV (`tv_updates_tab.dart` y `tv_settings.dart`).
+- **Canal de Telegram**: Se reserva un canal de Telegram para futuras comunicaciones con los usuarios. No se implementa todavía.
+
+---
+
+## 14. Correcciones de Bugs y Paridad Móvil / TV
+
+### 14.1 Publicidad en Android TV (BLOQUE B)
+- **Banner Adsterra 320x50**: Integrado al final del catálogo principal en `tv_home_page.dart` y entre las secciones horizontales de contenido.
+- **Native Banner Adsterra**: Insertado cada 6-8 filas de tarjetas en el catálogo de TV con diseño adaptado a las tarjetas de contenido.
+- **Accesibilidad D-Pad**: Se creó el componente `_TvAdBannerWrapper` con `FocusNode` dedicado, borde iluminado con color de acento Filmotic en foco y navegación fluida hacia arriba/abajo y apertura de menú lateral con flecha izquierda sin bloquear el carrusel.
+- **Política Estricta**: Estrictamente **cero publicidad** en el reproductor de video (`tv_player_page.dart`), la guía EPG (`epg_page_tv.dart`) y la lista de canales en vivo (`live_tv_page_tv.dart`).
+
+### 14.2 Bugs de UI (BLOQUE C)
+- **Botón "Ver más" / "Ver todo" (C.1)**:
+  - Se creó `CategoryListPage` (`lib/features/home/presentation/category_list_page.dart`) con diseño responsive (3 columnas en móvil, 6 en TV), soporte integral de control remoto D-Pad, badges de calificación/año y transiciones suaves (`PageRouteBuilder` con `FadeTransition` y `SlideTransition`).
+  - En móvil (`home_page.dart`), se conectaron los botones "Ver Todo", "Ver más +" y tarjetas finales en carruseles de Continuar Viendo, Agregados Recientemente, Capítulos Recientes, Mejores Valoradas, Populares y Películas por Género.
+  - En TV (`tv_home_page.dart`), se conectó el botón de cabecera `ver más +` y se añadió la tarjeta interactiva `_TvSeeMoreCard` al final de cada carrusel horizontal con foco D-Pad.
+- **Texto extraño bajo actores (C.2)**:
+  - En la ficha de contenido de TV (`tv_content_page.dart`), se corrigió el desbordamiento de 3 píxeles (`BOTTOM OVERFLOWED BY 3.0 PIXELS`) reduciendo los paddings verticales y optimizando la altura del chip de actores a 68px.
+
+### 14.3 Bugs de Reproducción y Audio (BLOQUE D)
+- **Servidores sin audio / volumen del sistema (D.1)**:
+  - Se integró detección del nivel de volumen en `MainActivity.kt` (`getVolumePercent`) y `AudioBoostService`. Si el stream tiene pista de audio pero el volumen del sistema está en 0%, se alerta al usuario: *"Sube el volumen de tu dispositivo para escuchar."*
+  - Badge `"Sin audio"` visible en botones de servidores cuando no disponen de pistas de audio válidas.
+  - Diálogo de fallback automático tras 3 segundos de reproducción sin audio: *"Este servidor no tiene audio. ¿Cambiar a otro?"* con opciones de Sí/No.
+- **Selector de idiomas y validación de servidores (D.2)**:
+  - Validación y deshabilitación preventiva de opciones no disponibles (mostradas en gris con etiqueta *"No disponible"*).
+  - Almacenamiento en caché en base de datos Sembast (`_serverValidationStore`) con TTL de 1 hora para evitar revalidaciones innecesarias.
+  - Manejo robusto de errores con `try/catch` al cambiar de idioma: en caso de fallo, se restaura el stream y posición anterior sin interrumpir la reproducción y se notifica con un mensaje claro: *"No se pudo cambiar el idioma. Intenta con otro servidor."*
+
+---
+
+## 15. Correcciones Finales y Unificación del Reproductor (WAVE 2)
+
+### 15.1 Unificación del Reproductor
+- Se eliminaron por completo los modales de selección de servidores intermedios (`ServersModal`, `ServidoresModalTv`, `ServidoresModalFuentesTv`) y todos los reproductores externos (WebView, TV Discover Player).
+- Toda la reproducción, sin importar la fuente, se realiza a través del reproductor único unificado (`PlayerScreen` en `player_page.dart` para móvil y `tv_player_page.dart` para TV).
+- Al pulsar un contenido, el reproductor resuelve el stream silenciosamente en segundo plano usando `ServerLoader.resolvePlayable` y luego abre la interfaz del reproductor, agilizando enormemente la experiencia "Click-and-Play".
+
+### 15.2 Correcciones de Persistencia y Navegación
+- **Sembast**: Migración a `getApplicationSupportDirectory()` en `app_database.dart` para resolver problemas de persistencia en Android TV y limpieza agresiva de caché.
+- **Navegación Horizontal (TV)**: Refactorización profunda de `_HorizontalSlider` en `tv_home_page.dart`. Se eliminó la reconstrucción forzada por índices para implementar smooth-scrolling nativo utilizando `ListView.builder(controller: ScrollController)`. Las tarjetas ya no saltan ni desplazan el contenido bruscamente, sino que realizan un scroll suave a su posición focal exacta.
+
+### 15.3 Verificación de Scrapers y Auto-Reparación
+- Se verificó el funcionamiento HTTP 200 OK de `ThanhDatToday` (HDToday), `AnimeFLV` y `Cinecalidad`.
+- **Auto-Reparación de Remote Config**: El TTL se redujo a 6 horas y se implementó un `Timer.periodic(Duration(hours: 6))` en `remote_config_service.dart` para descargar automáticamente la última versión de `filmotic_config.json` en segundo plano sin requerir reiniciar la aplicación (especialmente útil en dispositivos de TV que permanecen suspendidos).
+
+### 15.4 Corrección de Bugs: Diseño y Selector de Idioma (WAVE 3)
+- **Bug de Layout en el Home**: Se eliminaron cortes extraños en los títulos ("Agregados Recientemente", etc.) configurando `maxLines: 1` o `2` con `TextOverflow.ellipsis`.
+- **Eliminación de Filtro en el Buscador**: Se eliminó el botón y modal "Buscar en" (`_showFilterDialog`) en la pantalla de búsqueda, asegurando que el buscador consulte y agrupe siempre los resultados de todas las fuentes.
+- **Selector de Idiomas Expandible**: Se refactorizó `_showAudioLanguageSelector` (en el reproductor) sustituyendo la simple lista de idiomas por un diseño agrupado con `ExpansionTile`. Al tocar un idioma, se despliega la lista individual de servidores con su nombre y calidad. Los usuarios ahora pueden probar servidores alternativos libremente si la etiqueta del scraper es incorrecta.
+- **Sistema de Priorización de Servidores**: Se integró `ServerPriorityConfig` en el motor de carga de configuración remota y se aplicó la lógica de ordenamiento `_sortServersByPriority` dentro de `ServerLoader`. Los servidores ahora se organizan respetando las preferencias de la configuración (priorizando por fuentes específicas, como `cinecalidad` y `thanhdattoday`, luego por calidad y fallbacks), mejorando dramáticamente el índice de éxito en el primer intento del "Click-and-Play".
+
+## 16. Agregador IPTV (WAVE 4)
+Para mitigar la alta tasa de canales caídos en listas públicas, se creó un motor en Python (`iptv_aggregator/`) que automatiza la recolección, deduplicación y verificación de listas M3U.
+
+- **URL de la Lista Maestra**: `https://raw.githubusercontent.com/Pokaysplash/filmotic-app/main/docs/filmotic_playlist.m3u`
+- **Frecuencia de Actualización**: Cada 6 horas mediante GitHub Actions (`update_playlist.yml`).
+- **Verificación**: Cada canal se valida con un ping HTTP concurrente (HEAD y GET Byte-Range). Canales inactivos se descartan.
+- **Prioridad**: La app (en `live_tv_service.dart`) primero lee esta lista unificada usando la variable `custom_m3u_url`. En caso de que la lista no responda, cae automáticamente en las listas de `iptv-org` como fallback.
+
+---
+
+## 17. Corrección de Regresiones Pendientes y Ampliación IPTV (WAVE 6)
+
+### 17.1 Subtítulos y Cambio de Idioma de Audio (Regresiones Críticas)
+- **Subtítulos con Búsqueda Automática de IMDb ID**: En `subtitle_selector.dart` (móvil) y `tv_subtitle_selector.dart` (TV), se agregó el parámetro `tmdbId`. Si la ficha o scraper no proporcionó un `imdbId` o la carga de metadatos falló, el modal consulta dinámicamente `/movie/{id}` o `/tv/{id}/external_ids` en TMDB para resolver el `imdb_id` al vuelo, eliminando el fallo recurrente *"No se encontró IMDb ID"*.
+- **Selector de Idiomas y Múltiples Servidores**: Se integró `getAllServers` en el loader del reproductor móvil y de TV. Si al abrir el menú de audífonos solo se detecta un idioma inicial, se consultan todos los servidores en segundo plano para poblar el selector con las opciones reales disponibles (Español Latino, Castellano, Inglés Subtitulado, etc.).
+- **Tolerancia a Fallos en Conmutación de Servidor**: Si un cambio de idioma falla por un enlace inactivo, el reproductor restaura la reproducción previa y posición temporal sin dejar la pantalla en negro ni emitir errores permanentes.
+
+### 17.2 Metadatos Completos e Hidratación de Favoritos (Mi Lista)
+- **Persistencia Completa en Sembast**: Se aseguró el almacenamiento de todas las claves requeridas (`contenido_id`, `idcontenido`, `titulo`, `title`, `poster`, `poster_path`, `backdrop`, `backdrop_path`, `tipo`, `año`, `year`, `tmdb_id`, `vote_average`, `timestamp`, `metadatos_completos`) tanto en `app_database.dart` como en `guardados_service.dart`.
+- **Actualización in-situ (`updateFavorite`)**: Permite refrescar registros existentes sin duplicar ni forzar eventos de recarga cíclica.
+- **Hidratación Automática TMDB**: En `_load()` de `favorites_page.dart` (móvil) y `history_page.dart` (TV), los elementos que carezcan de carátula o título se enriquecen consultando TMDB (hasta 5 elementos por apertura para respetar límites de cuota), guardando los resultados inmediatamente.
+- **Renderizado Robusto y Sin 'N/A'**: Las tarjetas de Mi Lista leen jerárquicamente `poster_path`, `poster` e `imagen`. Si la imagen no está disponible, se muestra un placeholder estilizado con icono y el título centrado. El badge de calificación solo se muestra si `rating > 0`, eliminando el texto "N/A".
+
+### 17.3 Limpieza de Texto de Fuente en "Todas las películas/series"
+- En `lib/features/discover/domain/mobile/pag.dart`, se eliminó el bloque de texto con el nombre de la fuente activa (`$_servicioLabel · $_tipoLabel · $_generoLabel`) para mantener la interfaz completamente limpia y desvinculada de nombres de proveedores externos.
+
+### 17.4 Ampliación y Tolerancia del Agregador IPTV (`iptv_aggregator/`)
+- **Timeout y Verificación Tolerante**: En `sources.json`, el timeout de verificación subió a 10s. En `aggregator.py`, se consideran válidas las respuestas HTTP 200–399 y 401/403 (para streams que requieren cabeceras específicas en reproducción). Si una petición HEAD falla o es rechazada (ej. 405 Method Not Allowed), se realiza un fallback automático a GET parcial con `Range: bytes=0-1024`.
+- **Ampliación de Listas Regionales y Temáticas**: Se añadieron fuentes específicas para Perú, Chile, Ecuador, Venezuela, Uruguay y Bolivia, además de listas especializadas en Series, Documentales, Animación, Entretenimiento, Clásicos y el índice global de `iptv-org` con prioridad 9.
+- **Deduplicación Inteligente**: Priorización por `tvg-id` normalizado y fallback a nombre normalizado (sin caracteres especiales ni acentos), conservando la versión de mayor calidad (HD/FHD).
+- **Reporte Estadístico Detallado**: Desglose al finalizar el script mostrando canales crudos por fuente, canales únicos, canales verificados activos, top 10 fuentes más productivas y canales válidos por categoría.
+
+
+

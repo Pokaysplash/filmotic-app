@@ -33,6 +33,12 @@
   },
   "live_tv": {
     "enabled": true,
+    "source_priority": "filmotic_master",
+    "custom_m3u_url": "https://raw.githubusercontent.com/Pokaysplash/filmotic-app/main/docs/filmotic_playlist.m3u",
+    "fallback_urls": [
+      "https://iptv-org.github.io/iptv/countries/co.m3u",
+      "https://iptv-org.github.io/iptv/languages/spa.m3u"
+    ],
     "default_country": "co",
     "default_language": "spa",
     "categories": [

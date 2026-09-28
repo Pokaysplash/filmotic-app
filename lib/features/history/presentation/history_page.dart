@@ -6,6 +6,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/storage/app_database.dart';
 
+import 'package:http/http.dart' as http;
+import '../../../core/constants/tmdb_apis.dart';
+import '../../../supabase/guardados_service.dart';
 import '../../content/presentation/tv_content_page.dart';
 import '../../player/presentation/tv/tv_player_page.dart';
 import '../../content/presentation/tv_content_options_modal.dart';
@@ -139,6 +142,8 @@ class GuardadosPageState extends State<GuardadosPage>
       _loading = false;
     });
 
+    _hydrateMissingMetadata(guardados);
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       widget.onMainFocusNodeCreated?.call(_rootFocus);
@@ -148,6 +153,111 @@ class GuardadosPageState extends State<GuardadosPage>
         _focusFirstContentItem();
       }
     });
+  }
+
+  Future<void> _hydrateMissingMetadata(List<Map<String, dynamic>> items) async {
+    final toHydrate = items.where((it) {
+      final poster = it['poster_path'] ?? it['poster'] ?? it['imagen'];
+      final title = it['titulo'] ?? it['title'];
+      final complete = it['metadatos_completos'] == true;
+      final hasPoster = poster != null &&
+          poster.toString().isNotEmpty &&
+          poster.toString() != 'null';
+      final hasTitle = title != null && title.toString().isNotEmpty;
+      return (!hasPoster || !hasTitle || !complete);
+    }).take(5).toList();
+
+    if (toHydrate.isEmpty) return;
+
+    final apiKey = await TmdbApis.getApiKey();
+    if (apiKey.isEmpty) return;
+
+    bool updatedAny = false;
+
+    for (final item in toHydrate) {
+      if (!mounted) return;
+      try {
+        final id = item['tmdb_id'] as int? ??
+            item['idcontenido'] as int? ??
+            int.tryParse(item['id']?.toString() ?? '') ??
+            0;
+        final tipo =
+            (item['tipo'] ?? item['type'] ?? 'movie').toString().toLowerCase();
+        final rawTitle = item['titulo'] ?? item['title'] ?? '';
+
+        debugPrint('[Favorites TV] Hidratando: $id');
+
+        Map<String, dynamic>? data;
+
+        if (id > 0) {
+          final endpoint = tipo == 'tv' || tipo == 'serie' ? 'tv' : 'movie';
+          final url = Uri.parse(
+              'https://api.themoviedb.org/3/$endpoint/$id?api_key=$apiKey&language=es-MX');
+          final res = await http.get(url).timeout(const Duration(seconds: 6));
+          if (res.statusCode == 200) {
+            data = jsonDecode(res.body) as Map<String, dynamic>;
+          }
+        }
+
+        if (data == null && rawTitle.toString().trim().isNotEmpty) {
+          final query = Uri.encodeComponent(rawTitle.toString().trim());
+          final url = Uri.parse(
+              'https://api.themoviedb.org/3/search/multi?api_key=$apiKey&language=es-MX&query=$query');
+          final res = await http.get(url).timeout(const Duration(seconds: 6));
+          if (res.statusCode == 200) {
+            final body = jsonDecode(res.body) as Map<String, dynamic>;
+            final results = body['results'] as List<dynamic>?;
+            if (results != null && results.isNotEmpty) {
+              data = results.first as Map<String, dynamic>;
+            }
+          }
+        }
+
+        if (data != null) {
+          final posterPath = data['poster_path']?.toString();
+          final backdropPath = data['backdrop_path']?.toString();
+          final title = data['title']?.toString() ??
+              data['name']?.toString() ??
+              rawTitle.toString();
+          final voteAverage =
+              (data['vote_average'] as num?)?.toDouble() ?? 0.0;
+          final releaseDate = data['release_date']?.toString() ??
+              data['first_air_date']?.toString() ??
+              '';
+          final year =
+              releaseDate.length >= 4 ? releaseDate.substring(0, 4) : '';
+          final tmdbId = (data['id'] as num?)?.toInt() ?? id;
+
+          if (posterPath != null && posterPath.isNotEmpty) {
+            item['poster'] = 'https://image.tmdb.org/t/p/w500$posterPath';
+            item['poster_path'] = posterPath;
+          }
+          if (backdropPath != null && backdropPath.isNotEmpty) {
+            item['backdrop'] = 'https://image.tmdb.org/t/p/w780$backdropPath';
+            item['backdrop_path'] = backdropPath;
+          }
+          item['titulo'] = title;
+          item['title'] = title;
+          item['vote_average'] = voteAverage;
+          if (year.isNotEmpty) {
+            item['año'] = year;
+            item['year'] = year;
+          }
+          item['tmdb_id'] = tmdbId;
+          item['metadatos_completos'] = true;
+
+          await AppDatabase.instance.updateFavorite(item);
+          await GuardadosService.update(item);
+          updatedAny = true;
+        }
+      } catch (e) {
+        debugPrint('[Favorites TV] Error hidratando: $e');
+      }
+    }
+
+    if (updatedAny && mounted) {
+      setState(() {});
+    }
   }
 
   void _focusFirstContentItem() {
@@ -535,11 +645,20 @@ class GuardadosPageState extends State<GuardadosPage>
                             itemCount: _guardados.length,
                             itemBuilder: (context, index) {
                               final item = _guardados[index];
-                              final title = item['title']?.toString() ?? '';
-                              final poster =
-                                  item['poster_path']?.toString() ?? '';
+                              final title = item['title']?.toString() ??
+                                  item['titulo']?.toString() ??
+                                  item['name']?.toString() ??
+                                  '';
+                              var poster = item['poster']?.toString() ??
+                                  item['poster_path']?.toString() ??
+                                  item['imagen']?.toString() ??
+                                  '';
+                              if (poster.isNotEmpty && !poster.startsWith('http')) {
+                                poster = 'https://image.tmdb.org/t/p/w500$poster';
+                              }
                               final type = item['media_type']?.toString() ??
                                   item['type']?.toString() ??
+                                  item['tipo']?.toString() ??
                                   '';
                               final rating = item['vote_average'];
                               final ratingValue = rating is num

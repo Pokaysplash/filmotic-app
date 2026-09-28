@@ -7,7 +7,7 @@ import '../../../data/models/scraper/detalle_model.dart';
 import '../../../data/scrapers/base/detalle_scraper.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_content.dart';
 import '../../content/presentation/tv_content_page.dart';
-import '../../servers/presentation/tv_servers_modal_fuentes.dart';
+import '../../player/presentation/tv/tv_player_page.dart';
 const kAccentColor = Color(0xFFE50914);
 const kBgColor = Colors.black;
 const kCardBg = Color(0xFF1a1a2e);
@@ -490,23 +490,18 @@ class _DerivarTvPageState extends State<DerivarTvPage> {
 
     final tmdbId = _data?.tmdbId ?? 0;
 
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      builder: (_) => ServidoresModalFuentesTv(
-        tmdbId: tmdbId,
-        idcontenido: tmdbId > 0 ? tmdbId : null,
-        temporada: _isMovie ? null : (cap?.temporada ?? 1),
-        capitulo: _isMovie ? null : (cap?.numero ?? 1),
-        tipo: _data?.tipo ?? widget.tipo,
-        titulo: _data?.titulo ?? widget.titulo,
-        backdropUrl: _effectiveBackdrop.isNotEmpty
-            ? _effectiveBackdrop
-            : _data?.backdrop,
-        posterUrl:
-            _effectivePoster.isNotEmpty ? _effectivePoster : _data?.poster,
-        logoUrl: _effectiveLogo.isNotEmpty ? _effectiveLogo : _data?.logo,
-        fuente: widget.servicio,
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          videoUrl: '',
+          idcontenido: tmdbId > 0 ? tmdbId : 0,
+          tmdbId: tmdbId,
+          temporada: _isMovie ? null : (cap?.temporada ?? 1),
+          capitulo: _isMovie ? null : (cap?.numero ?? 1),
+          tipo: _data?.tipo ?? widget.tipo,
+          titulo: _data?.titulo ?? widget.titulo,
+        ),
       ),
     );
   }

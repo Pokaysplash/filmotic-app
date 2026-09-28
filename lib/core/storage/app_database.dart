@@ -122,6 +122,7 @@ class AppDatabase {
   final _liveListsCacheStore = stringMapStoreFactory.store('live_lists_cache');
   final _epgProgramsStore = stringMapStoreFactory.store('epg_programs');
   final _epgMetaStore = stringMapStoreFactory.store('epg_meta');
+  final _serverValidationStore = stringMapStoreFactory.store('server_validation_cache');
 
   final ValueNotifier<LocalProfile?> activeProfileNotifier =
       ValueNotifier<LocalProfile?>(null);
@@ -136,7 +137,7 @@ class AppDatabase {
   }
 
   Future<Database> _initDb() async {
-    final docsDir = await getApplicationDocumentsDirectory();
+    final docsDir = await getApplicationSupportDirectory();
     final dbPath = p.join(docsDir.path, _dbName);
     final db = await databaseFactoryIo.openDatabase(dbPath);
     return db;
@@ -376,6 +377,9 @@ class AppDatabase {
     if (targetId == null) return false;
 
     final contenidoId = item['idcontenido'] as int? ??
+        item['contenido_id'] as int? ??
+        item['tmdb_id'] as int? ??
+        item['idtmdb'] as int? ??
         int.tryParse(item['id']?.toString() ?? '') ??
         0;
     if (contenidoId == 0) return false;
@@ -388,19 +392,57 @@ class AppDatabase {
       await _favoritosStore.record(key).delete(db);
       return false; // Removido
     } else {
+      final titulo = (item['titulo'] ?? item['title'] ?? item['name'] ?? 'Sin título').toString().trim();
+      final poster = item['poster'] ?? item['poster_path'] ?? item['imagen'];
+      final backdrop = item['backdrop'] ?? item['backdrop_path'];
+      final rawTipo = (item['tipo'] ?? item['type'] ?? item['media_type'] ?? item['mediaType'] ?? 'movie').toString().toLowerCase();
+      final tipo = (rawTipo == 'tv' || rawTipo == 'serie') ? 'serie' : 'pelicula';
+      final year = item['año'] ?? item['year'] ?? item['release_date'] ?? item['first_air_date'];
+      final tmdbId = item['tmdb_id'] ?? item['idtmdb'] ?? (contenidoId > 0 ? contenidoId : null);
+      final voteAverage = item['vote_average'];
+      final bool completos = (titulo.isNotEmpty && titulo != 'Sin título' && titulo != 'N/A') &&
+          (poster != null && poster.toString().isNotEmpty && poster.toString() != 'null');
+
       final data = {
         'id': key,
         'perfil_id': targetId,
         'idcontenido': contenidoId,
         'contenido_id': contenidoId,
-        'titulo': item['titulo'] ?? item['title'] ?? 'Sin título',
-        'poster': item['poster'] ?? item['imagen'],
-        'tipo': item['tipo'] ?? item['type'] ?? item['mediaType'] ?? 'movie',
+        'titulo': titulo,
+        'title': titulo,
+        'poster': poster,
+        'poster_path': poster,
+        'backdrop': backdrop,
+        'backdrop_path': backdrop,
+        'tipo': tipo,
+        'año': year,
+        'year': year,
+        'tmdb_id': tmdbId,
+        'vote_average': voteAverage,
         'timestamp': DateTime.now().toIso8601String(),
+        'metadatos_completos': completos,
         'metadata': item,
       };
       await _favoritosStore.record(key).put(db, data);
       return true; // Agregado
+    }
+  }
+
+  Future<void> updateFavorite(Map<String, dynamic> item, {String? perfilId}) async {
+    final targetId = perfilId ?? _cachedActiveProfile?.id;
+    if (targetId == null) return;
+    final contenidoId = item['idcontenido'] as int? ??
+        item['contenido_id'] as int? ??
+        item['tmdb_id'] as int? ??
+        int.tryParse(item['id']?.toString() ?? '') ??
+        0;
+    if (contenidoId == 0) return;
+    final db = await database;
+    final key = _favKey(targetId, contenidoId);
+    final existing = await _favoritosStore.record(key).get(db);
+    if (existing != null) {
+      final updated = Map<String, dynamic>.from(existing)..addAll(item);
+      await _favoritosStore.record(key).put(db, updated);
     }
   }
 
@@ -518,6 +560,42 @@ class AppDatabase {
       ...data,
       '_cached_at': DateTime.now().toIso8601String(),
     });
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // CACHÉ DE VALIDACIÓN DE SERVIDORES (TTL 1h)
+  // ══════════════════════════════════════════════════════════════
+
+  Future<Map<String, dynamic>?> getCachedServerStatus(String serverKey) async {
+    try {
+      final db = await database;
+      final record = await _serverValidationStore.record(serverKey).get(db);
+      if (record == null) return null;
+      final cachedAtStr = record['cached_at']?.toString();
+      if (cachedAtStr == null) return null;
+      final cachedAt = DateTime.tryParse(cachedAtStr);
+      if (cachedAt == null || DateTime.now().difference(cachedAt).inHours >= 1) {
+        return null; // Expirado (TTL 1h)
+      }
+      return Map<String, dynamic>.from(record);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setCachedServerStatus(
+    String serverKey, {
+    required bool isValid,
+    bool hasAudio = true,
+  }) async {
+    try {
+      final db = await database;
+      await _serverValidationStore.record(serverKey).put(db, {
+        'is_valid': isValid,
+        'has_audio': hasAudio,
+        'cached_at': DateTime.now().toIso8601String(),
+      });
+    } catch (_) {}
   }
 
   // ══════════════════════════════════════════════════════════════

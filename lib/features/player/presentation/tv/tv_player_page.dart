@@ -9,7 +9,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/storage/app_database.dart';
 import '../../../content/presentation/tv_content_page.dart';
-import '../../../servers/presentation/tv_servers_modal.dart';
 import '../../../servers/presentation/tv_server_preloader.dart';
 import 'tv_subtitle_widget.dart';
 import '../subtitles/tv_subtitle_selector.dart';
@@ -254,6 +253,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final FocusNode _errorNextChannelFocusNode = FocusNode();
   final FocusNode _errorChannelListFocusNode = FocusNode();
   Timer? _vodWatchdogTimer;
+  Timer? _audioCheckTimer;
   bool _isSwitchingServerNotice = false;
   bool _isResolving = false;
   bool _allServersFailed = false;
@@ -1567,10 +1567,45 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _controller.addListener(_videoListener);
       _controllerReady = true;
+      _currentQualityLabel = 'Auto';
+      _currentQualityUrl = null;
+      if (_apiData == null && !widget.isLive) {
+        unawaited(_loadApiData());
+      }
+      if (_subtitlesEnabled && _subtitleCues.isEmpty && !widget.isLive) {
+        unawaited(_loadSubtitles());
+      }
       try {
         await _controller.setVolume(1.0);
         AudioBoostService.instance.boostVolume();
+        final currentVol = await AudioBoostService.instance.getVolumePercent();
+        if (currentVol <= 0.05 && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Sube el volumen de tu dispositivo para escuchar.'),
+              backgroundColor: Color(0xFF1E1E24),
+              duration: Duration(seconds: 4),
+            ),
+          );
+        }
       } catch (_) {}
+
+      // ── Detección de servidor sin audio (3 segundos) ────────────────────
+      _audioCheckTimer?.cancel();
+      if (!widget.isLive) {
+        _audioCheckTimer = Timer(const Duration(seconds: 3), () async {
+          if (!mounted || _isDisposing || !_controllerReady) return;
+          final currentServer = (_fallbackIndex < _fallbackServers.length)
+              ? _fallbackServers[_fallbackIndex]
+              : null;
+          final isMutedServer = currentServer?['sin_audio'] == true ||
+              currentServer?['has_audio'] == false ||
+              currentServer?['hasAudio'] == false;
+          if (isMutedServer && mounted) {
+            _showNoAudioFallbackPrompt();
+          }
+        });
+      }
 
       // ── Watchdog de 5 segundos para VOD ─────────────────────────────────
       _vodWatchdogTimer?.cancel();
@@ -2532,8 +2567,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _openSubtitlesModal() {
     _hideControlsTimer?.cancel();
+    if (_subtitleCues.isEmpty) {
+      _loadSubtitles();
+    }
     final imdb = (_apiData?['imdb_id'] ?? '').toString().trim();
     final mediaType = widget.tipo.toLowerCase() == 'tv' ? 'tv' : 'movie';
+    final tmdbId = widget.tmdbId ?? widget.idcontenido;
     OpenSubtitlesModalTv.restorePlayerFocus = () {
       if (!mounted || _isDisposing) return;
       setState(() {
@@ -2549,6 +2588,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     OpenSubtitlesModalTv.show(
       context: context,
       imdbId: imdb.isNotEmpty ? imdb : null,
+      tmdbId: tmdbId > 0 ? tmdbId : null,
       mediaType: mediaType,
       season: widget.temporada,
       episode: widget.capitulo,
@@ -2640,6 +2680,88 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return s[0].toUpperCase() + s.substring(1);
   }
 
+  Future<void> _switchToServerLanguage(List<Map<String, dynamic>> targetServers) async {
+    final targetPosition = _controllerReady ? _controller.value.position : _currentPosition;
+    final previousUrl = _activeUrl;
+    final previousHeaders = _activeHeaders;
+    final wasPlaying = _isPlaying;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = '';
+    });
+
+    for (final targetServer in targetServers) {
+      final srvKey = _serverKey(targetServer);
+      try {
+        final playable = await _serverLoader.tryResolveServer(
+          targetServer,
+          context: mounted ? context : null,
+        ).timeout(const Duration(seconds: 8));
+
+        if (playable != null && playable.url.isNotEmpty) {
+          _activeUrl = playable.url;
+          _activeHeaders = playable.headers;
+          _idioma = playable.idioma;
+          
+          final remainingSameLang = targetServers.where((s) => s != targetServer).toList();
+          final others = _fallbackServers.where((s) => !targetServers.contains(s)).toList();
+          _fallbackServers = [targetServer, ...remainingSameLang, ...others];
+          _fallbackIndex = 0;
+
+          await AppDatabase.instance.setCachedServerStatus(
+            srvKey,
+            isValid: true,
+            hasAudio: targetServer['sin_audio'] != true && targetServer['has_audio'] != false,
+          );
+
+          await _startControllerWithUrl(playable.url, playable.headers);
+          if (_controllerReady) {
+            await _controller.seekTo(targetPosition);
+            if (wasPlaying) {
+              await _controller.play();
+            }
+          }
+          return;
+        }
+      } catch (_) {
+        _serverLoader.markServerAsInvalid(targetServer);
+        await AppDatabase.instance.setCachedServerStatus(
+          srvKey,
+          isValid: false,
+          hasAudio: targetServer['sin_audio'] != true && targetServer['has_audio'] != false,
+        );
+      }
+    }
+
+    _activeUrl = previousUrl;
+    _activeHeaders = previousHeaders;
+    setState(() {
+      _isLoading = false;
+      _errorMessage = '';
+    });
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No se pudo cambiar el idioma con los servidores disponibles. Continuando reproducción.'),
+          backgroundColor: Color(0xFFD32F2F),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
+
+    if (_activeUrl.isNotEmpty) {
+      await _startControllerWithUrl(_activeUrl, _activeHeaders);
+      if (_controllerReady) {
+        await _controller.seekTo(targetPosition);
+        if (wasPlaying) {
+          await _controller.play();
+        }
+      }
+    }
+  }
+
   Future<void> _showAudioLanguageSelectorTv() async {
     _hideControlsTimer?.cancel();
 
@@ -2680,7 +2802,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     if (byLang.isEmpty) {
-      await _openServersModal();
       return;
     }
 
@@ -2688,6 +2809,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     String? expandedLang = byLang.containsKey(currentLangLabel)
         ? currentLangLabel
         : byLang.keys.firstOrNull;
+
+    // Cargar caché Sembast de servidores validados (TTL 1h)
+    final invalidKeys = <String>{};
+    final noAudioKeys = <String>{};
+    for (final srv in _fallbackServers) {
+      final key = _serverKey(srv);
+      final cached = await AppDatabase.instance.getCachedServerStatus(key);
+      if (cached != null) {
+        if (cached['is_valid'] == false) invalidKeys.add(key);
+        if (cached['has_audio'] == false) noAudioKeys.add(key);
+      }
+    }
+
+    if (!mounted) return;
 
     await showDialog(
       context: context,
@@ -2751,48 +2886,63 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               final isSelectedLang = entry.key == currentLangLabel;
                               final serverOptions = entry.value;
 
+                              final allServersInvalid = serverOptions.every((s) =>
+                                  _serverLoader.isServerInvalid(s) ||
+                                  invalidKeys.contains(_serverKey(s)));
+
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 10),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: isSelectedLang
-                                        ? accentOrange.withValues(alpha: 0.08)
-                                        : Colors.white.withValues(alpha: 0.03),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: isSelectedLang
-                                          ? accentOrange.withValues(alpha: 0.5)
-                                          : (isExpanded
-                                              ? Colors.white24
-                                              : Colors.white.withValues(alpha: 0.07)),
-                                      width: isSelectedLang ? 1.5 : 1.0,
-                                    ),
-                                  ),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      // Cabecera del Acordeón (Idioma)
-                                      InkWell(
-                                        onTap: () {
-                                          setDialogState(() {
-                                            expandedLang = isExpanded ? null : entry.key;
-                                          });
-                                        },
+                                child: Focus(
+                                  autofocus: isSelectedLang,
+                                  child: Builder(
+                                    builder: (fCtx) {
+                                      final hasFocus = Focus.of(fCtx).hasFocus;
+                                      return InkWell(
+                                        onTap: allServersInvalid
+                                            ? null
+                                            : () {
+                                                Navigator.pop(ctx);
+                                                if (!isSelectedLang) {
+                                                  _switchToServerLanguage(entry.value);
+                                                }
+                                              },
                                         borderRadius: BorderRadius.circular(12),
-                                        child: Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 14,
-                                            vertical: 12,
+                                        child: AnimatedContainer(
+                                          duration: const Duration(milliseconds: 140),
+                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                          decoration: BoxDecoration(
+                                            color: allServersInvalid
+                                                ? Colors.white.withValues(alpha: 0.01)
+                                                : hasFocus
+                                                    ? accentOrange.withValues(alpha: 0.28)
+                                                    : isSelectedLang
+                                                        ? accentOrange.withValues(alpha: 0.08)
+                                                        : Colors.white.withValues(alpha: 0.03),
+                                            borderRadius: BorderRadius.circular(12),
+                                            border: Border.all(
+                                              color: allServersInvalid
+                                                  ? Colors.white10
+                                                  : hasFocus
+                                                      ? accentOrange
+                                                      : isSelectedLang
+                                                          ? accentOrange.withValues(alpha: 0.5)
+                                                          : Colors.white.withValues(alpha: 0.07),
+                                              width: hasFocus || isSelectedLang ? 1.5 : 1.0,
+                                            ),
                                           ),
                                           child: Row(
                                             children: [
                                               Icon(
-                                                isSelectedLang
-                                                    ? Icons.check_circle_rounded
-                                                    : Icons.translate_rounded,
-                                                color: isSelectedLang
-                                                    ? accentOrange
-                                                    : Colors.white54,
+                                                allServersInvalid
+                                                    ? Icons.block_rounded
+                                                    : isSelectedLang
+                                                        ? Icons.check_circle_rounded
+                                                        : Icons.translate_rounded,
+                                                color: allServersInvalid
+                                                    ? Colors.white24
+                                                    : hasFocus || isSelectedLang
+                                                        ? accentOrange
+                                                        : Colors.white54,
                                                 size: 20,
                                               ),
                                               const SizedBox(width: 10),
@@ -2800,221 +2950,46 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                 child: Text(
                                                   entry.key,
                                                   style: TextStyle(
-                                                    color: Colors.white,
+                                                    color: allServersInvalid
+                                                        ? Colors.white38
+                                                        : hasFocus || isSelectedLang
+                                                            ? Colors.white
+                                                            : Colors.white70,
                                                     fontSize: 15,
-                                                    fontWeight: isSelectedLang
-                                                        ? FontWeight.bold
-                                                        : FontWeight.w600,
+                                                    fontWeight: isSelectedLang ? FontWeight.bold : FontWeight.w600,
                                                   ),
                                                 ),
                                               ),
                                               Container(
-                                                padding: const EdgeInsets.symmetric(
-                                                  horizontal: 8,
-                                                  vertical: 3,
-                                                ),
+                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                                 decoration: BoxDecoration(
-                                                  color: Colors.white.withValues(alpha: 0.08),
+                                                  color: allServersInvalid
+                                                      ? Colors.white.withValues(alpha: 0.03)
+                                                      : Colors.white.withValues(alpha: 0.08),
                                                   borderRadius: BorderRadius.circular(10),
                                                 ),
                                                 child: Text(
-                                                  '${serverOptions.length} opción(es)',
+                                                  allServersInvalid ? 'No disponible' : '${serverOptions.length} opción(es)',
                                                   style: TextStyle(
-                                                    color: isSelectedLang
-                                                        ? accentOrange
-                                                        : Colors.white70,
+                                                    color: allServersInvalid
+                                                        ? Colors.white38
+                                                        : hasFocus || isSelectedLang
+                                                            ? accentOrange
+                                                            : Colors.white70,
                                                     fontSize: 11.5,
                                                     fontWeight: FontWeight.w500,
                                                   ),
                                                 ),
                                               ),
-                                              const SizedBox(width: 8),
-                                              Icon(
-                                                isExpanded
-                                                    ? Icons.keyboard_arrow_up_rounded
-                                                    : Icons.keyboard_arrow_down_rounded,
-                                                color: Colors.white70,
-                                                size: 22,
-                                              ),
                                             ],
                                           ),
                                         ),
-                                      ),
-
-                                      // Opciones desplegadas (Acordeón)
-                                      if (isExpanded) ...[
-                                        Container(
-                                          width: double.infinity,
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 12,
-                                            vertical: 8,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: Colors.black.withValues(alpha: 0.35),
-                                            borderRadius: const BorderRadius.only(
-                                              bottomLeft: Radius.circular(12),
-                                              bottomRight: Radius.circular(12),
-                                            ),
-                                          ),
-                                          child: Column(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: List.generate(serverOptions.length, (optIdx) {
-                                              final srv = serverOptions[optIdx];
-                                              final serverName = srv['fuente_label']?.toString() ??
-                                                  srv['servidor_nombre']?.toString() ??
-                                                  srv['server']?.toString() ??
-                                                  srv['nombre']?.toString() ??
-                                                  'Servidor';
-                                              final quality = srv['calidad']?.toString() ??
-                                                  srv['quality']?.toString() ??
-                                                  'Auto';
-                                              final srvUrl = srv['resolved_m3u8']?.toString() ??
-                                                  srv['servidor_url']?.toString() ??
-                                                  '';
-                                              final isOptionActive = _activeUrl.isNotEmpty &&
-                                                  (srvUrl == _activeUrl ||
-                                                      (srv['servidor_url']?.toString() == _servidorUrl &&
-                                                          (_servidorUrl ?? '').isNotEmpty));
-
-                                              return Padding(
-                                                padding: const EdgeInsets.only(bottom: 6),
-                                                child: Focus(
-                                                  autofocus: isOptionActive || (optIdx == 0 && isSelectedLang),
-                                                  child: Builder(
-                                                    builder: (fCtx) {
-                                                      final hasFocus = Focus.of(fCtx).hasFocus;
-                                                      return InkWell(
-                                                        onTap: () {
-                                                          Navigator.pop(ctx);
-                                                          _switchToSpecificServerTv(srv);
-                                                        },
-                                                        borderRadius: BorderRadius.circular(8),
-                                                        child: AnimatedContainer(
-                                                          duration: const Duration(milliseconds: 140),
-                                                          padding: const EdgeInsets.symmetric(
-                                                            horizontal: 12,
-                                                            vertical: 10,
-                                                          ),
-                                                          decoration: BoxDecoration(
-                                                            color: hasFocus
-                                                                ? accentOrange.withValues(alpha: 0.28)
-                                                                : (isOptionActive
-                                                                    ? accentOrange.withValues(alpha: 0.15)
-                                                                    : Colors.white.withValues(alpha: 0.04)),
-                                                            borderRadius: BorderRadius.circular(8),
-                                                            border: Border.all(
-                                                              color: hasFocus
-                                                                  ? accentOrange
-                                                                  : (isOptionActive
-                                                                      ? accentOrange.withValues(alpha: 0.6)
-                                                                      : Colors.white12),
-                                                              width: hasFocus ? 1.8 : 1.0,
-                                                            ),
-                                                          ),
-                                                          child: Row(
-                                                            children: [
-                                                              Icon(
-                                                                isOptionActive
-                                                                    ? Icons.play_circle_filled_rounded
-                                                                    : Icons.play_circle_outline_rounded,
-                                                                color: isOptionActive
-                                                                    ? accentOrange
-                                                                    : Colors.white60,
-                                                                size: 18,
-                                                              ),
-                                                              const SizedBox(width: 8),
-                                                              Text(
-                                                                'Opción ${optIdx + 1}',
-                                                                style: TextStyle(
-                                                                  color: isOptionActive
-                                                                      ? accentOrange
-                                                                      : Colors.white,
-                                                                  fontSize: 13.5,
-                                                                  fontWeight: FontWeight.bold,
-                                                                ),
-                                                              ),
-                                                              const SizedBox(width: 8),
-                                                              Expanded(
-                                                                child: Text(
-                                                                  serverName,
-                                                                  maxLines: 1,
-                                                                  overflow: TextOverflow.ellipsis,
-                                                                  style: const TextStyle(
-                                                                    color: Colors.white70,
-                                                                    fontSize: 12.5,
-                                                                  ),
-                                                                ),
-                                                              ),
-                                                              Container(
-                                                                padding: const EdgeInsets.symmetric(
-                                                                  horizontal: 6,
-                                                                  vertical: 2,
-                                                                ),
-                                                                decoration: BoxDecoration(
-                                                                  color: Colors.white.withValues(alpha: 0.08),
-                                                                  borderRadius: BorderRadius.circular(6),
-                                                                ),
-                                                                child: Text(
-                                                                  quality,
-                                                                  style: const TextStyle(
-                                                                    color: Colors.white60,
-                                                                    fontSize: 11,
-                                                                    fontWeight: FontWeight.w600,
-                                                                  ),
-                                                                ),
-                                                              ),
-                                                              if (isOptionActive) ...[
-                                                                const SizedBox(width: 6),
-                                                                Container(
-                                                                  padding: const EdgeInsets.symmetric(
-                                                                    horizontal: 6,
-                                                                    vertical: 2,
-                                                                  ),
-                                                                  decoration: BoxDecoration(
-                                                                    color: accentOrange.withValues(alpha: 0.3),
-                                                                    borderRadius: BorderRadius.circular(6),
-                                                                  ),
-                                                                  child: const Text(
-                                                                    'Actual',
-                                                                    style: TextStyle(
-                                                                      color: accentOrange,
-                                                                      fontSize: 10,
-                                                                      fontWeight: FontWeight.bold,
-                                                                    ),
-                                                                  ),
-                                                                ),
-                                                              ],
-                                                            ],
-                                                          ),
-                                                        ),
-                                                      );
-                                                    },
-                                                  ),
-                                                ),
-                                              );
-                                            }),
-                                          ),
-                                        ),
-                                      ],
-                                    ],
+                                      );
+                                    },
                                   ),
                                 ),
                               );
                             }).toList(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Center(
-                        child: TextButton.icon(
-                          onPressed: () {
-                            Navigator.pop(ctx);
-                            _openServersModal();
-                          },
-                          icon: const Icon(Icons.tune_rounded, size: 16, color: Colors.white54),
-                          label: const Text(
-                            'Más opciones y servidores...',
-                            style: TextStyle(color: Colors.white54, fontSize: 13),
                           ),
                         ),
                       ),
@@ -3030,8 +3005,64 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _scheduleHideControls();
   }
 
+  String _serverKey(Map<String, dynamic> srv) {
+    final url = srv['servidor_url'] ?? srv['resolved_m3u8'] ?? srv['server'] ?? srv['nombre'] ?? '';
+    return '${widget.tmdbId ?? widget.idcontenido}_${widget.temporada ?? 0}_${widget.capitulo ?? 0}_$url';
+  }
+
+  void _showNoAudioFallbackPrompt() {
+    if (!mounted || _isDisposing) return;
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.volume_off_rounded, color: Colors.orangeAccent, size: 24),
+              SizedBox(width: 10),
+              Text(
+                '¿Sin audio?',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: const Text(
+            'Este servidor no tiene audio. ¿Cambiar a otro?',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('No, continuar', style: TextStyle(color: Colors.white54)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _tryNextServer(reason: 'Servidor sin audio reportado');
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: accentOrange,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: const Text('Sí, cambiar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _switchToSpecificServerTv(Map<String, dynamic> targetServer) async {
     final targetPosition = _controllerReady ? _controller.value.position : _currentPosition;
+    final previousUrl = _activeUrl;
+    final previousHeaders = _controllerReady ? _activeHeaders : <String, String>{};
     final wasPlaying = _isPlaying;
 
     setState(() {
@@ -3043,10 +3074,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final playable = await _serverLoader.tryResolveServer(
         targetServer,
         context: mounted ? context : null,
-      );
+      ).timeout(const Duration(seconds: 8));
 
       if (playable != null && playable.url.isNotEmpty) {
         _activeUrl = playable.url;
+        _activeHeaders = playable.headers;
         _idioma = playable.idioma;
         _servidorUrl = targetServer['servidor_url']?.toString() ?? '';
         _servidorNombre = targetServer['servidor_nombre']?.toString() ??
@@ -3058,6 +3090,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _fallbackServers = [targetServer, ...others];
         _fallbackIndex = 0;
 
+        await AppDatabase.instance.setCachedServerStatus(
+          _serverKey(targetServer),
+          isValid: true,
+          hasAudio: targetServer['sin_audio'] != true && targetServer['has_audio'] != false,
+        );
+
         await _startControllerWithUrl(playable.url, playable.headers);
         if (_controllerReady) {
           await _controller.seekTo(targetPosition);
@@ -3066,99 +3104,44 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
         }
         return;
+      } else {
+        throw Exception('Servidor no devolvió stream válido');
       }
     } catch (e) {
       debugPrint('[TvPlayerPage] Error al cambiar a servidor específico: $e');
       _serverLoader.markServerAsInvalid(targetServer);
-    }
-
-    if (mounted) {
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No se pudo reproducir esa opción. Prueba con otra opción del menú.'),
-          backgroundColor: Colors.redAccent,
-          duration: Duration(seconds: 3),
-        ),
+      await AppDatabase.instance.setCachedServerStatus(
+        _serverKey(targetServer),
+        isValid: false,
+        hasAudio: false,
       );
-    }
-  }
 
+      // Reanudar inmediatamente con el servidor anterior para no dejar al usuario en pantalla de error
+      if (previousUrl.isNotEmpty) {
+        try {
+          await _startControllerWithUrl(previousUrl, previousHeaders);
+          if (_controllerReady) {
+            await _controller.seekTo(targetPosition);
+            if (wasPlaying) {
+              await _controller.play();
+            }
+          }
+        } catch (_) {}
+      }
 
-  Future<void> _openServersModal({
-    int? idcontenido,
-    int? temporada,
-    int? capitulo,
-    String? titulo,
-    String? tipo,
-    String? backdropUrl,
-    String? logoUrl,
-    bool clearCurrentServer = false,
-  }) async {
-    _hideControlsTimer?.cancel();
-    await _saveCache();
-
-    final wasPlaying = _isPlaying;
-    if (_isPlaying) {
-      _controller.pause();
-    }
-
-    final targetId = idcontenido ?? widget.idcontenido;
-    final isSameContent =
-        targetId == widget.idcontenido &&
-        (temporada == null || temporada == widget.temporada) &&
-        (capitulo == null || capitulo == widget.capitulo);
-    final isNext = !isSameContent;
-
-    String modalTitulo;
-    if (titulo != null && titulo.isNotEmpty) {
-      modalTitulo = titulo;
-    } else if (isSameContent) {
-      modalTitulo = _tituloContenido.isNotEmpty
-          ? _tituloContenido
-          : widget.titulo;
-    } else {
-      modalTitulo = _tituloContenido.isNotEmpty
-          ? _tituloContenido
-          : widget.titulo;
-    }
-
-    final result = await showDialog<dynamic>(
-      context: context,
-      builder: (_) => ServidoresModalTv(
-        idcontenido: targetId,
-        temporada: isSameContent ? (temporada ?? widget.temporada) : temporada,
-        capitulo: isSameContent ? (capitulo ?? widget.capitulo) : capitulo,
-        tipo: tipo ?? widget.tipo,
-        titulo: modalTitulo,
-        fromPlayer: true,
-        currentIdioma: isSameContent ? _idioma : null,
-        currentServidorUrl: (isSameContent && !clearCurrentServer)
-            ? _servidorUrl
-            : null,
-        currentServidorNombre: (isSameContent && !clearCurrentServer)
-            ? _servidorNombre
-            : null,
-        esSiguienteCapitulo: isNext && (tipo ?? widget.tipo) == 'tv',
-        backdropUrl: backdropUrl ?? (isSameContent ? _backdropUrl : null),
-        logoUrl: logoUrl ?? (isSameContent ? _logoUrl : null),
-        tmdbId: targetId,
-      ),
-    );
-
-    if (result is Map<String, dynamic> && mounted && !_isDisposing) {
-      final srv = result['server'] as Map<String, dynamic>?;
-      if (srv != null) {
-        await _switchToSpecificServerTv(srv);
-        return;
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo cambiar el idioma. Intenta con otro servidor.'),
+            backgroundColor: Color(0xFFD32F2F),
+            duration: Duration(seconds: 3),
+          ),
+        );
       }
     }
-
-    if (mounted && !_isDisposing && wasPlaying) {
-      _controller.play();
-      _scheduleHideControls();
-    }
   }
+
 
   void _openInfoModal() {
     _hideControlsTimer?.cancel();
@@ -3959,6 +3942,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _isDisposing = true;
     _vodWatchdogTimer?.cancel();
+    _audioCheckTimer?.cancel();
     _hideControlsTimer?.cancel();
     _hideToolbarOnlyTimer?.cancel();
     _clockTimer?.cancel();
@@ -4064,7 +4048,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 }
                 if (event.logicalKey == LogicalKeyboardKey.select ||
                     event.logicalKey == LogicalKeyboardKey.enter) {
-                  _openServersModal();
+                  _showAudioLanguageSelectorTv();
                   return KeyEventResult.handled;
                 }
                 return KeyEventResult.ignored;
@@ -4723,7 +4707,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   node: _errorServersFocusNode,
                   icon: Icons.dns_rounded,
                   label: 'Cambiar servidor',
-                  onTap: () => _openServersModal(),
+                  onTap: () => _showAudioLanguageSelectorTv(),
                   primary: true,
                   other: _errorBackFocusNode,
                   autofocus: true,

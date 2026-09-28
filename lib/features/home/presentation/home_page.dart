@@ -9,6 +9,7 @@ import '../../player/presentation/player_page.dart';
 // Ajusta la ruta según tu estructura
 import '../../../data/datasources/remote/tmdb/tmdb_home_mobile_api.dart';
 import '../../content/presentation/content_options_modal.dart'; // ← modal de opciones
+import 'category_list_page.dart';
 
 import '../../../core/services/ad_service.dart';
 
@@ -267,6 +268,44 @@ class _HomePageState extends State<HomePage>
     });
   }
 
+  void _openCategoryList({
+    required String title,
+    required List<Map<String, dynamic>> items,
+    bool isMovie = true,
+    String? categoryKey,
+  }) {
+    if (items.isEmpty) return;
+    Navigator.of(context).push(
+      PageRouteBuilder(
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            CategoryListPage(
+          title: title,
+          items: items,
+          isMovie: isMovie,
+          categoryKey: categoryKey,
+          isTv: false,
+        ),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curve = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return FadeTransition(
+            opacity: curve,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.06, 0.0),
+                end: Offset.zero,
+              ).animate(curve),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 260),
+      ),
+    );
+  }
+
   List<Map<String, dynamic>> _itemsOf(String key) {
     final section = _data?[key];
     if (section is! Map) return const [];
@@ -436,12 +475,83 @@ class _HomePageState extends State<HomePage>
                   ),
                 ),
               ),
+            SliverToBoxAdapter(
+              child: Container(
+                margin: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1C1C1E),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: kAccentColor.withValues(alpha: 0.3),
+                    width: 1,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: kAccentColor.withValues(alpha: 0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.rocket_launch_rounded,
+                        color: kAccentColor,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '¡Bienvenido a Filmotic!',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                            ),
+                          ),
+                          SizedBox(height: 4),
+                          Text(
+                            'Esta aplicación aún se encuentra en fase de desarrollo activo. Ya puedes disfrutar del contenido, pero te pedimos un poco de paciencia si encuentras algún error o enlace roto. ¡Seguimos mejorando para ti todos los días!',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                              height: 1.4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
             if (_historial.isNotEmpty) ...[
-              const SliverToBoxAdapter(
+              SliverToBoxAdapter(
                 child: _SectionHeader(
                   title: 'Continuar Viendo',
                   trailing: 'Ver Todo',
                   trailingColor: kAccentColor,
+                  onTrailingTap: () {
+                    _openCategoryList(
+                      title: 'Continuar Viendo',
+                      items: _historial,
+                      isMovie: true,
+                      categoryKey: 'continue_watching',
+                    );
+                  },
                 ),
               ),
               SliverToBoxAdapter(
@@ -472,6 +582,7 @@ class _HomePageState extends State<HomePage>
               items: _recentTab == 0
                   ? _itemsOf('recent_movies')
                   : _itemsOf('recent_tv'),
+              categoryKeyPrefix: 'recent',
             ),
             if (_itemsOf('recent_episodes').isNotEmpty)
               SliverToBoxAdapter(
@@ -480,6 +591,14 @@ class _HomePageState extends State<HomePage>
                   items: _itemsOf('recent_episodes'),
                   onTap: _openContent,
                   onLongPress: _showOpcionesModal,
+                  onSeeMore: () {
+                    _openCategoryList(
+                      title: _titleOf('recent_episodes', 'Capítulos Recientes'),
+                      items: _itemsOf('recent_episodes'),
+                      isMovie: false,
+                      categoryKey: 'recent_episodes',
+                    );
+                  },
                 ),
               ),
             _tabbedSliver(
@@ -487,6 +606,7 @@ class _HomePageState extends State<HomePage>
               selectedTab: _topTab,
               onTabChanged: (i) => setState(() => _topTab = i),
               items: _topTab == 0 ? _itemsOf('top_movies') : _itemsOf('top_tv'),
+              categoryKeyPrefix: 'top',
             ),
             _tabbedSliver(
               title: 'Populares',
@@ -495,6 +615,7 @@ class _HomePageState extends State<HomePage>
               items: _popularTab == 0
                   ? _itemsOf('popular_movies')
                   : _itemsOf('popular_tv'),
+              categoryKeyPrefix: 'popular',
             ),
             // Anuncio nativo camuflado entre secciones del catálogo (5-6 filas)
             SliverToBoxAdapter(
@@ -566,7 +687,11 @@ class _HomePageState extends State<HomePage>
     required int selectedTab,
     required ValueChanged<int> onTabChanged,
     required List<Map<String, dynamic>> items,
+    required String categoryKeyPrefix,
   }) {
+    final isMovie = selectedTab == 0;
+    final catKey = isMovie ? '${categoryKeyPrefix}_movies' : '${categoryKeyPrefix}_tv';
+    final catTitle = isMovie ? '$title (Películas)' : '$title (Series)';
     return SliverToBoxAdapter(
       child: _TabbedSection(
         title: title,
@@ -577,6 +702,14 @@ class _HomePageState extends State<HomePage>
         onTap: _openContent,
         onLongPress: _showOpcionesModal,
         showRating: true,
+        onSeeMore: () {
+          _openCategoryList(
+            title: catTitle,
+            items: items,
+            isMovie: isMovie,
+            categoryKey: catKey,
+          );
+        },
       ),
     );
   }
@@ -596,10 +729,39 @@ class _HomePageState extends State<HomePage>
         : <Map<String, dynamic>>[];
 
     return [
-      const SliverToBoxAdapter(
+      SliverToBoxAdapter(
         child: Padding(
-          padding: EdgeInsets.fromLTRB(16, 10, 16, 6),
-          child: Text('Películas por Género', style: kSectionTitleStyle),
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text('Películas por Género', style: kSectionTitleStyle),
+              ),
+              GestureDetector(
+                onTap: () {
+                  _openCategoryList(
+                    title: 'Género: ${selected['name'] ?? 'Películas'}',
+                    items: items,
+                    isMovie: true,
+                    categoryKey: 'genre_${selected['id'] ?? ''}',
+                  );
+                },
+                behavior: HitTestBehavior.opaque,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Text(
+                    'Ver más +',
+                    style: TextStyle(
+                      fontFamily: 'sans-serif',
+                      color: kAccentColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       SliverToBoxAdapter(
@@ -882,11 +1044,13 @@ class _SectionHeader extends StatelessWidget {
   final String title;
   final String? trailing;
   final Color? trailingColor;
+  final VoidCallback? onTrailingTap;
 
   const _SectionHeader({
     required this.title,
     this.trailing,
     this.trailingColor,
+    this.onTrailingTap,
   });
 
   @override
@@ -895,15 +1059,29 @@ class _SectionHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
       child: Row(
         children: [
-          Expanded(child: Text(title, style: kSectionTitleStyle)),
+          Expanded(
+            child: Text(
+              title,
+              style: kSectionTitleStyle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
           if (trailing != null)
-            Text(
-              trailing!,
-              style: TextStyle(
-                fontFamily: 'sans-serif',
-                color: trailingColor ?? Colors.white.withValues(alpha: 0.55),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
+            GestureDetector(
+              onTap: onTrailingTap,
+              behavior: HitTestBehavior.opaque,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: Text(
+                  trailing!,
+                  style: TextStyle(
+                    fontFamily: 'sans-serif',
+                    color: trailingColor ?? Colors.white.withValues(alpha: 0.55),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ),
         ],
@@ -1110,6 +1288,8 @@ class _TabbedSection extends StatelessWidget {
   final void Function(Map<String, dynamic> item)? onLongPress;
   final bool showRating;
 
+  final VoidCallback? onSeeMore;
+
   const _TabbedSection({
     required this.title,
     required this.selectedTab,
@@ -1119,6 +1299,7 @@ class _TabbedSection extends StatelessWidget {
     required this.onTap,
     this.onLongPress,
     this.showRating = false,
+    this.onSeeMore,
   });
 
   @override
@@ -1128,10 +1309,40 @@ class _TabbedSection extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(child: Text(title, style: kSectionTitleStyle)),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: kSectionTitleStyle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (onSeeMore != null)
+                    GestureDetector(
+                      onTap: onSeeMore,
+                      behavior: HitTestBehavior.opaque,
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                        child: Text(
+                          'Ver más +',
+                          style: TextStyle(
+                            fontFamily: 'sans-serif',
+                            color: kAccentColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
               Container(
                 height: 30,
                 decoration: BoxDecoration(
@@ -1167,9 +1378,7 @@ class _TabbedSection extends StatelessWidget {
                             fontFamily: 'sans-serif',
                             color: active ? Colors.white : Colors.white54,
                             fontSize: 12,
-                            fontWeight: active
-                                ? FontWeight.w600
-                                : FontWeight.w500,
+                            fontWeight: active ? FontWeight.w600 : FontWeight.w500,
                           ),
                         ),
                       ),
@@ -1180,7 +1389,7 @@ class _TabbedSection extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
         SizedBox(
           height: 190,
           child: items.isEmpty
@@ -1193,9 +1402,16 @@ class _TabbedSection extends StatelessWidget {
               : ListView.builder(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
-                  itemCount: items.length,
+                  itemCount: items.length +
+                      (onSeeMore != null && items.isNotEmpty ? 1 : 0),
                   cacheExtent: 200,
                   itemBuilder: (context, index) {
+                    if (index == items.length) {
+                      return _SeeMoreCard(
+                        onTap: onSeeMore!,
+                        height: 190,
+                      );
+                    }
                     final item = items[index];
                     return _PosterCard(
                       item: item,
@@ -1378,7 +1594,10 @@ class _EpisodeSection extends StatelessWidget {
     required this.items,
     required this.onTap,
     this.onLongPress,
+    this.onSeeMore,
   });
+
+  final VoidCallback? onSeeMore;
 
   @override
   Widget build(BuildContext context) {
@@ -1389,15 +1608,23 @@ class _EpisodeSection extends StatelessWidget {
           title: title,
           trailing: 'Ver Todo',
           trailingColor: kAccentColor,
+          onTrailingTap: onSeeMore,
         ),
         SizedBox(
           height: 150,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: items.length,
+            itemCount: items.length +
+                (onSeeMore != null && items.isNotEmpty ? 1 : 0),
             cacheExtent: 200,
             itemBuilder: (context, index) {
+              if (index == items.length) {
+                return _SeeMoreCard(
+                  onTap: onSeeMore!,
+                  height: 150,
+                );
+              }
               final item = items[index];
               return _EpisodeCard(
                 item: item,
@@ -1411,6 +1638,59 @@ class _EpisodeSection extends StatelessWidget {
         ),
         const SizedBox(height: 8),
       ],
+    );
+  }
+}
+
+class _SeeMoreCard extends StatelessWidget {
+  final VoidCallback onTap;
+  final double height;
+
+  const _SeeMoreCard({
+    required this.onTap,
+    this.height = 190,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 100,
+        height: height,
+        margin: const EdgeInsets.only(right: 10),
+        decoration: BoxDecoration(
+          color: kCardBg,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: kAccentColor.withValues(alpha: 0.15),
+              ),
+              child: const Icon(
+                Icons.arrow_forward_rounded,
+                color: kAccentColor,
+                size: 24,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Ver todo',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

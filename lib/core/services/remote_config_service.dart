@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -62,6 +63,9 @@ class FilmoticAppInfo {
 
 class FilmoticLiveTvConfig {
   final bool enabled;
+  final String sourcePriority;
+  final String customM3uUrl;
+  final List<String> fallbackUrls;
   final String defaultCountry;
   final String defaultLanguage;
   final List<String> categories;
@@ -73,6 +77,9 @@ class FilmoticLiveTvConfig {
 
   FilmoticLiveTvConfig({
     required this.enabled,
+    required this.sourcePriority,
+    required this.customM3uUrl,
+    required this.fallbackUrls,
     required this.defaultCountry,
     required this.defaultLanguage,
     required this.categories,
@@ -109,9 +116,19 @@ class FilmoticLiveTvConfig {
             .map((e) => Map<String, dynamic>.from(e))
             .toList()
         : defaults.verifiedSources;
+        
+    final fallback = m['fallback_urls'] is List
+        ? (m['fallback_urls'] as List).map((e) => e.toString()).toList()
+        : <String>[
+            "https://iptv-org.github.io/iptv/countries/co.m3u",
+            "https://iptv-org.github.io/iptv/languages/spa.m3u"
+          ];
 
     return FilmoticLiveTvConfig(
       enabled: m['enabled'] != false,
+      sourcePriority: (m['source_priority'] ?? 'filmotic_master').toString(),
+      customM3uUrl: (m['custom_m3u_url'] ?? 'https://raw.githubusercontent.com/Pokaysplash/filmotic-app/main/docs/filmotic_playlist.m3u').toString(),
+      fallbackUrls: fallback,
       defaultCountry: (m['default_country'] ?? 'co').toString().toLowerCase(),
       defaultLanguage: (m['default_language'] ?? 'spa').toString().toLowerCase(),
       categories: cats,
@@ -125,6 +142,9 @@ class FilmoticLiveTvConfig {
 
   Map<String, dynamic> toMap() => {
         'enabled': enabled,
+        'source_priority': sourcePriority,
+        'custom_m3u_url': customM3uUrl,
+        'fallback_urls': fallbackUrls,
         'default_country': defaultCountry,
         'default_language': defaultLanguage,
         'categories': categories,
@@ -137,6 +157,12 @@ class FilmoticLiveTvConfig {
 
   static FilmoticLiveTvConfig get defaults => FilmoticLiveTvConfig(
         enabled: true,
+        sourcePriority: 'filmotic_master',
+        customM3uUrl: 'https://raw.githubusercontent.com/Pokaysplash/filmotic-app/main/docs/filmotic_playlist.m3u',
+        fallbackUrls: [
+          "https://iptv-org.github.io/iptv/countries/co.m3u",
+          "https://iptv-org.github.io/iptv/languages/spa.m3u"
+        ],
         defaultCountry: 'co',
         defaultLanguage: 'spa',
         categories: ['sports', 'news', 'kids', 'movies', 'documentary', 'music'],
@@ -209,6 +235,33 @@ class FilmoticLiveTvConfig {
 }
 
 /// Modelo de configuración remota descargable sin recompilar.
+class ServerPriorityConfig {
+  final List<String> preferredSources;
+  final List<String> preferredLanguages;
+  final List<String> preferredQuality;
+
+  const ServerPriorityConfig({
+    this.preferredSources = const ['cinecalidad', 'thanhdattoday'],
+    this.preferredLanguages = const ['es', 'es-lat', 'es-mx', 'es_MX', 'es_ES'],
+    this.preferredQuality = const ['1080p', '720p'],
+  });
+
+  factory ServerPriorityConfig.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return const ServerPriorityConfig();
+    return ServerPriorityConfig(
+      preferredSources: map['preferred_sources'] is List 
+          ? (map['preferred_sources'] as List).map((e) => e.toString().toLowerCase()).toList() 
+          : const ['cinecalidad', 'thanhdattoday'],
+      preferredLanguages: map['preferred_languages'] is List 
+          ? (map['preferred_languages'] as List).map((e) => e.toString().toLowerCase()).toList() 
+          : const ['es', 'es-lat', 'es-mx', 'es_MX', 'es_ES'],
+      preferredQuality: map['preferred_quality'] is List 
+          ? (map['preferred_quality'] as List).map((e) => e.toString().toLowerCase()).toList() 
+          : const ['1080p', '720p'],
+    );
+  }
+}
+
 class FilmoticRemoteConfig {
   final int version;
   final Map<String, dynamic> ads;
@@ -217,6 +270,7 @@ class FilmoticRemoteConfig {
   final Map<String, dynamic> messages;
   final FilmoticAppInfo app;
   final FilmoticLiveTvConfig liveTv;
+  final ServerPriorityConfig serverPriority;
 
   /// Compatibilidad hacia atrás con min_app_version
   String get minAppVersion => app.minVersion;
@@ -229,7 +283,9 @@ class FilmoticRemoteConfig {
     required this.messages,
     required this.app,
     FilmoticLiveTvConfig? liveTv,
-  }) : liveTv = liveTv ?? FilmoticLiveTvConfig.defaults;
+    ServerPriorityConfig? serverPriority,
+  }) : liveTv = liveTv ?? FilmoticLiveTvConfig.defaults,
+       serverPriority = serverPriority ?? const ServerPriorityConfig();
 
   factory FilmoticRemoteConfig.fromMap(Map<String, dynamic> map) {
     final adsMap = map['ads'] is Map ? Map<String, dynamic>.from(map['ads']) : <String, dynamic>{};
@@ -248,6 +304,9 @@ class FilmoticRemoteConfig {
     final liveTvConf = map['live_tv'] is Map
         ? FilmoticLiveTvConfig.fromMap(Map<String, dynamic>.from(map['live_tv']))
         : FilmoticLiveTvConfig.defaults;
+    final serverPriorityConf = map['server_priority'] is Map
+        ? ServerPriorityConfig.fromMap(Map<String, dynamic>.from(map['server_priority']))
+        : const ServerPriorityConfig();
 
     return FilmoticRemoteConfig(
       version: (map['version'] is int) ? map['version'] : 1,
@@ -257,6 +316,7 @@ class FilmoticRemoteConfig {
       messages: messagesMap,
       app: appInfo,
       liveTv: liveTvConf,
+      serverPriority: serverPriorityConf,
     );
   }
 
@@ -313,7 +373,8 @@ class RemoteConfigService {
   static const String _kConfigKey = 'cached_config';
   static const String _kTimestampKey = 'cached_config_timestamp';
   static const String _kDismissedVersionKey = 'dismissed_version';
-  static const int _kTtlHours = 24;
+  static const int _kTtlHours = 6;
+  Timer? _autoRepairTimer;
 
   final StoreRef<String, dynamic> _store = stringMapStoreFactory.store(_kConfigStore);
 
@@ -334,7 +395,13 @@ class RemoteConfigService {
     await _loadFromCache();
 
     // 2. Descargar si el TTL ha expirado o no hay caché
-    _fetchAndCache(customUrl ?? _kConfigUrl);
+    await _fetchAndCache(customUrl ?? _kConfigUrl);
+
+    // 3. Iniciar auto-reparación cada 6 horas
+    _autoRepairTimer?.cancel();
+    _autoRepairTimer = Timer.periodic(const Duration(hours: 6), (_) {
+      _fetchAndCache(customUrl ?? _kConfigUrl, force: true);
+    });
   }
 
   Future<void> _loadFromCache() async {
@@ -349,13 +416,13 @@ class RemoteConfigService {
     }
   }
 
-  Future<bool> _fetchAndCache(String url) async {
+  Future<bool> _fetchAndCache(String url, {bool force = false}) async {
     try {
       final db = await AppDatabase.instance.database;
       final tsRecord = await _store.record(_kTimestampKey).get(db);
       final lastFetched = tsRecord != null ? DateTime.tryParse(tsRecord.toString()) : null;
 
-      if (lastFetched != null && DateTime.now().difference(lastFetched).inHours < _kTtlHours) {
+      if (!force && lastFetched != null && DateTime.now().difference(lastFetched).inHours < _kTtlHours) {
         debugPrint(
             '[RemoteConfig] Usando configuración en caché (TTL activo: ${_kTtlHours - DateTime.now().difference(lastFetched).inHours}h restantes)');
         return true;

@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../data/aggregators/source_aggregator.dart'; // Ajusta el import según tu estructura real
-
+import '../../../core/services/remote_config_service.dart';
 /// Preferencias de audio/subtítulo/selección (las 3 nuevas opciones)
 class ServerLoaderPrefs {
   /// "latino" | "castellano" | "subtitulado"
@@ -191,6 +191,44 @@ class ServerLoader {
     return filtered;
   }
 
+  /// Retorna todos los servidores disponibles sin filtrar por idioma.
+  Future<List<Map<String, dynamic>>> getAllServers({
+    required int contentId,
+    required bool isMovie,
+    int season = 0,
+    int episode = 0,
+    BuildContext? context,
+  }) async {
+    await _ensureLoaded();
+    final cachedMain = await _main.tryLoadCachedServers(
+      tmdbId: contentId,
+      tipo: isMovie ? 'movie' : 'tv',
+      season: season,
+      episode: episode,
+    );
+    if (cachedMain != null && cachedMain.isNotEmpty) {
+      return cachedMain;
+    }
+    final result = await _main.fetchAll(
+      tmdbId: contentId,
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+      context: context,
+      forzarVerificar: false,
+    );
+    if (result.todos.isNotEmpty) {
+      await FuentesCache.saveServers(
+        tmdbId: contentId,
+        tipo: isMovie ? 'movie' : 'tv',
+        season: season,
+        episode: episode,
+        servidores: result.todos,
+      );
+    }
+    return result.todos;
+  }
+
   /// Primera fuente válida del idioma configurado → m3u8 y PARA (no espera el resto).
   Future<PlayableSource?> resolvePlayable({
     required int contentId,
@@ -302,6 +340,8 @@ class ServerLoader {
     }
   }
 
+  bool isServerInvalid(Map<String, dynamic> server) => _isInvalid(server);
+
   Future<void> clearCache(CacheType type) async {
     final p = await SharedPreferences.getInstance();
     final keys = p.getKeys();
@@ -370,6 +410,8 @@ class ServerLoader {
     }
 
     if (collected.isEmpty) return null;
+
+    _sortServersByPriority(collected);
 
     for (final code in order) {
       for (final srv in collected) {
@@ -482,6 +524,7 @@ class ServerLoader {
           });
         } else if (order.contains(idioma)) {
           pendingFallback.add(map);
+          _sortServersByPriority(pendingFallback);
         }
       },
       onError: (e) {
@@ -501,6 +544,7 @@ class ServerLoader {
             }
           }
           if (!resolved) {
+            _sortServersByPriority(collected);
             for (final srv in collected) {
               if (resolved) return;
               await tryServer(srv);
@@ -588,7 +632,40 @@ class ServerLoader {
         }
       }
     }
+    
+    _sortServersByPriority(result);
     return result;
+  }
+  
+  void _sortServersByPriority(List<Map<String, dynamic>> servers) {
+    final priorityConfig = RemoteConfigService.instance.config.serverPriority;
+    servers.sort((a, b) {
+      final aName = (a['fuente_label']?.toString() ?? a['servidor_nombre']?.toString() ?? '').toLowerCase();
+      final bName = (b['fuente_label']?.toString() ?? b['servidor_nombre']?.toString() ?? '').toLowerCase();
+      
+      final aQuality = (a['quality']?.toString() ?? a['calidad']?.toString() ?? '').toLowerCase();
+      final bQuality = (b['quality']?.toString() ?? b['calidad']?.toString() ?? '').toLowerCase();
+      
+      // 1. Prioridad por fuente
+      int aSourceScore = 999;
+      int bSourceScore = 999;
+      for (int i = 0; i < priorityConfig.preferredSources.length; i++) {
+        if (aName.contains(priorityConfig.preferredSources[i])) aSourceScore = i;
+        if (bName.contains(priorityConfig.preferredSources[i])) bSourceScore = i;
+      }
+      if (aSourceScore != bSourceScore) return aSourceScore.compareTo(bSourceScore);
+      
+      // 2. Prioridad por calidad
+      int aQualityScore = 999;
+      int bQualityScore = 999;
+      for (int i = 0; i < priorityConfig.preferredQuality.length; i++) {
+        if (aQuality.contains(priorityConfig.preferredQuality[i])) aQualityScore = i;
+        if (bQuality.contains(priorityConfig.preferredQuality[i])) bQualityScore = i;
+      }
+      if (aQualityScore != bQualityScore) return aQualityScore.compareTo(bQualityScore);
+      
+      return 0;
+    });
   }
 
   Future<PlayableSource?> tryResolveServer(

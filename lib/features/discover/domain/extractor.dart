@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
-import '../../player/presentation/tv/tv_discover_player.dart';
+import '../../player/presentation/tv/tv_player_page.dart';
 // ============================================================
 //  RESOLVERS NATIVOS (portados de fuegocine)
 // ============================================================

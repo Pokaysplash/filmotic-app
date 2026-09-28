@@ -14,6 +14,10 @@ class GuardadosService {
     return AppDatabase.instance.toggleFavorite(item);
   }
 
+  static Future<void> update(Map<String, dynamic> item) async {
+    await AppDatabase.instance.updateFavorite(item);
+  }
+
   static Future<void> remove(int idcontenido) async {
     await AppDatabase.instance.removeFavorite(idcontenido);
   }

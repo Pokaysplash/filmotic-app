@@ -195,8 +195,6 @@ Fuente? fuenteById(String id) {
   }
 }
 
-/// API pública de búsqueda (usa el registry).
-/// [tipo] = 'todas' | id de fuente (serieskao, cuevana, tioplus, cinehax, pelisplus, ...)
 Future<BuscadorResult> buscarEnFuentes({
   required String q,
   String tipo = 'todas',
@@ -217,27 +215,68 @@ Future<BuscadorResult> buscarEnFuentes({
     );
   }
 
-  final resultados = <String, List<BuscadorItem>>{};
-  int total = 0;
-
-  for (final fuente in aBuscar) {
-    List<BuscadorItem> items = [];
+  // Ejecutar búsqueda en paralelo
+  final futures = aBuscar.map((fuente) async {
+    if (fuente.search == null) return <BuscadorItem>[];
     try {
-      if (fuente.search != null) {
-        items = await fuente.search!(query);
-      }
+      return await fuente.search!(query);
     } catch (_) {
-      items = [];
+      return <BuscadorItem>[];
     }
-    resultados[fuente.id] = items;
-    total += items.length;
+  });
+
+  final listResults = await Future.wait(futures);
+
+  final todosLosItems = <BuscadorItem>[];
+  for (final items in listResults) {
+    todosLosItems.addAll(items);
   }
+
+  // Deduplicar por título normalizado
+  final deduplicados = <String, BuscadorItem>{};
+  for (final item in todosLosItems) {
+    // Normalizar: sin espacios, minúsculas
+    final normTitle = item.titulo.toLowerCase().replaceAll(RegExp(r'\s+'), '');
+    final key = '${item.tipo}_$normTitle';
+
+    if (deduplicados.containsKey(key)) {
+      final existente = deduplicados[key]!;
+      final agrupadas = List<Map<String, String>>.from(existente.fuentesAgrupadas ?? []);
+      agrupadas.add({'sitio': item.sitio, 'url': item.url});
+
+      deduplicados[key] = BuscadorItem(
+        sitio: existente.sitio, // visual fallback
+        titulo: existente.titulo,
+        tipo: existente.tipo,
+        url: existente.url,
+        imagen: existente.imagen.isNotEmpty ? existente.imagen : item.imagen,
+        anio: existente.anio ?? item.anio,
+        rating: existente.rating ?? item.rating,
+        tmdbId: existente.tmdbId ?? item.tmdbId,
+        fuentesAgrupadas: agrupadas,
+      );
+    } else {
+      deduplicados[key] = BuscadorItem(
+        sitio: item.sitio,
+        titulo: item.titulo,
+        tipo: item.tipo,
+        url: item.url,
+        imagen: item.imagen,
+        anio: item.anio,
+        rating: item.rating,
+        tmdbId: item.tmdbId,
+        fuentesAgrupadas: [{'sitio': item.sitio, 'url': item.url}],
+      );
+    }
+  }
+
+  final deduplicatedList = deduplicados.values.toList();
 
   return BuscadorResult(
     ok: true,
     query: query,
     tipo: tipo,
-    total: total,
-    resultados: resultados,
+    total: deduplicatedList.length,
+    resultados: {'todas': deduplicatedList},
   );
 }

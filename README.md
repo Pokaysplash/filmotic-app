@@ -670,7 +670,14 @@ flutter build appbundle --release
 
 El proyecto puede generar builds destinados a dispositivos Android TV utilizando la configuración correspondiente del proyecto Android.
 
----
+# 🌊 Waves & Changelog
+
+### WAVE 5 – Corrección de regresiones
+- **UI Fixes**: Refactorización de encabezados unificados en `home_page` y `tv_home_page` asegurando SafeArea e IconButtons correctos.
+- **Search UI/UX**: Mejorado el filtro de tipos en búsqueda con menús consistentes ("Películas", "Series", "Anime") sin etiquetas de fuentes innecesarias.
+- **Unified Reproduction Flow**: Eliminación de modales intermedios y transición directa a `PlayerScreen` que resuelve streams asíncronamente para Mobile y TV.
+- **Favorites Metadata**: Hidratación en segundo plano usando TMDB para reparar portadas y títulos faltantes o inválidos desde la base de datos local.
+- **Estabilidad General**: Solución de errores en sintaxis de agregadores en vivo y corrección de advertencias lógicas mediante comprobaciones robustas con herramientas estáticas de Flutter.
 
 ---
 

@@ -299,6 +299,8 @@ class ServerLoader {
     return url.isNotEmpty && _invalidUrls.contains(url);
   }
 
+  bool isServerInvalid(Map<String, dynamic> server) => _isInvalid(server);
+
   Future<void> preloadNext({
     required int contentId,
     required int season,

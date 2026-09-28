@@ -4,6 +4,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/storage/app_database.dart';
 
+import 'package:http/http.dart' as http;
+import '../../../core/constants/tmdb_apis.dart';
+import '../../../supabase/guardados_service.dart';
 import '../../content/presentation/content_page.dart';
 import '../../player/presentation/player_page.dart';
 // Ajusta la ruta del modal según donde lo hayas guardado
@@ -63,6 +66,113 @@ class GuardadosPageState extends State<GuardadosPage>
       _guardados = guardados;
       _loading = false;
     });
+
+    _hydrateMissingMetadata(guardados);
+  }
+
+  Future<void> _hydrateMissingMetadata(List<Map<String, dynamic>> items) async {
+    final toHydrate = items.where((it) {
+      final poster = it['poster_path'] ?? it['poster'] ?? it['imagen'];
+      final title = it['titulo'] ?? it['title'];
+      final complete = it['metadatos_completos'] == true;
+      final hasPoster = poster != null &&
+          poster.toString().isNotEmpty &&
+          poster.toString() != 'null';
+      final hasTitle = title != null && title.toString().isNotEmpty;
+      return (!hasPoster || !hasTitle || !complete);
+    }).take(5).toList();
+
+    if (toHydrate.isEmpty) return;
+
+    final apiKey = await TmdbApis.getApiKey();
+    if (apiKey.isEmpty) return;
+
+    bool updatedAny = false;
+
+    for (final item in toHydrate) {
+      if (!mounted) return;
+      try {
+        final id = item['tmdb_id'] as int? ??
+            item['idcontenido'] as int? ??
+            int.tryParse(item['id']?.toString() ?? '') ??
+            0;
+        final tipo =
+            (item['tipo'] ?? item['type'] ?? 'movie').toString().toLowerCase();
+        final rawTitle = item['titulo'] ?? item['title'] ?? '';
+
+        debugPrint('[Favorites] Hidratando: $id');
+
+        Map<String, dynamic>? data;
+
+        if (id > 0) {
+          final endpoint = tipo == 'tv' || tipo == 'serie' ? 'tv' : 'movie';
+          final url = Uri.parse(
+              'https://api.themoviedb.org/3/$endpoint/$id?api_key=$apiKey&language=es-MX');
+          final res = await http.get(url).timeout(const Duration(seconds: 6));
+          if (res.statusCode == 200) {
+            data = jsonDecode(res.body) as Map<String, dynamic>;
+          }
+        }
+
+        if (data == null && rawTitle.toString().trim().isNotEmpty) {
+          final query = Uri.encodeComponent(rawTitle.toString().trim());
+          final url = Uri.parse(
+              'https://api.themoviedb.org/3/search/multi?api_key=$apiKey&language=es-MX&query=$query');
+          final res = await http.get(url).timeout(const Duration(seconds: 6));
+          if (res.statusCode == 200) {
+            final body = jsonDecode(res.body) as Map<String, dynamic>;
+            final results = body['results'] as List<dynamic>?;
+            if (results != null && results.isNotEmpty) {
+              data = results.first as Map<String, dynamic>;
+            }
+          }
+        }
+
+        if (data != null) {
+          final posterPath = data['poster_path']?.toString();
+          final backdropPath = data['backdrop_path']?.toString();
+          final title = data['title']?.toString() ??
+              data['name']?.toString() ??
+              rawTitle.toString();
+          final voteAverage =
+              (data['vote_average'] as num?)?.toDouble() ?? 0.0;
+          final releaseDate = data['release_date']?.toString() ??
+              data['first_air_date']?.toString() ??
+              '';
+          final year =
+              releaseDate.length >= 4 ? releaseDate.substring(0, 4) : '';
+          final tmdbId = (data['id'] as num?)?.toInt() ?? id;
+
+          if (posterPath != null && posterPath.isNotEmpty) {
+            item['poster'] = 'https://image.tmdb.org/t/p/w500$posterPath';
+            item['poster_path'] = posterPath;
+          }
+          if (backdropPath != null && backdropPath.isNotEmpty) {
+            item['backdrop'] = 'https://image.tmdb.org/t/p/w780$backdropPath';
+            item['backdrop_path'] = backdropPath;
+          }
+          item['titulo'] = title;
+          item['title'] = title;
+          item['vote_average'] = voteAverage;
+          if (year.isNotEmpty) {
+            item['año'] = year;
+            item['year'] = year;
+          }
+          item['tmdb_id'] = tmdbId;
+          item['metadatos_completos'] = true;
+
+          await AppDatabase.instance.updateFavorite(item);
+          await GuardadosService.update(item);
+          updatedAny = true;
+        }
+      } catch (e) {
+        debugPrint('[Favorites] Error hidratando: $e');
+      }
+    }
+
+    if (updatedAny && mounted) {
+      setState(() {});
+    }
   }
 
   Future<List<Map<String, dynamic>>> _loadHistorial() async {
@@ -549,10 +659,20 @@ class _PosterCard extends StatelessWidget {
   static const double _h = 180;
 
   String get _poster {
-    final p = item['poster_path']?.toString() ?? '';
+    final p = item['poster_path']?.toString() ??
+        item['poster']?.toString() ??
+        item['imagen']?.toString() ??
+        '';
     if (p.isEmpty || p == 'null') return '';
     if (p.startsWith('http')) return p;
     return 'https://image.tmdb.org/t/p/w500$p';
+  }
+
+  String get _title {
+    return item['titulo']?.toString() ??
+        item['title']?.toString() ??
+        item['name']?.toString() ??
+        '';
   }
 
   double get _rating {
@@ -566,13 +686,39 @@ class _PosterCard extends StatelessWidget {
         item['first_air_date']?.toString() ??
         '';
     if (rd.length >= 4) return rd.substring(0, 4);
-    return item['year']?.toString() ?? '';
+    return item['year']?.toString() ?? item['año']?.toString() ?? '';
+  }
+
+  Widget _buildPlaceholder() {
+    return Container(
+      color: _kCardBg,
+      padding: const EdgeInsets.all(8),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Icon(Icons.movie, color: Colors.white24, size: 28),
+          if (_title.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              _title,
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 2.0);
-    final ratingText = _rating > 0 ? _rating.toStringAsFixed(1) : 'N/A';
 
     return GestureDetector(
       onTap: onTap,
@@ -603,47 +749,42 @@ class _PosterCard extends StatelessWidget {
                     memCacheHeight: (_h * dpr).round(),
                     fadeInDuration: const Duration(milliseconds: 100),
                     placeholder: (_, __) => const ColoredBox(color: _kCardBg),
-                    errorWidget: (_, __, ___) => const ColoredBox(
-                      color: _kCardBg,
-                      child: Icon(Icons.movie, color: Colors.white24, size: 28),
-                    ),
+                    errorWidget: (_, __, ___) => _buildPlaceholder(),
                   )
-                : const ColoredBox(
-                    color: _kCardBg,
-                    child: Icon(Icons.movie, color: Colors.white24, size: 28),
-                  ),
+                : _buildPlaceholder(),
           ),
-          // Rating
-          Positioned(
-            top: 6,
-            left: 6,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              decoration: BoxDecoration(
-                color: Colors.black.withValues(alpha: 0.75),
-                borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: _kAccentColor.withValues(alpha: 0.5),
-                  width: 1,
+          // Rating - Solo si _rating > 0
+          if (_rating > 0)
+            Positioned(
+              top: 6,
+              left: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.75),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(
+                    color: _kAccentColor.withValues(alpha: 0.5),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.star_rounded, color: Colors.amber, size: 11),
+                    const SizedBox(width: 3),
+                    Text(
+                      _rating.toStringAsFixed(1),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.star_rounded, color: Colors.amber, size: 11),
-                  const SizedBox(width: 3),
-                  Text(
-                    ratingText,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
             ),
-          ),
           // Año
           if (_year.isNotEmpty)
             Positioned(

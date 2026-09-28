@@ -8,7 +8,6 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../servers/presentation/tv_servers_modal.dart';
 import '../../player/presentation/tv/tv_player_controller.dart';
 import '../../player/presentation/tv/tv_player_page.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_content.dart';
@@ -1075,33 +1074,6 @@ class _PageContenidoState extends State<PageContenido>
     final titulo = data?['title']?.toString() ?? '';
     final isMovie = tipo.toLowerCase() != 'tv';
 
-    final prefs = await SharedPreferences.getInstance();
-    final modo = prefs.getString('seleccionar_servidores') ?? 'auto';
-
-    // Manual → lista TV (mismo diseño)
-    if (modo != 'auto') {
-      if (!mounted) return;
-      showDialog(
-        context: context,
-        barrierDismissible: true,
-        builder: (_) => ServidoresModalTv(
-          idcontenido: widget.idcontenido,
-          tmdbId: _resolvedTmdbId,
-          temporada: temporada,
-          capitulo: capitulo,
-          titulo: titulo,
-          tipo: tipo,
-          backdropUrl: _firstUrl(data?['backdrop_path']),
-          posterUrl: _firstUrl(data?['poster_path']),
-          logoUrl: _firstUrl(data?['logo_path']),
-        ),
-      ).then((_) {
-        _loadFullProgress();
-        HistorialBus.bump();
-      });
-      return;
-    }
-
     // AUTO: ServerLoader (first-win) → player solo si hay fuente;
     // si no encuentra servidor óptimo → modal de servidores.
     bool dialogShown = false;
@@ -1140,31 +1112,9 @@ class _PageContenidoState extends State<PageContenido>
 
     if (!mounted) return;
 
-    // Sin fuente óptima → abrir modal de servidores (no player vacío).
-    if (videoUrl.isEmpty) {
-      showDialog(
-        context: context,
-        barrierDismissible: true,
-        builder: (_) => ServidoresModalTv(
-          idcontenido: widget.idcontenido,
-          tmdbId: _resolvedTmdbId,
-          temporada: temporada,
-          capitulo: capitulo,
-          titulo: titulo,
-          tipo: tipo,
-          backdropUrl: _firstUrl(data?['backdrop_path']),
-          posterUrl: _firstUrl(data?['poster_path']),
-          logoUrl: _firstUrl(data?['logo_path']),
-        ),
-      ).then((_) {
-        _loadFullProgress();
-        HistorialBus.bump();
-      });
-      return;
-    }
-
-    // Sí hay fuente → abrir player.
-    await Navigator.of(context).push(
+    // Navegar directamente al reproductor
+    await Navigator.push(
+      context,
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
           videoUrl: videoUrl,
@@ -1178,6 +1128,7 @@ class _PageContenidoState extends State<PageContenido>
         ),
       ),
     );
+
     if (mounted) {
       _loadFullProgress();
       HistorialBus.bump();
@@ -1402,7 +1353,7 @@ class _PageContenidoState extends State<PageContenido>
                   )
                 : episodesViewActive
                 ? Padding(
-                    padding: const EdgeInsets.fromLTRB(44, 28, 44, 30),
+                    padding: const EdgeInsets.fromLTRB(44, 16, 44, 14),
                     child: ValueListenableBuilder<Map<String, dynamic>?>(
                       valueListenable: _progressNotifier,
                       builder: (context, progress, _) {
@@ -2440,7 +2391,7 @@ class _EpisodesBottomPanelState extends State<_EpisodesBottomPanel> {
     if (combined.isEmpty) return const SizedBox.shrink();
 
     return Padding(
-      padding: const EdgeInsets.only(top: 6, bottom: 2),
+      padding: const EdgeInsets.only(top: 4, bottom: 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -2449,14 +2400,14 @@ class _EpisodesBottomPanelState extends State<_EpisodesBottomPanel> {
             'REPARTO',
             style: TextStyle(
               color: Colors.white.withValues(alpha: 0.45),
-              fontSize: 11,
+              fontSize: 10.5,
               fontWeight: FontWeight.w700,
               letterSpacing: 0.8,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           SizedBox(
-            height: 74,
+            height: 68,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               physics: const BouncingScrollPhysics(),
@@ -3629,8 +3580,8 @@ class _GuestStarChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: 44,
-            height: 44,
+            width: 40,
+            height: 40,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: Colors.white.withValues(alpha: 0.08),

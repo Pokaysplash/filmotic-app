@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/services/ad_service.dart';
-import '../../servers/presentation/servers_modal.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_content.dart';
 import '../../player/presentation/player_controller.dart';
 import '../../player/presentation/player_page.dart';
@@ -568,20 +567,6 @@ class _PageContenidoState extends State<PageContenido>
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final modo = prefs.getString('seleccionar_servidores') ?? 'auto';
-
-    if (modo != 'auto') {
-      _showServidoresModal(
-        temporada: temporada,
-        capitulo: capitulo,
-        forDownload: false,
-        tipo: tipo,
-        titulo: titulo,
-      );
-      return;
-    }
-
     if (!mounted || _playLoading) return;
     final isMovie = tipo.toLowerCase() != 'tv';
 
@@ -642,20 +627,9 @@ class _PageContenidoState extends State<PageContenido>
     final tipo = data?['type']?.toString() ?? _resolvedMediaType;
     final titulo = data?['title']?.toString() ?? '';
 
-    if (_autoDirectDownload) {
-      await _autoDownloadAndOpenExtractor(
-        temporada: temporada,
-        capitulo: capitulo,
-        tipo: tipo,
-        titulo: titulo,
-      );
-      return;
-    }
-
-    _showServidoresModal(
+    await _autoDownloadAndOpenExtractor(
       temporada: temporada,
       capitulo: capitulo,
-      forDownload: true,
       tipo: tipo,
       titulo: titulo,
     );
@@ -722,12 +696,11 @@ class _PageContenidoState extends State<PageContenido>
     });
 
     if (resolvedUrl == null || resolvedUrl.isEmpty) {
-      _showServidoresModal(
-        temporada: temporada,
-        capitulo: capitulo,
-        forDownload: true,
-        tipo: tipo,
-        titulo: titulo,
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay enlaces disponibles para descargar.'),
+          backgroundColor: Colors.red,
+        ),
       );
       return;
     }
@@ -817,35 +790,7 @@ class _PageContenidoState extends State<PageContenido>
     return null;
   }
 
-  void _showServidoresModal({
-    int? temporada,
-    int? capitulo,
-    bool forDownload = false,
-    required String tipo,
-    required String titulo,
-  }) {
-    final data = _data;
-    showDialog(
-      context: context,
-      barrierDismissible: true,
-      useSafeArea: false,
-      builder: (_) => ServidoresModal(
-        idcontenido: _resolvedTmdbId,
-        temporada: temporada,
-        capitulo: capitulo,
-        tipo: tipo,
-        titulo: titulo,
-        forDownload: forDownload,
-        backdropUrl: _firstUrl(data?['backdrop_path']),
-        posterUrl: _firstUrl(data?['poster_path']),
-        logoUrl: _firstUrl(data?['logo_path']),
-      ),
-    ).then((_) {
-      _loadProgress();
-      _loadEpisodeProgress();
-      _loadDownloadedState();
-    });
-  }
+
 
   Future<void> _openYoutube(String key) async {
     if (key.isEmpty) return;

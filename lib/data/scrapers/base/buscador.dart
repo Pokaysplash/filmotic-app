@@ -11,6 +11,7 @@ class BuscadorItem {
   final int? anio;
   final double? rating;
   final int? tmdbId;
+  final List<Map<String, String>>? fuentesAgrupadas;
 
   BuscadorItem({
     required this.sitio,
@@ -21,6 +22,7 @@ class BuscadorItem {
     this.anio,
     this.rating,
     this.tmdbId,
+    this.fuentesAgrupadas,
   });
 }
 

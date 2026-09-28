@@ -1,0 +1,34 @@
+name: Update IPTV Playlist
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Cada 6 horas
+  workflow_dispatch:  # Ejecución manual
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        working-directory: iptv_aggregator
+        run: pip install -r requirements.txt
+        
+      - name: Create docs directory
+        run: mkdir -p docs
+        
+      - name: Run aggregator
+        working-directory: iptv_aggregator
+        run: python aggregator.py
+        
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add docs/filmotic_playlist.m3u
+          git commit -m "Auto-update IPTV playlist $(date +'%Y-%m-%d %H:%M')" || exit 0
+          git push

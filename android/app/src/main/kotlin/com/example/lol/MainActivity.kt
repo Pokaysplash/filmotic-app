@@ -77,6 +77,17 @@ class MainActivity : FlutterActivity() {
                             result.success(false)
                         }
                     }
+                    "getVolumePercent" -> {
+                        try {
+                            val audioManager = getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+                            val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+                            val currentVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                            val pct = if (maxVol > 0) currentVol.toDouble() / maxVol else 0.0
+                            result.success(pct)
+                        } catch (e: Exception) {
+                            result.success(1.0)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

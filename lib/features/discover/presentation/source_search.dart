@@ -204,6 +204,8 @@ class BuscarFuentesPageState extends State<BuscarFuentesPage> {
     });
   }
 
+  List<BuscadorItem> _allItems = [];
+
   /// Misma lógica que móvil: buscarEnFuentes(q, tipo)
   Future<void> _doSearch() async {
     final q = _query.trim();
@@ -218,7 +220,7 @@ class BuscarFuentesPageState extends State<BuscarFuentesPage> {
     });
 
     try {
-      final res = await buscarEnFuentes(q: q, tipo: _searchTipo);
+      final res = await buscarEnFuentes(q: q, tipo: 'todas');
 
       if (currentId != _searchId || !mounted) return;
 
@@ -226,6 +228,7 @@ class BuscarFuentesPageState extends State<BuscarFuentesPage> {
         setState(() {
           _error = res.error ?? 'Error en la búsqueda';
           _items = [];
+          _allItems = [];
           _loading = false;
         });
         return;
@@ -234,8 +237,10 @@ class BuscarFuentesPageState extends State<BuscarFuentesPage> {
       final flat = <BuscadorItem>[];
       res.resultados.forEach((_, list) => flat.addAll(list));
 
+      _allItems = flat;
+
       setState(() {
-        _items = flat;
+        _items = _filterItems(_allItems, _searchTipo);
         _loading = false;
       });
     } catch (_) {
@@ -243,79 +248,112 @@ class BuscarFuentesPageState extends State<BuscarFuentesPage> {
       setState(() {
         _error = 'Sin conexión o error de red';
         _items = [];
+        _allItems = [];
         _loading = false;
       });
     }
   }
 
-  void _changeSearchTipo(String tipo) {
-    if (tipo == _searchTipo) return;
-    setState(() => _searchTipo = tipo);
-    if (_query.trim().length >= 2) _doSearch();
+  List<BuscadorItem> _filterItems(List<BuscadorItem> list, String tipo) {
+    if (tipo == 'todas') return list;
+    if (tipo == 'tendencias') return list; // Not applicable for search results
+    if (tipo == 'episodios') return list; // Not applicable for search results
+    return list.where((e) => e.tipo == tipo).toList();
   }
 
-  void _showFilterDialog() {
-    final options = <({String id, String label})>[
-      (id: 'todas', label: 'Todas las fuentes'),
-      ...fuentesConBusqueda.map((f) => (id: f.id, label: f.label)),
+  void _changeSearchTipo(String tipo) {
+    if (tipo == _searchTipo) return;
+    setState(() {
+      _searchTipo = tipo;
+      if (_searched && _error == null) {
+        _items = _filterItems(_allItems, tipo);
+      }
+    });
+  }
+  void _showTipoFilter() {
+    final options = [
+      ('todas', 'Todas'),
+      ('movie', 'Películas'),
+      ('tv', 'Series'),
+      ('anime', 'Anime'),
     ];
 
     showDialog(
       context: context,
-      barrierColor: Colors.black54,
       builder: (ctx) {
         return Center(
           child: Material(
             color: Colors.transparent,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 420,
-                maxHeight: MediaQuery.sizeOf(context).height * 0.72,
+            child: Container(
+              width: 280,
+              decoration: BoxDecoration(
+                color: kCardBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white24),
               ),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: kCardBg,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: Colors.white.withValues(alpha: 0.12),
-                  ),
-                ),
-                padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Buscar en',
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'Filtrar por tipo',
                       style: TextStyle(
                         color: Colors.white,
-                        fontSize: 20,
+                        fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 14),
-                    Flexible(
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: options.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 8),
-                        itemBuilder: (_, i) {
-                          final opt = options[i];
-                          final selected = _searchTipo == opt.id;
-                          return _FilterOptionTile(
-                            label: opt.label,
-                            selected: selected,
-                            autofocus: selected || (i == 0 && !selected),
-                            onTap: () {
-                              Navigator.pop(ctx);
-                              _changeSearchTipo(opt.id);
-                            },
-                          );
-                        },
-                      ),
+                  ),
+                  const Divider(color: Colors.white24, height: 1),
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 400),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: options.length,
+                      itemBuilder: (_, i) {
+                        final (value, label) = options[i];
+                        final isCurrent = value == _searchTipo;
+                        return InkWell(
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _changeSearchTipo(value);
+                            _filterFocusNode.requestFocus();
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 14,
+                            ),
+                            color: isCurrent
+                                ? kAccentColor.withValues(alpha: 0.2)
+                                : Colors.transparent,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    label,
+                                    style: TextStyle(
+                                      color: isCurrent
+                                          ? kAccentColor
+                                          : Colors.white,
+                                      fontWeight: isCurrent
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                    ),
+                                  ),
+                                ),
+                                if (isCurrent)
+                                  const Icon(Icons.check,
+                                      color: kAccentColor, size: 20),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -395,21 +433,10 @@ class BuscarFuentesPageState extends State<BuscarFuentesPage> {
                                   aKeyFocusNode: _aKeyFocusNode,
                                 ),
                                 const SizedBox(height: 14),
-                                // Filtro de fuentes DEBAJO del teclado
-                                Text(
-                                  'Fuente',
-                                  style: TextStyle(
-                                    color: Colors.white.withValues(alpha: 0.45),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 0.6,
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
                                 _FuenteFilterButton(
                                   focusNode: _filterFocusNode,
                                   label: _searchTipoChipLabel,
-                                  onTap: _showFilterDialog,
+                                  onTap: _showTipoFilter,
                                 ),
                               ],
                             ),
@@ -499,7 +526,7 @@ class BuscarFuentesPageState extends State<BuscarFuentesPage> {
         ),
         const SizedBox(height: 2),
         Text(
-          '${_items.length} resultado${_items.length == 1 ? '' : 's'} · $_searchTipoLabel',
+          '${_items.length} resultado${_items.length == 1 ? '' : 's'}',
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.5),
             fontSize: 11,

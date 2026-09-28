@@ -48,62 +48,70 @@ class LiveTvService {
       }
     }
 
-    // 2. Descargar lista de iptv-org y fuentes alternativas
-    final url = _buildDownloadUrl(country: country, language: language, group: group);
-    try {
-      final futures = <Future<http.Response>>[
-        http.get(Uri.parse(url)).timeout(const Duration(seconds: 12)),
-      ];
-      final isCountry = country != null && country.isNotEmpty && country != 'ALL';
-      final streamsUrl = isCountry
-          ? 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/${country.toLowerCase()}.m3u'
-          : null;
-      if (streamsUrl != null) {
-        futures.add(http.get(Uri.parse(streamsUrl)).timeout(const Duration(seconds: 10)));
-      }
+    // 2. Obtener configuración remota
+    final config = RemoteConfigService.instance.config.liveTv;
+    
+    // 3. Preparar e iniciar descargas independientes
+    http.Response? mainRes;
+    
+    // Intentar primero la customM3uUrl si usamos filmotic_master
+    if (config.sourcePriority == 'filmotic_master' && config.customM3uUrl.isNotEmpty) {
+      try {
+        mainRes = await http.get(Uri.parse(config.customM3uUrl)).timeout(const Duration(seconds: 15));
+        if (mainRes.statusCode != 200 || mainRes.bodyBytes.isEmpty) mainRes = null;
+      } catch (_) { mainRes = null; }
+    }
+    
+    // Si no usamos master o falló, usar iptv-org fallback
+    final fallbackUrl = _buildDownloadUrl(country: country, language: language, group: group);
+    if (mainRes == null) {
+      try {
+        mainRes = await http.get(Uri.parse(fallbackUrl)).timeout(const Duration(seconds: 12));
+        if (mainRes.statusCode != 200 || mainRes.bodyBytes.isEmpty) mainRes = null;
+      } catch (_) { mainRes = null; }
+    }
 
-      // Si se especificó una categoría temática, también descargar canales de esa categoría
-      final hasGroup = group != null && group.isNotEmpty && group != 'ALL';
-      final catUrl = hasGroup
-          ? 'https://iptv-org.github.io/iptv/categories/${group.toLowerCase()}.m3u'
-          : null;
-      if (catUrl != null && catUrl != url) {
-        futures.add(http.get(Uri.parse(catUrl)).timeout(const Duration(seconds: 10)));
-      }
-
-      final responses = await Future.wait(futures);
-      final mainRes = responses[0];
-      if (mainRes.statusCode == 200) {
+    if (mainRes != null) {
+      try {
         final body = utf8.decode(mainRes.bodyBytes);
-        final parseResult = M3UParser.parse(body, url);
+        final parseResult = M3UParser.parse(body, config.sourcePriority == 'filmotic_master' ? config.customM3uUrl : fallbackUrl);
         if (parseResult.epgUrl != null && parseResult.epgUrl!.isNotEmpty) {
           lastEpgUrl = parseResult.epgUrl;
         }
 
         var channels = parseResult.channels;
 
-        // Si descargamos la lista de streams completa, combinar fuentes alternativas
-        if (streamsUrl != null && responses.length > 1 && responses[1].statusCode == 200) {
+        // Descargar streams adicionales si usamos iptv-org
+        final isCountry = country != null && country.isNotEmpty && country != 'ALL';
+        if (isCountry && config.sourcePriority != 'filmotic_master') {
+          final streamsUrl = 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/${country.toLowerCase()}.m3u';
           try {
-            final streamsBody = utf8.decode(responses[1].bodyBytes);
-            final streamsResult = M3UParser.parse(streamsBody, streamsUrl);
-            channels = _mergeAlternateStreams(channels, streamsResult.channels);
+            final streamsRes = await http.get(Uri.parse(streamsUrl)).timeout(const Duration(seconds: 10));
+            if (streamsRes.statusCode == 200) {
+              final streamsBody = utf8.decode(streamsRes.bodyBytes);
+              final streamsResult = M3UParser.parse(streamsBody, streamsUrl);
+              channels = _mergeAlternateStreams(channels, streamsResult.channels);
+            }
           } catch (_) {}
         }
 
-        // Si descargamos lista de categoría, agregar canales en español de esa categoría
-        if (catUrl != null) {
-          final catResIndex = futures.length - 1;
-          if (catResIndex < responses.length && responses[catResIndex].statusCode == 200) {
+        // Si se especificó una categoría temática y usamos iptv-org
+        final hasGroup = group != null && group.isNotEmpty && group != 'ALL';
+        if (hasGroup && config.sourcePriority != 'filmotic_master') {
+          final catUrl = 'https://iptv-org.github.io/iptv/categories/${group.toLowerCase()}.m3u';
+          if (catUrl != fallbackUrl) {
             try {
-              final catBody = utf8.decode(responses[catResIndex].bodyBytes);
-              final catResult = M3UParser.parse(catBody, catUrl);
-              final esCatChannels = catResult.channels.where((c) {
-                final lang = (c.language ?? '').toLowerCase();
-                final nm = c.name.toLowerCase();
-                return lang == 'spa' || lang == 'es' || nm.contains('esp') || nm.contains('spanish');
-              }).toList();
-              channels = _mergeAlternateStreams(channels, esCatChannels);
+              final catRes = await http.get(Uri.parse(catUrl)).timeout(const Duration(seconds: 10));
+              if (catRes.statusCode == 200) {
+                final catBody = utf8.decode(catRes.bodyBytes);
+                final catResult = M3UParser.parse(catBody, catUrl);
+                final esCatChannels = catResult.channels.where((c) {
+                  final lang = (c.language ?? '').toLowerCase();
+                  final nm = c.name.toLowerCase();
+                  return lang == 'spa' || lang == 'es' || nm.contains('esp') || nm.contains('spanish');
+                }).toList();
+                channels = _mergeAlternateStreams(channels, esCatChannels);
+              }
             } catch (_) {}
           }
         }
@@ -123,9 +131,9 @@ class LiveTvService {
           }
           return _sortChannels(result);
         }
+      } catch (e) {
+        debugPrint('[LiveTvService] Error descargando $fallbackUrl: $e');
       }
-    } catch (e) {
-      debugPrint('[LiveTvService] Error descargando $url: $e');
     }
 
     // 3. Fallback a caché previa si la descarga falló

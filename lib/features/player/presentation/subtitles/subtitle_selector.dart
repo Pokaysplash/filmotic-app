@@ -1,13 +1,14 @@
-// subtitles_modal.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../../../core/constants/tmdb_apis.dart';
 
 class OpenSubtitlesModal extends StatefulWidget {
   final String? imdbId;
+  final int? tmdbId;
   final String mediaType;
   final int? season;
   final int? episode;
@@ -29,6 +30,7 @@ class OpenSubtitlesModal extends StatefulWidget {
   const OpenSubtitlesModal({
     super.key,
     required this.imdbId,
+    this.tmdbId,
     required this.mediaType,
     this.season,
     this.episode,
@@ -51,6 +53,7 @@ class OpenSubtitlesModal extends StatefulWidget {
   static Future<void> show({
     required BuildContext context,
     required String? imdbId,
+    int? tmdbId,
     required String mediaType,
     int? season,
     int? episode,
@@ -75,6 +78,7 @@ class OpenSubtitlesModal extends StatefulWidget {
       barrierDismissible: false,
       builder: (_) => OpenSubtitlesModal(
         imdbId: imdbId,
+        tmdbId: tmdbId,
         mediaType: mediaType,
         season: season,
         episode: episode,
@@ -238,26 +242,45 @@ class _OpenSubtitlesModalState extends State<OpenSubtitlesModal> {
     }
   }
 
-  String? _buildApiUrl() {
-    final imdb = widget.imdbId?.trim() ?? '';
-    if (imdb.isEmpty) return null;
-    if (widget.mediaType == 'tv') {
-      final s = widget.season ?? 1;
-      final e = widget.episode ?? 1;
-      return 'https://opensubtitles-v3.strem.io/subtitles/series/$imdb:$s:$e.json';
+  Future<String?> _resolveImdbId() async {
+    final direct = widget.imdbId?.trim();
+    if (direct != null && direct.isNotEmpty) return direct;
+    final tmdb = widget.tmdbId;
+    if (tmdb != null && tmdb > 0) {
+      try {
+        final key = await TmdbApis.getApiKey();
+        final isTv = widget.mediaType == 'tv';
+        final path = isTv ? '/tv/$tmdb/external_ids' : '/movie/$tmdb';
+        final uri = Uri.parse(
+          'https://api.themoviedb.org/3$path?api_key=$key&append_to_response=external_ids',
+        );
+        final res = await http.get(uri).timeout(const Duration(seconds: 8));
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          if (data is Map) {
+            final ext = data['external_ids'] is Map ? data['external_ids'] as Map : data;
+            final resolved = (ext['imdb_id'] ?? data['imdb_id'] ?? '').toString().trim();
+            if (resolved.isNotEmpty) return resolved;
+          }
+        }
+      } catch (_) {}
     }
-    return 'https://opensubtitles-v3.strem.io/subtitles/movie/$imdb.json';
+    return null;
   }
 
   Future<void> _fetchSubtitles() async {
-    final url = _buildApiUrl();
-    if (url == null) {
+    final imdb = await _resolveImdbId();
+    if (imdb == null || imdb.isEmpty) {
       setState(() {
         _loading = false;
         _error = 'No se encontró IMDb ID';
       });
       return;
     }
+
+    final url = widget.mediaType == 'tv'
+        ? 'https://opensubtitles-v3.strem.io/subtitles/series/$imdb:${widget.season ?? 1}:${widget.episode ?? 1}.json'
+        : 'https://opensubtitles-v3.strem.io/subtitles/movie/$imdb.json';
 
     try {
       final res =
