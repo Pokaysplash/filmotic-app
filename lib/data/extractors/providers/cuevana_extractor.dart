@@ -434,7 +434,7 @@ class CuevanaServer {
         ? 'Servidor'
         : '${cyberlocker[0].toUpperCase()}${cyberlocker.substring(1)}';
     return {
-      'servidor_nombre': 'Cuevana · $name',
+      'servidor_nombre': name,
       'servidor_url': url,
       'calidad': quality,
       'idioma': idiomaCode,

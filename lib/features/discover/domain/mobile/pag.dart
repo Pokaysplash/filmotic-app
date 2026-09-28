@@ -79,8 +79,6 @@ class _ServiciosPageState extends State<ServiciosPage>
 
   List<String> get _generosDisponibles => ['', ..._servicio.generos];
 
-  String get _servicioLabel => _servicio.label;
-
   String get _tipoLabel => Fuente.tipoLabel(_tipo);
 
   String get _generoLabel {

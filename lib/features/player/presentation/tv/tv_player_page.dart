@@ -269,6 +269,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isLoading = true;
   bool _isPlaying = false;
   bool _subtitlesEnabled = false;
+  String? _switchingLangOverlay;
   Duration _currentPosition = Duration.zero;
   Duration _totalDuration = Duration.zero;
   String _errorMessage = '';
@@ -2685,79 +2686,89 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final previousUrl = _activeUrl;
     final previousHeaders = _activeHeaders;
     final wasPlaying = _isPlaying;
+    final langName = targetServers.isNotEmpty
+        ? _langLabel(targetServers.first['idioma']?.toString() ?? '')
+        : 'otro servidor';
 
     setState(() {
       _isLoading = true;
       _errorMessage = '';
+      _switchingLangOverlay = 'Cambiando a $langName...';
     });
 
-    for (final targetServer in targetServers) {
-      final srvKey = _serverKey(targetServer);
-      try {
-        final playable = await _serverLoader.tryResolveServer(
-          targetServer,
-          context: mounted ? context : null,
-        ).timeout(const Duration(seconds: 8));
+    try {
+      for (final targetServer in targetServers) {
+        final srvKey = _serverKey(targetServer);
+        try {
+          final playable = await _serverLoader.tryResolveServer(
+            targetServer,
+            context: mounted ? context : null,
+          ).timeout(const Duration(seconds: 8));
 
-        if (playable != null && playable.url.isNotEmpty) {
-          _activeUrl = playable.url;
-          _activeHeaders = playable.headers;
-          _idioma = playable.idioma;
-          
-          final remainingSameLang = targetServers.where((s) => s != targetServer).toList();
-          final others = _fallbackServers.where((s) => !targetServers.contains(s)).toList();
-          _fallbackServers = [targetServer, ...remainingSameLang, ...others];
-          _fallbackIndex = 0;
+          if (playable != null && playable.url.isNotEmpty) {
+            _activeUrl = playable.url;
+            _activeHeaders = playable.headers;
+            _idioma = playable.idioma;
+            
+            final remainingSameLang = targetServers.where((s) => s != targetServer).toList();
+            final others = _fallbackServers.where((s) => !targetServers.contains(s)).toList();
+            _fallbackServers = [targetServer, ...remainingSameLang, ...others];
+            _fallbackIndex = 0;
 
+            await AppDatabase.instance.setCachedServerStatus(
+              srvKey,
+              isValid: true,
+              hasAudio: targetServer['sin_audio'] != true && targetServer['has_audio'] != false,
+            );
+
+            await _startControllerWithUrl(playable.url, playable.headers);
+            if (_controllerReady) {
+              await _controller.seekTo(targetPosition);
+              if (wasPlaying) {
+                await _controller.play();
+              }
+            }
+            return;
+          }
+        } catch (_) {
+          _serverLoader.markServerAsInvalid(targetServer);
           await AppDatabase.instance.setCachedServerStatus(
             srvKey,
-            isValid: true,
+            isValid: false,
             hasAudio: targetServer['sin_audio'] != true && targetServer['has_audio'] != false,
           );
-
-          await _startControllerWithUrl(playable.url, playable.headers);
-          if (_controllerReady) {
-            await _controller.seekTo(targetPosition);
-            if (wasPlaying) {
-              await _controller.play();
-            }
-          }
-          return;
         }
-      } catch (_) {
-        _serverLoader.markServerAsInvalid(targetServer);
-        await AppDatabase.instance.setCachedServerStatus(
-          srvKey,
-          isValid: false,
-          hasAudio: targetServer['sin_audio'] != true && targetServer['has_audio'] != false,
+      }
+
+      _activeUrl = previousUrl;
+      _activeHeaders = previousHeaders;
+      setState(() {
+        _isLoading = false;
+        _errorMessage = '';
+      });
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo cambiar el idioma con los servidores disponibles. Continuando reproducción.'),
+            backgroundColor: Color(0xFFD32F2F),
+            duration: Duration(seconds: 3),
+          ),
         );
       }
-    }
 
-    _activeUrl = previousUrl;
-    _activeHeaders = previousHeaders;
-    setState(() {
-      _isLoading = false;
-      _errorMessage = '';
-    });
-    
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('No se pudo cambiar el idioma con los servidores disponibles. Continuando reproducción.'),
-          backgroundColor: Color(0xFFD32F2F),
-          duration: Duration(seconds: 3),
-        ),
-      );
-    }
-
-    if (_activeUrl.isNotEmpty) {
-      await _startControllerWithUrl(_activeUrl, _activeHeaders);
-      if (_controllerReady) {
-        await _controller.seekTo(targetPosition);
-        if (wasPlaying) {
-          await _controller.play();
+      if (_activeUrl.isNotEmpty) {
+        await _startControllerWithUrl(_activeUrl, _activeHeaders);
+        if (_controllerReady) {
+          await _controller.seekTo(targetPosition);
+          if (wasPlaying) {
+            await _controller.play();
+          }
         }
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _switchingLangOverlay = null);
       }
     }
   }
@@ -2866,6 +2877,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     color: Colors.white54,
                                     fontSize: 12,
                                   ),
+                                ),
+                                SizedBox(height: 4),
+                                Row(
+                                  children: [
+                                    Icon(Icons.info_outline, size: 13, color: Color(0xFFFF6B00)),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'Cambia de servidor para otro idioma',
+                                      style: TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 11,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -4146,6 +4171,63 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                 ),
               ),
+
+              // Overlay discreto al cambiar de idioma
+              if (_switchingLangOverlay != null)
+                Positioned(
+                  top: 50,
+                  left: 40,
+                  right: 40,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.88),
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: const Color(0xFFFF6B35).withOpacity(0.85),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.6),
+                            blurRadius: 20,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Color(0xFFFF6B35),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Flexible(
+                            child: Text(
+                              _switchingLangOverlay!,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
 
               // Aviso de cambio de servidor si tarda más de 5s
               if (_isSwitchingServerNotice)

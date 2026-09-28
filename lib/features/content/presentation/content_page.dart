@@ -335,22 +335,32 @@ class _PageContenidoState extends State<PageContenido>
         .toLowerCase();
 
     final posterUrl = _firstUrl(data['poster_path']);
+    final backdropUrl = _firstUrl(data['backdrop_path']);
+    final year = data['release_date'] ?? data['first_air_date'] ?? data['año'] ?? data['year'] ?? '';
+    final title = (data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? '').toString();
+
     final item = <String, dynamic>{
       'idcontenido': _resolvedTmdbId,
+      'contenido_id': _resolvedTmdbId,
       'tmdb_id': _resolvedTmdbId,
       'idtmdb': _resolvedTmdbId,
       'tipo': tipo,
       'type': tipo,
       'media_type': tipo,
-      'title': data['title'] ?? data['titulo_contenido'] ?? '',
-      'titulo': data['title'] ?? data['titulo_contenido'] ?? '',
+      'title': title,
+      'titulo': title,
       'poster': posterUrl,
       'poster_path': posterUrl,
-      'backdrop_path': _firstUrl(data['backdrop_path']),
+      'backdrop': backdropUrl,
+      'backdrop_path': backdropUrl,
       'logo_path': _firstUrl(data['logo_path']),
+      'año': year,
+      'year': year,
       'vote_average': data['vote_average'],
       'overview': data['overview'] ?? '',
       'release_date': data['release_date'] ?? data['first_air_date'],
+      'timestamp': DateTime.now().toIso8601String(),
+      'metadatos_completos': true,
       'addedAt': DateTime.now().toIso8601String(),
     };
 

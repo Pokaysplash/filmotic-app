@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/constants/tmdb_apis.dart';
+import '../../../../core/storage/app_database.dart';
 
 class OpenSubtitlesModal extends StatefulWidget {
   final String? imdbId;
@@ -248,6 +249,13 @@ class _OpenSubtitlesModalState extends State<OpenSubtitlesModal> {
     final tmdb = widget.tmdbId;
     if (tmdb != null && tmdb > 0) {
       try {
+        final cacheKey = 'imdb_id_${widget.mediaType}_$tmdb';
+        final cached = await AppDatabase.instance.getTmdbCache(cacheKey);
+        if (cached != null && cached['imdb_id'] != null) {
+          final cid = cached['imdb_id'].toString().trim();
+          if (cid.isNotEmpty) return cid;
+        }
+
         final key = await TmdbApis.getApiKey();
         final isTv = widget.mediaType == 'tv';
         final path = isTv ? '/tv/$tmdb/external_ids' : '/movie/$tmdb';
@@ -260,7 +268,10 @@ class _OpenSubtitlesModalState extends State<OpenSubtitlesModal> {
           if (data is Map) {
             final ext = data['external_ids'] is Map ? data['external_ids'] as Map : data;
             final resolved = (ext['imdb_id'] ?? data['imdb_id'] ?? '').toString().trim();
-            if (resolved.isNotEmpty) return resolved;
+            if (resolved.isNotEmpty) {
+              await AppDatabase.instance.setTmdbCache(cacheKey, {'imdb_id': resolved});
+              return resolved;
+            }
           }
         }
       } catch (_) {}
@@ -273,7 +284,7 @@ class _OpenSubtitlesModalState extends State<OpenSubtitlesModal> {
     if (imdb == null || imdb.isEmpty) {
       setState(() {
         _loading = false;
-        _error = 'No se encontró IMDb ID';
+        _error = 'No hay subtítulos disponibles para este contenido.';
       });
       return;
     }
@@ -292,6 +303,16 @@ class _OpenSubtitlesModalState extends State<OpenSubtitlesModal> {
           .whereType<Map>()
           .map((e) => Map<String, dynamic>.from(e))
           .toList();
+
+      if (list.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _loading = false;
+            _error = 'No hay subtítulos disponibles para este contenido.';
+          });
+        }
+        return;
+      }
 
       final Map<String, List<Map<String, dynamic>>> byLang = {};
       for (final s in list) {
@@ -330,7 +351,7 @@ class _OpenSubtitlesModalState extends State<OpenSubtitlesModal> {
       if (mounted) {
         setState(() {
           _loading = false;
-          _error = 'Error al cargar subtítulos';
+          _error = 'No hay subtítulos disponibles para este contenido.';
         });
       }
     }

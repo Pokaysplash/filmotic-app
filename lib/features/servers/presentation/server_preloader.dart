@@ -213,7 +213,7 @@ class ServidoresPreloader {
                 if (cleanUrl.isEmpty) continue;
                 todos.add({
                   'servidor_nombre':
-                      'Cuevana · ${v['cyberlocker'] ?? 'Servidor'}',
+                      '${v['cyberlocker'] ?? 'Servidor'}',
                   'servidor_url': cleanUrl,
                   'calidad': v['quality'] ?? 'HD',
                   'idioma': idiomaCode,

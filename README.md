@@ -1,3 +1,7 @@
+> ⚠️ **Versión Beta en desarrollo activo**  
+> Filmotic está en fase beta. La mayoría de funciones están operativas, pero puedes encontrar errores.  
+> Reporta problemas en [Issues](https://github.com/Pokaysplash/filmotic-app/issues).
+
 <div align="center">
 
 <img src="assets/logo.png" alt="Filmotic Logo" width="180"/>

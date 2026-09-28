@@ -78,7 +78,10 @@ class GuardadosPageState extends State<GuardadosPage>
       final hasPoster = poster != null &&
           poster.toString().isNotEmpty &&
           poster.toString() != 'null';
-      final hasTitle = title != null && title.toString().isNotEmpty;
+      final hasTitle = title != null &&
+          title.toString().trim().isNotEmpty &&
+          title.toString().trim() != 'Sin título' &&
+          title.toString().trim() != 'N/A';
       return (!hasPoster || !hasTitle || !complete);
     }).take(5).toList();
 
@@ -114,8 +117,16 @@ class GuardadosPageState extends State<GuardadosPage>
           }
         }
 
-        if (data == null && rawTitle.toString().trim().isNotEmpty) {
-          final query = Uri.encodeComponent(rawTitle.toString().trim());
+        String searchPattern = rawTitle.toString().trim();
+        if (searchPattern.isEmpty || searchPattern == 'N/A' || searchPattern == 'Sin título') {
+          final cid = (item['contenido_id'] ?? item['idcontenido'])?.toString() ?? '';
+          if (cid.isNotEmpty && int.tryParse(cid) == null) {
+            searchPattern = cid.replaceAll('-', ' ').replaceAll('_', ' ');
+          }
+        }
+
+        if (data == null && searchPattern.isNotEmpty && searchPattern != 'N/A' && searchPattern != 'Sin título') {
+          final query = Uri.encodeComponent(searchPattern);
           final url = Uri.parse(
               'https://api.themoviedb.org/3/search/multi?api_key=$apiKey&language=es-MX&query=$query');
           final res = await http.get(url).timeout(const Duration(seconds: 6));
@@ -669,10 +680,12 @@ class _PosterCard extends StatelessWidget {
   }
 
   String get _title {
-    return item['titulo']?.toString() ??
+    final t = item['titulo']?.toString() ??
         item['title']?.toString() ??
         item['name']?.toString() ??
         '';
+    if (t == 'Sin título' || t == 'N/A') return '';
+    return t;
   }
 
   double get _rating {
@@ -690,6 +703,7 @@ class _PosterCard extends StatelessWidget {
   }
 
   Widget _buildPlaceholder() {
+    final hasTitle = _title.isNotEmpty;
     return Container(
       color: _kCardBg,
       padding: const EdgeInsets.all(8),
@@ -697,17 +711,56 @@ class _PosterCard extends StatelessWidget {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Icon(Icons.movie, color: Colors.white24, size: 28),
-          if (_title.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              _title,
-              maxLines: 3,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+          const SizedBox(height: 6),
+          Text(
+            hasTitle ? _title : 'Contenido guardado sin metadatos',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: hasTitle ? Colors.white70 : Colors.white38,
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (!hasTitle) ...[
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () async {
+                final id = item['idcontenido'] as int? ??
+                    item['contenido_id'] as int? ??
+                    item['tmdb_id'] as int? ??
+                    int.tryParse(item['id']?.toString() ?? '') ??
+                    0;
+                if (id > 0) {
+                  await GuardadosService.remove(id);
+                } else {
+                  await GuardadosCache.toggle(item);
+                }
+                GuardadosBus.bump();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(4),
+                  border: Border.all(color: Colors.red.withValues(alpha: 0.5)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.delete_outline, size: 14, color: Colors.redAccent),
+                    SizedBox(width: 4),
+                    Text(
+                      'Eliminar',
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],

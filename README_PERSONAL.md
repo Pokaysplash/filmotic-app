@@ -549,6 +549,37 @@ Para mitigar la alta tasa de canales caídos en listas públicas, se creó un mo
 - **Límite Suave (Soft Cap a 1200)**: Si la lista de canales activos supera los 1200, se conservan todos los de Prioridad 1 y se recorta del final de categorías secundarias. En la ejecución local se obtuvieron **1,131 canales activos** (351 deportivos, 152 de España).
 - **Automatización Diaria (`update_playlist.yml`)**: Frecuencia ajustada a cada 24 horas (`0 6 * * *` UTC) con un timeout de seguridad de 15 minutos en GitHub Actions.
 
+---
+
+## 18. WAVE 7 – Cierre de bugs y primera beta pública
+
+### 18.1 Cierre de Bugs Pendientes
+- **A.1 Favoritos sin carátula ni nombre**:
+  - En `content_page.dart` y `tv_content_page.dart`, `_toggleSaved` captura y persiste la metadata completa: `contenido_id`, `idcontenido`, `titulo`, `title`, `poster`, `poster_path`, `backdrop`, `backdrop_path`, `tipo`, `año`, `year`, `tmdb_id`, `vote_average`, `timestamp` y `metadatos_completos: true`.
+  - En `content_options_modal.dart` y `tv_content_options_modal.dart`, se añadieron `timestamp` y `metadatos_completos`.
+  - En `favorites_page.dart` y `history_page.dart` (TV), se amplió la hidratación automática (lote de 5 en paralelo) con fallback a búsqueda por título o slug si el ID numérico no está resuelto.
+  - Fallback visual: si tras la hidratación falta póster se muestra el icono de claqueta con el título; si tampoco hay título, se visualiza "Contenido guardado sin metadatos" junto con un botón para eliminarlo directamente.
+- **A.2 Subtítulos (IMDb ID y Fallback)**:
+  - En `subtitle_selector.dart` y `tv_subtitle_selector.dart`, se implementó caché en Sembast (`AppDatabase.instance.setTmdbCache` / `getTmdbCache`) para la resolución del IMDb ID vía TMDB (`/external_ids`), evitando consultas repetidas.
+  - Mensaje honesto y claro cuando no hay subtítulos o falla la consulta: *"No hay subtítulos disponibles para este contenido."*
+- **A.3 Cambio de idioma de audio sin interrupción de posición**:
+  - Se documentó la limitación técnica de HLS en el reproductor mediante un badge informativo en el modal de idioma: *"Cambia de servidor para otro idioma"*, indicando que las pistas de idioma son servidores independientes.
+  - Se preservó el flujo de retención de posición (`seekTo` a la posición exacta tras inicializar el nuevo stream de audio).
+  - Se integró un overlay discreto animado: *"Cambiando a [Idioma]..."* tanto en la versión móvil (`player_page.dart`) como en la versión Android TV (`tv_player_page.dart`).
+- **A.4 Limpieza de menciones visuales a "Cuevana"**:
+  - Eliminados los getters en desuso `_servicioLabel` en `pag.dart` y `tv_discover_page.dart`.
+  - Eliminado el prefijo `'Cuevana · '` en los nombres de servidor de `server_preloader.dart`, `tv_server_preloader.dart` y `cuevana_extractor.dart`.
+
+### 18.2 Preparación y Publicación de Versión Beta
+- **Versionado unificado**:
+  - `pubspec.yaml`: `version: 1.0.0-beta.1+1`.
+  - `lib/main.dart`: `currentVersion = '1.0.0-beta.1'`.
+  - `lib/core/constants/versiones.dart`: `currentVersionName = "1.0.0-beta.1"`, `currentVersionCode = 1`.
+  - `filmotic_config.json`: actualizado bloque `app` con `1.0.0-beta.1`, `is_beta: true`, y URL de descarga hacia el release oficial.
+  - `docs/index.html` & `docs/style.css`: banner superior de Beta, pill de versión actualizado y caja de advertencia en las instrucciones de instalación.
+  - `README.md`: bloque de aviso superior informando del estado de Beta en desarrollo activo.
+
+
 
 
 

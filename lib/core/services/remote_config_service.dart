@@ -12,6 +12,7 @@ class FilmoticAppInfo {
   final String updateUrl;
   final String updateMessage;
   final bool forceUpdate;
+  final bool isBeta;
 
   FilmoticAppInfo({
     required this.minVersion,
@@ -19,6 +20,7 @@ class FilmoticAppInfo {
     required this.updateUrl,
     required this.updateMessage,
     required this.forceUpdate,
+    this.isBeta = false,
   });
 
   factory FilmoticAppInfo.fromMap(Map<String, dynamic>? map, {String fallbackMinVersion = '1.0.0'}) {
@@ -26,12 +28,13 @@ class FilmoticAppInfo {
     final minVer = (m['min_version'] ?? fallbackMinVersion).toString();
     final latestVer = (m['latest_version'] ?? minVer).toString();
     final url = (m['update_url'] ??
-            'https://github.com/Pokaysplash/filmotic-releases/releases/latest/download/filmotic.apk')
+            'https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk')
         .toString();
     final msg = (m['update_message'] ??
             'Hay una nueva versión de Filmotic disponible. Actualiza para disfrutar de las últimas mejoras.')
         .toString();
     final force = m['force_update'] == true;
+    final beta = m['is_beta'] == true;
 
     return FilmoticAppInfo(
       minVersion: minVer,
@@ -39,6 +42,7 @@ class FilmoticAppInfo {
       updateUrl: url,
       updateMessage: msg,
       forceUpdate: force,
+      isBeta: beta,
     );
   }
 
@@ -48,6 +52,7 @@ class FilmoticAppInfo {
         'update_url': updateUrl,
         'update_message': updateMessage,
         'force_update': forceUpdate,
+        'is_beta': isBeta,
       };
 
   static FilmoticAppInfo get defaults => FilmoticAppInfo(

@@ -163,7 +163,10 @@ class GuardadosPageState extends State<GuardadosPage>
       final hasPoster = poster != null &&
           poster.toString().isNotEmpty &&
           poster.toString() != 'null';
-      final hasTitle = title != null && title.toString().isNotEmpty;
+      final hasTitle = title != null &&
+          title.toString().trim().isNotEmpty &&
+          title.toString().trim() != 'Sin título' &&
+          title.toString().trim() != 'N/A';
       return (!hasPoster || !hasTitle || !complete);
     }).take(5).toList();
 
@@ -199,8 +202,16 @@ class GuardadosPageState extends State<GuardadosPage>
           }
         }
 
-        if (data == null && rawTitle.toString().trim().isNotEmpty) {
-          final query = Uri.encodeComponent(rawTitle.toString().trim());
+        String searchPattern = rawTitle.toString().trim();
+        if (searchPattern.isEmpty || searchPattern == 'N/A' || searchPattern == 'Sin título') {
+          final cid = (item['contenido_id'] ?? item['idcontenido'])?.toString() ?? '';
+          if (cid.isNotEmpty && int.tryParse(cid) == null) {
+            searchPattern = cid.replaceAll('-', ' ').replaceAll('_', ' ');
+          }
+        }
+
+        if (data == null && searchPattern.isNotEmpty && searchPattern != 'N/A' && searchPattern != 'Sin título') {
+          final query = Uri.encodeComponent(searchPattern);
           final url = Uri.parse(
               'https://api.themoviedb.org/3/search/multi?api_key=$apiKey&language=es-MX&query=$query');
           final res = await http.get(url).timeout(const Duration(seconds: 6));
@@ -1257,7 +1268,9 @@ class _GuardadoCardState extends State<_GuardadoCard> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Text(
-                              widget.title,
+                              (widget.title.isEmpty || widget.title == 'Sin título' || widget.title == 'N/A')
+                                  ? 'Contenido guardado sin metadatos'
+                                  : widget.title,
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(

@@ -395,18 +395,30 @@ class _PageContenidoState extends State<PageContenido>
     if (_data == null) return;
     final data = _data!;
     final posterUrl = _firstUrl(data['poster_path']);
+    final backdropUrl = _firstUrl(data['backdrop_path']);
+    final tipo = (data['type'] ?? data['media_type'] ?? _resolvedMediaType).toString().toLowerCase();
+    final year = data['release_date'] ?? data['first_air_date'] ?? data['año'] ?? data['year'] ?? '';
+    final title = (data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? '').toString();
+
     final item = <String, dynamic>{
-      'idcontenido': widget.idcontenido,
+      'idcontenido': widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId,
+      'contenido_id': widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId,
       'tmdb_id': _resolvedTmdbId,
+      'idtmdb': _resolvedTmdbId,
       'media_type': _resolvedMediaType,
-      'tipo': data['type'] ?? _resolvedMediaType,
-      'type': data['type'] ?? _resolvedMediaType,
-      'title': data['title'],
-      'titulo': data['title'],
+      'tipo': tipo,
+      'type': tipo,
+      'title': title,
+      'titulo': title,
       'poster': posterUrl,
       'poster_path': posterUrl,
-      'backdrop_path': _firstUrl(data['backdrop_path']),
+      'backdrop': backdropUrl,
+      'backdrop_path': backdropUrl,
+      'año': year,
+      'year': year,
       'vote_average': data['vote_average'],
+      'timestamp': DateTime.now().toIso8601String(),
+      'metadatos_completos': true,
       'addedAt': DateTime.now().toIso8601String(),
     };
     final nowSaved = await GuardadosCache.toggle(item);

@@ -100,7 +100,6 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
 
   List<String> get _tiposDisponibles => _servicio.tipos;
   List<String> get _generosDisponibles => ['', ..._servicio.generos];
-  String get _servicioLabel => _servicio.label;
   String get _tipoLabel => Fuente.tipoLabel(_tipo);
 
   String get _generoLabel {

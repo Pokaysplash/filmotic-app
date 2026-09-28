@@ -326,6 +326,8 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
         'poster_path': _poster,
         'backdrop': _backdrop.isNotEmpty ? _backdrop : _poster,
         'backdrop_path': _backdrop.isNotEmpty ? _backdrop : _poster,
+        'timestamp': DateTime.now().toIso8601String(),
+        'metadatos_completos': _titulo.isNotEmpty && _titulo != 'Sin título' && _poster.isNotEmpty,
         'addedAt': DateTime.now().toIso8601String(),
       };
 
