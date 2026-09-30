@@ -7,14 +7,10 @@ class AudioBoostService {
 
   static const _channel = MethodChannel('com.example.lol/audio');
 
-  /// Asegura que el volumen multimedia del sistema esté en al menos el 95%
-  /// para evitar que el audio suene débil o casi inaudible por defecto.
+  /// Filmotic no modifica el volumen del sistema operativo de forma automática;
+  /// solo asegura que el reproductor interno use el 100% del volumen multimedia disponible.
   Future<void> boostVolume() async {
-    try {
-      await _channel.invokeMethod('boostVolume');
-    } catch (e) {
-      debugPrint('[AudioBoostService] Error boosting volume: $e');
-    }
+    // No-op intencional para respetar el nivel de volumen configurado por el usuario en su sistema.
   }
 
   /// Ajusta el volumen a un porcentaje (0.0 a 1.0)

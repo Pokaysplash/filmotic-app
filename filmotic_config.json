@@ -29,9 +29,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.2",
+    "latest_version": "1.0.0-beta.3",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Actualización v1.0.0-beta.2: Reproductor unificado en Android TV (sin WebView/externo), optimizaciones de velocidad y corrección de reproducción.",
+    "update_message": "Actualización v1.0.0-beta.3: Corrección de reproducción en TV (preview a pantalla completa), selector de audio desplegable en TV, audio en segundo plano al salir de Live TV resuelto, respeto estricto al volumen del sistema, publicidad en pausa corregida y scroll horizontal fluido en móvil y TV.",
     "force_update": false,
     "is_beta": true
   },

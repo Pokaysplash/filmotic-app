@@ -854,7 +854,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       try {
         await _controller.setVolume(1.0);
-        AudioBoostService.instance.boostVolume();
         final currentVol = await AudioBoostService.instance.getVolumePercent();
         if (currentVol <= 0.05 && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2139,7 +2138,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _controllerReady = true;
       try {
         await _controller.setVolume(1.0);
-        AudioBoostService.instance.boostVolume();
       } catch (_) {}
 
       if (savedPos > const Duration(seconds: 2)) {
@@ -2547,12 +2545,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 maxWidth: 640,
                 verticalOffset: _subtitleVerticalOffset,
               ),
-            // ── Anuncio en pausa (WAVE 9) ─────────────────────────────
+            // Controles debajo; skip intro / next ENCIMA para recibir toques
+            if (!_isLoading && _errorMessage.isEmpty && _showControls)
+              _buildControlsOverlay(),
+
+            // ── Anuncio en pausa (WAVE 9 & 10) ─────────────────────────
             if (!_isLoading && _errorMessage.isEmpty)
               AdPauseOverlay(
                 isPaused: !_isPlaying,
                 hasStartedPlaying: _hasStartedPlaying,
-                isControlsOrModalOpen: _showControls,
+                isControlsOrModalOpen: _showBottomPanel,
                 isTv: false,
                 onResume: () {
                   if (_controllerReady) {
@@ -2560,10 +2562,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   }
                 },
               ),
-
-            // Controles debajo; skip intro / next ENCIMA para recibir toques
-            if (!_isLoading && _errorMessage.isEmpty && _showControls)
-              _buildControlsOverlay(),
 
             // ── Omitir intro (estilo Nuvio) — encima del overlay ─────
             if (!_isLoading && _errorMessage.isEmpty)

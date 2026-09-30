@@ -743,6 +743,7 @@ class _MainHomeState extends State<MainHome> {
       case _kFuentesIndex:
         return LiveTvPageTv(
           onRequestMenuFocus: _focusMenu,
+          isActive: _currentIndex == _kFuentesIndex,
         );
       case 3:
         return BuscarPage(

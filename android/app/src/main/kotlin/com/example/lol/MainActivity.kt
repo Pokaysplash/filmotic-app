@@ -52,18 +52,9 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "boostVolume" -> {
-                        try {
-                            val audioManager = getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
-                            val maxVol = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-                            val currentVol = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-                            val targetVol = (maxVol * 0.95).toInt().coerceAtLeast(1)
-                            if (currentVol < targetVol) {
-                                audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVol, 0)
-                            }
-                            result.success(true)
-                        } catch (e: Exception) {
-                            result.success(false)
-                        }
+                        // Filmotic nunca modifica el volumen del sistema,
+                        // solo permite que el reproductor interno use el 100% del audio disponible.
+                        result.success(true)
                     }
                     "setVolumePercent" -> {
                         try {

@@ -13,17 +13,20 @@ import 'epg_page_tv.dart';
 
 class LiveTvPageTv extends StatefulWidget {
   final VoidCallback? onRequestMenuFocus;
+  final bool isActive;
 
   const LiveTvPageTv({
     super.key,
     this.onRequestMenuFocus,
+    this.isActive = true,
   });
 
   @override
   State<LiveTvPageTv> createState() => _LiveTvPageTvState();
 }
 
-class _LiveTvPageTvState extends State<LiveTvPageTv> {
+class _LiveTvPageTvState extends State<LiveTvPageTv>
+    with WidgetsBindingObserver {
   static const Color kBrandOrange = Color(0xFFFF6B35);
   static const Color kBgColor = Color(0xFF0D0D12);
   static const Color kPanelBg = Color(0xFF13131A);
@@ -70,6 +73,7 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     final cfg = RemoteConfigService.instance.config.liveTv;
     _selectedCountry = cfg.defaultCountry.isNotEmpty ? cfg.defaultCountry : 'co';
     _loadChannels();
@@ -80,7 +84,33 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      _previewController?.pause();
+    } else if (state == AppLifecycleState.resumed && widget.isActive) {
+      _previewController?.play();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant LiveTvPageTv oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.isActive && oldWidget.isActive) {
+      _previewController?.pause();
+      _disposePreview();
+    } else if (widget.isActive && !oldWidget.isActive) {
+      if (_selectedChannel != null) {
+        _initPreviewChannel(_selectedChannel!,
+            streamIndex: _selectedStreamIndex);
+      }
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _previewDebounceTimer?.cancel();
     _nowTimer?.cancel();
     _disposePreview();
@@ -245,16 +275,27 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
   }
 
   void _openFullScreenPlayer(LiveChannel channel) {
-    // Pausar mini player mientras se reproduce en fullscreen
     final channelIndex = _filteredChannels.indexOf(channel);
+    final streams = channel.allStreamUrls;
+    final activeUrl = (streams.isNotEmpty && _selectedStreamIndex < streams.length)
+        ? streams[_selectedStreamIndex]
+        : (channel.streamUrl ?? '');
+    final currentPos = _previewController?.value.position;
+
+    // Pausar mini player mientras se reproduce en fullscreen
+    _previewController?.pause();
+
     tv_player.TvPlayerPage.openLiveChannel(
       context,
       channel,
       initialStreamIndex: _selectedStreamIndex,
+      initialUrl: activeUrl,
+      streamUrl: activeUrl,
+      initialPosition: currentPos,
       allChannels: _filteredChannels,
       currentChannelIndex: channelIndex >= 0 ? channelIndex : null,
     ).then((_) {
-      if (mounted) {
+      if (mounted && widget.isActive) {
         _previewController?.play();
       }
     });

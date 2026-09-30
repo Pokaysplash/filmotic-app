@@ -681,3 +681,40 @@ Se realizó una auditoría completa comparando todas las funcionalidades entre l
 
 - **`lib/core/services/server_loader_shared.dart`** (nuevo): `ServerLoader` consolidado, exportado tanto por `player_controller.dart` como `tv_player_controller.dart`. Elimina duplicación de lógica de resolución paralela, blacklist, y caché de servidor ganador.
 
+---
+
+## 22. WAVE 10 – Corrección de bugs Beta 3
+
+### 22.1 Resumen de Bugs Corregidos
+En esta iteración se corrigieron 6 problemas reportados en la Beta 2 tanto para Móvil como para Android TV:
+
+- **BLOQUE B: Live TV – Falla de stream al pasar de preview a pantalla completa (Android TV)**:
+  - **Causa**: Al pasar a pantalla completa, `tv_player_page.dart` ignoraba el stream activo resuelto en preview (`widget.videoUrl`) y volvía a forzar el índice inicial (`liveList[0]`). Si el canal había hecho failover exitoso a la opción 1 o 2 en preview, la pantalla completa intentaba de nuevo el enlace caído 0 y fallaba.
+  - **Solución**: Se integró `initialPosition` en `PlayerScreen` y parámetros `initialUrl` e `initialPosition` en `openLiveChannel`. En `_initializePlayer()`, se prioriza `widget.videoUrl` sobre `liveList[_currentLiveIndex]` y se sincroniza el índice actual (`liveList.indexOf(url)`). Al tocar para pantalla completa, se pausa el preview, se toma su posición actual y URL activa, y se transfiere de forma transparente sin cortes ni reintentos innecesarios.
+
+- **BLOQUE D: Live TV – Audio del preview continúa reproduciéndose al salir de la pestaña (Android TV)**:
+  - **Causa**: `tv_shell.dart` utiliza `IndexedStack` para mantener el estado de navegación. Al cambiar de pestaña, los hijos no se destruyen y el `VideoPlayerController` del preview seguía reproduciendo audio en segundo plano.
+  - **Solución**: Se añadió `final bool isActive` a `LiveTvPageTv` conectado con `_currentIndex == _kFuentesIndex` en `tv_shell.dart`. Mediante `didUpdateWidget`, al salir de la pestaña (`!widget.isActive`), el preview se pausa y se desecha inmediatamente (`dispose()`). Al reingresar (`widget.isActive`), se reconstruye limpiamente. También se añadió `WidgetsBindingObserver` para pausar ante minimizado del sistema.
+
+- **BLOQUE C: Audio Boost – Respeto absoluto del volumen del sistema (Móvil y Android TV)**:
+  - **Política Estricta**: Filmotic NUNCA altera el volumen del sistema operativo de forma programática. La app respeta fielmente el control de volumen del usuario (físico o remoto) y únicamente asegura que el reproductor interno utilice el 100% del volumen multimedia disponible (`_controller.setVolume(1.0)`).
+  - **Solución**: En `android/app/src/main/kotlin/com/example/lol/MainActivity.kt`, se eliminó la llamada a `setStreamVolume` en el handler `boostVolume`. En `lib/core/services/audio_service.dart`, `boostVolume()` se convirtió en una operación intencionalmente inocua (no-op). Se eliminaron todas las llamadas a `boostVolume` en los reproductores móvil y TV.
+
+- **BLOQUE E: Selector de idioma de audio no desplegable (Android TV)**:
+  - **Causa**: En el reproductor de TV (`tv_player_page.dart`), el selector de idioma usaba un `InkWell` plano directamente sobre la etiqueta del idioma que cerraba el diálogo y forzaba el cambio a ciegas, en lugar de permitir explorar y elegir los servidores disponibles como en móvil.
+  - **Solución**: Se implementó una lista interactiva optimizada para control remoto (D-Pad). Cada idioma se muestra como un grupo colapsable/expandible con icono, nombre y conteo de servidores. Al seleccionar un idioma con D-Pad, se expanden sus servidores individuales mostrando nombre, calidad y estado activo. El usuario puede seleccionar con la tecla Enter/Select el servidor específico deseado, disparando `_switchToSpecificServerTv(srv)` y manteniendo la posición del video.
+
+- **BLOQUE F: Publicidad en pausa no aparecía**:
+  - **Causa**: `AdPauseOverlay` recibía `isControlsOrModalOpen: _showControls`. Como al pausar los controles se muestran, `!isControlsOrModalOpen` resultaba falso, impidiendo que el banner apareciera. Además, en el `Stack` los controles se superponían al banner.
+  - **Solución**: En `lib/core/services/ad_pause_overlay.dart`, se aseguró el fallback a `adsterraBannerKey` si el identificador es `'PENDIENTE'` o vacío. En `player_page.dart` y `tv_player_page.dart`, `AdPauseOverlay` se colocó después de los controles en el `Stack` (z-index superior) y la bandera `isControlsOrModalOpen` se reservó únicamente para modales completos de pantalla (`_showBottomPanel` / `_showBecauseYouWatched`). El debounce de 1 segundo permite que el usuario vea la pausa y controles antes de que el banner aparezca en el centro de forma elegante. Cero publicidad durante reproducción activa garantizada.
+
+- **BLOQUE A: Desplazamiento horizontal bloqueado en la pantalla principal**:
+  - **Causa**: Las listas horizontales (`ListView.builder`) de las categorías ("Continuar viendo", "Agregados Recientemente", "Populares", etc.) en `home_page.dart` no tenían definida una física explícita, generando conflictos con el `CustomScrollView` vertical padre. En `tv_home_page.dart`, `_HorizontalSlider` tenía asignado `NeverScrollableScrollPhysics()`, impidiendo cualquier desplazamiento táctil o de puntero.
+  - **Solución**: Se añadió `physics: const BouncingScrollPhysics(), shrinkWrap: false` a todas las listas horizontales en móvil y TV. En TV, el desplazamiento continuo mediante flechas D-Pad (`_cycle`) y el scroll suave automático (`_scrollController.animateTo`) se preservaron al 100%.
+
+### 22.2 Versionado
+- Versión pública: **`v1.0.0-beta.3`** (Build 3).
+- Remote Config (`filmotic_config.json`): `latest_version: "1.0.0-beta.3"`.
+- Documentación y Landing Page (`docs/index.html`): actualizadas a `v1.0.0-beta.3`.
+
+

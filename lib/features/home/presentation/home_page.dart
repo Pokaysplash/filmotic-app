@@ -559,6 +559,8 @@ class _HomePageState extends State<HomePage>
                   height: 150,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    shrinkWrap: false,
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     itemCount: _historial.length.clamp(0, 20),
                     cacheExtent: 200,
@@ -769,6 +771,8 @@ class _HomePageState extends State<HomePage>
           height: 36,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            shrinkWrap: false,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: genres.length,
             itemBuilder: (context, i) {
@@ -825,6 +829,8 @@ class _HomePageState extends State<HomePage>
           height: 190,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            shrinkWrap: false,
             padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
             itemCount: items.length,
             cacheExtent: 200,
@@ -1401,6 +1407,8 @@ class _TabbedSection extends StatelessWidget {
                 )
               : ListView.builder(
                   scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  shrinkWrap: false,
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   itemCount: items.length +
                       (onSeeMore != null && items.isNotEmpty ? 1 : 0),
@@ -1614,6 +1622,8 @@ class _EpisodeSection extends StatelessWidget {
           height: 150,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            shrinkWrap: false,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: items.length +
                 (onSeeMore != null && items.isNotEmpty ? 1 : 0),

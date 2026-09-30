@@ -150,7 +150,10 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
     final size = MediaQuery.sizeOf(context);
     final isTv = widget.isTv || size.width > 800;
     final containerWidth = (size.width * 0.6).clamp(320.0, 560.0);
-    final pauseKey = AdService.instance.adsterraPauseBannerId;
+    final rawPauseKey = AdService.instance.adsterraPauseBannerId;
+    final pauseKey = (rawPauseKey.isNotEmpty && rawPauseKey != 'PENDIENTE')
+        ? rawPauseKey
+        : AdService.instance.adsterraBannerKey;
 
     return Center(
       child: Material(

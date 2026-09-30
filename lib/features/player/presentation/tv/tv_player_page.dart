@@ -152,6 +152,12 @@ class PlayerScreen extends StatefulWidget {
   final bool isLive;
   final String? liveLogo;
 
+  final List<String>? liveStreams;
+  final int initialLiveIndex;
+  final List<dynamic>? allChannels;
+  final int initialChannelIndex;
+  final Duration? initialPosition;
+
   const PlayerScreen({
     super.key,
     this.videoUrl = '',
@@ -174,19 +180,17 @@ class PlayerScreen extends StatefulWidget {
     this.initialLiveIndex = 0,
     this.allChannels,
     this.initialChannelIndex = -1,
+    this.initialPosition,
   })  : idcontenido = idcontenido ?? contenidoId ?? 0,
         tipo = tipo ?? mediaType ?? 'movie';
-
-  final List<String>? liveStreams;
-  final int initialLiveIndex;
-  final List<dynamic>? allChannels;
-  final int initialChannelIndex;
 
   static Future<void> openLiveChannel(
     BuildContext context,
     dynamic channel, {
     int initialStreamIndex = 0,
     String? streamUrl,
+    String? initialUrl,
+    Duration? initialPosition,
     List<String>? allStreams,
     List<dynamic>? allChannels,
     int? currentChannelIndex,
@@ -207,14 +211,23 @@ class PlayerScreen extends StatefulWidget {
       }
     }
 
-    final safeIndex = streams.isNotEmpty
+    final effectiveUrl = (initialUrl != null && initialUrl.isNotEmpty)
+        ? initialUrl
+        : (streamUrl != null && streamUrl.isNotEmpty ? streamUrl : null);
+
+    int safeIndex = streams.isNotEmpty
         ? initialStreamIndex.clamp(0, streams.length - 1)
         : 0;
-    final activeUrl = (streamUrl != null && streamUrl.isNotEmpty)
-        ? streamUrl
-        : (streams.isNotEmpty ? streams[safeIndex] : (channel.streamUrl ?? ''));
 
-    final chanIdx = currentChannelIndex ?? (allChannels != null ? allChannels.indexOf(channel) : -1);
+    if (effectiveUrl != null && streams.contains(effectiveUrl)) {
+      safeIndex = streams.indexOf(effectiveUrl);
+    }
+
+    final activeUrl = effectiveUrl ??
+        (streams.isNotEmpty ? streams[safeIndex] : (channel.streamUrl ?? ''));
+
+    final chanIdx = currentChannelIndex ??
+        (allChannels != null ? allChannels.indexOf(channel) : -1);
 
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -229,6 +242,7 @@ class PlayerScreen extends StatefulWidget {
           initialLiveIndex: safeIndex,
           allChannels: allChannels,
           initialChannelIndex: chanIdx,
+          initialPosition: initialPosition,
         ),
       ),
     );
@@ -638,9 +652,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _currentChannelName = widget.titulo;
     _currentChannelLogo = widget.liveLogo;
     _liveStreams = widget.liveStreams != null ? List<String>.from(widget.liveStreams!) : [];
-    try {
-      AudioBoostService.instance.boostVolume();
-    } catch (_) {}
     if (widget.isLive && _allChannels.isEmpty) {
       _loadChannelsIfEmpty();
     }
@@ -1485,9 +1496,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final liveList = (widget.isLive && widget.liveStreams != null && widget.liveStreams!.isNotEmpty)
           ? widget.liveStreams!
           : null;
-      String? url = (liveList != null && _currentLiveIndex < liveList.length)
-          ? liveList[_currentLiveIndex].trim()
-          : (widget.videoUrl.trim().isNotEmpty ? widget.videoUrl.trim() : null);
+      String? url;
+      if (widget.videoUrl.trim().isNotEmpty) {
+        url = widget.videoUrl.trim();
+        if (liveList != null) {
+          final idx = liveList.indexOf(url);
+          if (idx >= 0) _currentLiveIndex = idx;
+        }
+      } else if (liveList != null && _currentLiveIndex < liveList.length) {
+        url = liveList[_currentLiveIndex].trim();
+      }
       Map<String, String> headers = {};
 
       if (url == null || url.isEmpty) {
@@ -1603,6 +1621,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _controller.addListener(_videoListener);
       _controllerReady = true;
+      if (widget.initialPosition != null && widget.initialPosition! > Duration.zero) {
+        try {
+          await _controller.seekTo(widget.initialPosition!);
+        } catch (_) {}
+      }
       _currentQualityLabel = 'Auto';
       _currentQualityUrl = null;
       if (_apiData == null && !widget.isLive) {
@@ -1613,7 +1636,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
       try {
         await _controller.setVolume(1.0);
-        AudioBoostService.instance.boostVolume();
         final currentVol = await AudioBoostService.instance.getVolumePercent();
         if (currentVol <= 0.05 && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -3039,108 +3061,263 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               final isExpanded = expandedLang == entry.key;
                               final isSelectedLang = entry.key == currentLangLabel;
                               final serverOptions = entry.value;
-
-                              final allServersInvalid = serverOptions.every((s) =>
-                                  _serverLoader.isServerInvalid(s) ||
-                                  invalidKeys.contains(_serverKey(s)));
+                              final validServers = serverOptions.where((s) =>
+                                  !_serverLoader.isServerInvalid(s) &&
+                                  !invalidKeys.contains(_serverKey(s))).toList();
+                              final allServersInvalid = validServers.isEmpty;
 
                               return Padding(
-                                padding: const EdgeInsets.only(bottom: 10),
-                                child: Focus(
-                                  autofocus: isSelectedLang,
-                                  child: Builder(
-                                    builder: (fCtx) {
-                                      final hasFocus = Focus.of(fCtx).hasFocus;
-                                      return InkWell(
-                                        onTap: allServersInvalid
-                                            ? null
-                                            : () {
-                                                Navigator.pop(ctx);
-                                                if (!isSelectedLang) {
-                                                  _switchToServerLanguage(entry.value);
-                                                }
-                                              },
-                                        borderRadius: BorderRadius.circular(12),
-                                        child: AnimatedContainer(
-                                          duration: const Duration(milliseconds: 140),
-                                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                          decoration: BoxDecoration(
-                                            color: allServersInvalid
-                                                ? Colors.white.withValues(alpha: 0.01)
-                                                : hasFocus
-                                                    ? accentOrange.withValues(alpha: 0.28)
-                                                    : isSelectedLang
-                                                        ? accentOrange.withValues(alpha: 0.08)
-                                                        : Colors.white.withValues(alpha: 0.03),
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    Focus(
+                                      autofocus: isSelectedLang && expandedLang == entry.key,
+                                      onKeyEvent: (node, event) {
+                                        if (event is KeyDownEvent) {
+                                          if (event.logicalKey == LogicalKeyboardKey.select ||
+                                              event.logicalKey == LogicalKeyboardKey.enter ||
+                                              event.logicalKey == LogicalKeyboardKey.space ||
+                                              event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+                                            if (!allServersInvalid) {
+                                              setDialogState(() {
+                                                expandedLang = isExpanded ? null : entry.key;
+                                              });
+                                            }
+                                            return KeyEventResult.handled;
+                                          }
+                                          if (_isBackKey(event)) {
+                                            Navigator.pop(ctx);
+                                            return KeyEventResult.handled;
+                                          }
+                                        }
+                                        return KeyEventResult.ignored;
+                                      },
+                                      child: Builder(
+                                        builder: (fCtx) {
+                                          final hasFocus = Focus.of(fCtx).hasFocus;
+                                          return InkWell(
+                                            onTap: allServersInvalid
+                                                ? null
+                                                : () {
+                                                    setDialogState(() {
+                                                      expandedLang = isExpanded ? null : entry.key;
+                                                    });
+                                                  },
                                             borderRadius: BorderRadius.circular(12),
-                                            border: Border.all(
-                                              color: allServersInvalid
-                                                  ? Colors.white10
-                                                  : hasFocus
-                                                      ? accentOrange
-                                                      : isSelectedLang
-                                                          ? accentOrange.withValues(alpha: 0.5)
-                                                          : Colors.white.withValues(alpha: 0.07),
-                                              width: hasFocus || isSelectedLang ? 1.5 : 1.0,
-                                            ),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              Icon(
-                                                allServersInvalid
-                                                    ? Icons.block_rounded
-                                                    : isSelectedLang
-                                                        ? Icons.check_circle_rounded
-                                                        : Icons.translate_rounded,
+                                            child: AnimatedContainer(
+                                              duration: const Duration(milliseconds: 140),
+                                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                              decoration: BoxDecoration(
                                                 color: allServersInvalid
-                                                    ? Colors.white24
-                                                    : hasFocus || isSelectedLang
-                                                        ? accentOrange
-                                                        : Colors.white54,
-                                                size: 20,
-                                              ),
-                                              const SizedBox(width: 10),
-                                              Expanded(
-                                                child: Text(
-                                                  entry.key,
-                                                  style: TextStyle(
-                                                    color: allServersInvalid
-                                                        ? Colors.white38
-                                                        : hasFocus || isSelectedLang
-                                                            ? Colors.white
-                                                            : Colors.white70,
-                                                    fontSize: 15,
-                                                    fontWeight: isSelectedLang ? FontWeight.bold : FontWeight.w600,
-                                                  ),
-                                                ),
-                                              ),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                                decoration: BoxDecoration(
+                                                    ? Colors.white.withValues(alpha: 0.01)
+                                                    : hasFocus
+                                                        ? accentOrange.withValues(alpha: 0.28)
+                                                        : isSelectedLang
+                                                            ? accentOrange.withValues(alpha: 0.08)
+                                                            : Colors.white.withValues(alpha: 0.03),
+                                                borderRadius: BorderRadius.circular(12),
+                                                border: Border.all(
                                                   color: allServersInvalid
-                                                      ? Colors.white.withValues(alpha: 0.03)
-                                                      : Colors.white.withValues(alpha: 0.08),
-                                                  borderRadius: BorderRadius.circular(10),
+                                                      ? Colors.white10
+                                                      : hasFocus
+                                                          ? accentOrange
+                                                          : isSelectedLang
+                                                              ? accentOrange.withValues(alpha: 0.5)
+                                                              : Colors.white.withValues(alpha: 0.07),
+                                                  width: hasFocus || isSelectedLang ? 1.5 : 1.0,
                                                 ),
-                                                child: Text(
-                                                  allServersInvalid ? 'No disponible' : '${serverOptions.length} opción(es)',
-                                                  style: TextStyle(
+                                              ),
+                                              child: Row(
+                                                children: [
+                                                  Icon(
+                                                    allServersInvalid
+                                                        ? Icons.block_rounded
+                                                        : isSelectedLang
+                                                            ? Icons.check_circle_rounded
+                                                            : Icons.headphones_rounded,
                                                     color: allServersInvalid
-                                                        ? Colors.white38
+                                                        ? Colors.white24
                                                         : hasFocus || isSelectedLang
                                                             ? accentOrange
-                                                            : Colors.white70,
-                                                    fontSize: 11.5,
-                                                    fontWeight: FontWeight.w500,
+                                                            : Colors.white54,
+                                                    size: 20,
                                                   ),
+                                                  const SizedBox(width: 10),
+                                                  Expanded(
+                                                    child: Text(
+                                                      entry.key,
+                                                      style: TextStyle(
+                                                        color: allServersInvalid
+                                                            ? Colors.white38
+                                                            : hasFocus || isSelectedLang
+                                                                ? Colors.white
+                                                                : Colors.white70,
+                                                        fontSize: 15,
+                                                        fontWeight: isSelectedLang ? FontWeight.bold : FontWeight.w600,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                    decoration: BoxDecoration(
+                                                      color: allServersInvalid
+                                                          ? Colors.white.withValues(alpha: 0.03)
+                                                          : Colors.white.withValues(alpha: 0.08),
+                                                      borderRadius: BorderRadius.circular(10),
+                                                    ),
+                                                    child: Text(
+                                                      allServersInvalid
+                                                          ? 'No disponible'
+                                                          : '${validServers.length} opción(es)',
+                                                      style: TextStyle(
+                                                        color: allServersInvalid
+                                                            ? Colors.white38
+                                                            : hasFocus || isSelectedLang
+                                                                ? accentOrange
+                                                                : Colors.white70,
+                                                        fontSize: 11.5,
+                                                        fontWeight: FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 6),
+                                                  Icon(
+                                                    isExpanded
+                                                        ? Icons.keyboard_arrow_up_rounded
+                                                        : Icons.keyboard_arrow_down_rounded,
+                                                    color: hasFocus ? accentOrange : Colors.white38,
+                                                    size: 20,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                    if (isExpanded && validServers.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 6, left: 16),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: validServers.map((srv) {
+                                            final srvName = srv['fuente_label']?.toString() ??
+                                                srv['servidor_nombre']?.toString() ??
+                                                srv['server']?.toString() ??
+                                                'Servidor';
+                                            final quality = srv['quality']?.toString() ??
+                                                srv['calidad']?.toString() ??
+                                                'Auto';
+                                            final isCurrentServer = _activeUrl == srv['servidor_url'] ||
+                                                _activeUrl == srv['resolved_m3u8'];
+
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 4),
+                                              child: Focus(
+                                                onKeyEvent: (node, event) {
+                                                  if (event is KeyDownEvent) {
+                                                    if (event.logicalKey == LogicalKeyboardKey.select ||
+                                                        event.logicalKey == LogicalKeyboardKey.enter ||
+                                                        event.logicalKey == LogicalKeyboardKey.space ||
+                                                        event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+                                                      Navigator.pop(ctx);
+                                                      if (!isCurrentServer) {
+                                                        final othersInLang = validServers.where((s) => s != srv).toList();
+                                                        _switchToServerLanguage([srv, ...othersInLang]);
+                                                      }
+                                                      return KeyEventResult.handled;
+                                                    }
+                                                    if (_isBackKey(event)) {
+                                                      Navigator.pop(ctx);
+                                                      return KeyEventResult.handled;
+                                                    }
+                                                  }
+                                                  return KeyEventResult.ignored;
+                                                },
+                                                child: Builder(
+                                                  builder: (sCtx) {
+                                                    final sHasFocus = Focus.of(sCtx).hasFocus;
+                                                    return InkWell(
+                                                      onTap: () {
+                                                        Navigator.pop(ctx);
+                                                        if (!isCurrentServer) {
+                                                          final othersInLang = validServers.where((s) => s != srv).toList();
+                                                          _switchToServerLanguage([srv, ...othersInLang]);
+                                                        }
+                                                      },
+                                                      borderRadius: BorderRadius.circular(8),
+                                                      child: AnimatedContainer(
+                                                        duration: const Duration(milliseconds: 140),
+                                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                                                        decoration: BoxDecoration(
+                                                          color: sHasFocus
+                                                              ? accentOrange.withValues(alpha: 0.25)
+                                                              : isCurrentServer
+                                                                  ? accentOrange.withValues(alpha: 0.08)
+                                                                  : Colors.white.withValues(alpha: 0.02),
+                                                          borderRadius: BorderRadius.circular(8),
+                                                          border: Border.all(
+                                                            color: sHasFocus
+                                                                ? accentOrange
+                                                                : isCurrentServer
+                                                                    ? accentOrange.withValues(alpha: 0.4)
+                                                                    : Colors.white.withValues(alpha: 0.05),
+                                                            width: sHasFocus ? 1.5 : 1.0,
+                                                          ),
+                                                        ),
+                                                        child: Row(
+                                                          children: [
+                                                            Icon(
+                                                              isCurrentServer
+                                                                  ? Icons.check_circle_rounded
+                                                                  : Icons.play_arrow_rounded,
+                                                              color: isCurrentServer
+                                                                  ? accentOrange
+                                                                  : sHasFocus
+                                                                      ? accentOrange
+                                                                      : Colors.white38,
+                                                              size: 16,
+                                                            ),
+                                                            const SizedBox(width: 8),
+                                                            Expanded(
+                                                              child: Text(
+                                                                srvName,
+                                                                style: TextStyle(
+                                                                  color: isCurrentServer
+                                                                      ? accentOrange
+                                                                      : sHasFocus
+                                                                          ? Colors.white
+                                                                          : Colors.white70,
+                                                                  fontSize: 13,
+                                                                  fontWeight: isCurrentServer ? FontWeight.bold : FontWeight.normal,
+                                                                ),
+                                                              ),
+                                                            ),
+                                                            Container(
+                                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                              decoration: BoxDecoration(
+                                                                color: Colors.white12,
+                                                                borderRadius: BorderRadius.circular(4),
+                                                              ),
+                                                              child: Text(
+                                                                quality,
+                                                                style: const TextStyle(color: Colors.white54, fontSize: 10),
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        ),
+                                                      ),
+                                                    );
+                                                  },
                                                 ),
                                               ),
-                                            ],
-                                          ),
+                                            );
+                                          }).toList(),
                                         ),
-                                      );
-                                    },
-                                  ),
+                                      ),
+                                  ],
                                 ),
                               );
                             }).toList(),
@@ -4564,20 +4741,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   },
                 ),
 
-              // ── Anuncio en pausa (WAVE 9) ─────────────────────────────
-              if (!_isLoading && _errorMessage.isEmpty)
-                AdPauseOverlay(
-                  isPaused: !_isPlaying,
-                  hasStartedPlaying: _hasStartedPlaying,
-                  isControlsOrModalOpen: _showControls || _showToolbarOnly || _showBecauseYouWatched,
-                  isTv: true,
-                  onResume: () {
-                    if (_controllerReady) {
-                      _controller.play();
-                    }
-                  },
-                ),
-
               if (!_isLoading &&
                   _errorMessage.isEmpty &&
                   _showControls &&
@@ -4590,6 +4753,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   _showToolbarOnly &&
                   !_showBecauseYouWatched)
                 _buildToolbarOnlyOverlay(),
+
+              // ── Anuncio en pausa (WAVE 9 & 10) ─────────────────────────
+              if (!_isLoading && _errorMessage.isEmpty)
+                AdPauseOverlay(
+                  isPaused: !_isPlaying,
+                  hasStartedPlaying: _hasStartedPlaying,
+                  isControlsOrModalOpen: _showBecauseYouWatched,
+                  isTv: true,
+                  onResume: () {
+                    if (_controllerReady) {
+                      _controller.play();
+                    }
+                  },
+                ),
 
               if (_showScreensaver &&
                   !_isLoading &&
@@ -5102,8 +5279,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         const SizedBox(width: 10),
         _buildActionBtn(
           _serversFocusNode,
-          Icons.translate_rounded,
-          'Idiomas',
+          Icons.headphones_rounded,
+          'Audio',
           () => _showAudioLanguageSelectorTv(),
         ),
         const SizedBox(width: 10),

@@ -1441,7 +1441,8 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 22),
                     itemCount: totalCount,
-                    physics: const NeverScrollableScrollPhysics(),
+                    physics: const BouncingScrollPhysics(),
+                    shrinkWrap: false,
                     itemBuilder: (context, itemIndex) {
                       final isFocusedSlot = itemIndex == _focusedIndex && hasFocus;
 
