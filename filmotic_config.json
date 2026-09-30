@@ -4,6 +4,9 @@
     "adsterra_banner_key": "b40d7be87e3186a983946460caa04802",
     "adsterra_native_container_id": "container-512fc1ea8b3c9db09a992edbaf608772",
     "adsterra_native_script_url": "https://pl31504029.profitableratecpmnetwork.com/512fc1ea8b3c9db09a992edbaf608772/invoke.js",
+    "adsterra_pause_banner_id": "PENDIENTE",
+    "pause_ad_rotation_seconds": 15,
+    "pause_ad_enabled": true,
     "hilltopads_vast_url": "PENDIENTE"
   },
   "sources": {
@@ -26,9 +29,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.1",
+    "latest_version": "1.0.0-beta.2",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Esta es la primera versión beta de Filmotic. Reporta cualquier error para seguir mejorando.",
+    "update_message": "Actualización v1.0.0-beta.2: Reproductor unificado en Android TV (sin WebView/externo), optimizaciones de velocidad y corrección de reproducción.",
     "force_update": false,
     "is_beta": true
   },

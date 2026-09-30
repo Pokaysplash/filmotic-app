@@ -339,8 +339,9 @@ class GuardadosPageState extends State<GuardadosPage>
     Navigator.of(context)
         .push(
           MaterialPageRoute(
-            builder: (_) => PlayerScreen(
+            builder: (_) => TvPlayerPage(
               videoUrl: videoUrl,
+              contenidoId: id,
               idcontenido: id,
               tmdbId: tmdbId,
               temporada: temporada,

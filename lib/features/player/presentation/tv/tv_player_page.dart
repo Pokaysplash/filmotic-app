@@ -8,6 +8,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/storage/app_database.dart';
+import '../../../../core/services/ad_pause_overlay.dart';
 import '../../../content/presentation/tv_content_page.dart';
 import '../../../servers/presentation/tv_server_preloader.dart';
 import 'tv_subtitle_widget.dart';
@@ -132,6 +133,9 @@ class _SegmentedVideoTrackShape extends SliderTrackShape
   }
 }
 
+/// Alias unificado para el reproductor de Android TV.
+typedef TvPlayerPage = PlayerScreen;
+
 class PlayerScreen extends StatefulWidget {
   final String videoUrl;
   final int idcontenido;
@@ -151,11 +155,13 @@ class PlayerScreen extends StatefulWidget {
   const PlayerScreen({
     super.key,
     this.videoUrl = '',
-    required this.idcontenido,
+    int? idcontenido,
+    int? contenidoId,
     this.tmdbId,
     this.temporada,
     this.capitulo,
-    required this.tipo,
+    String? tipo,
+    String? mediaType,
     required this.titulo,
     this.servidorUrl,
     this.servidorNombre,
@@ -168,7 +174,8 @@ class PlayerScreen extends StatefulWidget {
     this.initialLiveIndex = 0,
     this.allChannels,
     this.initialChannelIndex = -1,
-  });
+  })  : idcontenido = idcontenido ?? contenidoId ?? 0,
+        tipo = tipo ?? mediaType ?? 'movie';
 
   final List<String>? liveStreams;
   final int initialLiveIndex;
@@ -290,6 +297,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late VideoPlayerController _controller;
   bool _isLoading = true;
   bool _isPlaying = false;
+  bool _hasStartedPlaying = false;
   bool _subtitlesEnabled = false;
   String? _switchingLangOverlay;
   Duration _currentPosition = Duration.zero;
@@ -2037,6 +2045,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     if (newPlaying != _isPlaying) {
       _isPlaying = newPlaying;
+      if (newPlaying) _hasStartedPlaying = true;
       needsSetState = true;
       if (newPlaying) {
         _resetScreensaverTimer();
@@ -4552,6 +4561,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   onProducirSiguiente: () {
                     setState(() => _showBecauseYouWatched = false);
                     _goNextEpisode();
+                  },
+                ),
+
+              // ── Anuncio en pausa (WAVE 9) ─────────────────────────────
+              if (!_isLoading && _errorMessage.isEmpty)
+                AdPauseOverlay(
+                  isPaused: !_isPlaying,
+                  hasStartedPlaying: _hasStartedPlaying,
+                  isControlsOrModalOpen: _showControls || _showToolbarOnly || _showBecauseYouWatched,
+                  isTv: true,
+                  onResume: () {
+                    if (_controllerReady) {
+                      _controller.play();
+                    }
                   },
                 ),
 

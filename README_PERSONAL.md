@@ -617,3 +617,67 @@ Para mitigar la alta tasa de canales caídos en listas públicas, se creó un mo
   - **Pre-calentamiento en Fondo (`preResolve`)**: Al ingresar a la ficha del contenido (`content_page.dart` y `tv_content_page.dart`), se dispara en background `ServerLoader.preResolve()`. Al pulsar *"Ver ahora"*, la fuente ya se encuentra precargada en memoria/caché.
   - **Caché Sembast de Servidor Exitoso (TTL 30 min)**: Al reproducir con éxito un contenido, se guarda en el store `server_win_cache` con TTL de 30 minutos. Al volver a reproducir el mismo contenido dentro de la ventana de validez, el arranque es instantáneo.
   - **Overlay de Carga Informativo**: La pantalla de carga ahora indica *"Conectando al servidor..."* (o *"Cambiando de servidor..."*), y si la conexión supera los 8 segundos, se muestra el botón *"Probar otro servidor"* para evitar cualquier sensación de bloqueo.
+
+## 21. WAVE 9 – Paridad TV completa, fix definitivo de favoritos y publicidad en pausa
+
+### 21.1 Auditoría de paridad Móvil ↔ TV
+
+Se realizó una auditoría completa comparando todas las funcionalidades entre la versión móvil y la versión Android TV. Resultado:
+
+| Funcionalidad | Móvil | TV | Estado |
+|---|---|---|---|
+| Arranque rápido del reproductor (WAVE 8) | ✅ | ✅ | OK – Paridad |
+| Fallback automático de servidores (WAVE 8) | ✅ | ✅ | OK – Paridad |
+| Blacklist de servidores caídos (WAVE 8) | ✅ | ✅ | OK – Paridad |
+| Botón de favoritos en ficha de contenido | ✅ | ✅ | **FIX en WAVE 9** |
+| Navegación desde Home → Ficha con tmdbId/mediaType | ✅ | ⚠️ → ✅ | **FIX en WAVE 9** |
+| Navegación desde Búsqueda → Ficha con tmdbId/mediaType | ✅ | ⚠️ → ✅ | **FIX en WAVE 9** |
+| Navegación desde Categoría → Ficha con tmdbId/mediaType | ✅ | ✅ | OK |
+| Toast/SnackBar de confirmación de favoritos | SnackBar | Toast overlay | **Nuevo en WAVE 9** |
+
+### 21.2 Fix definitivo de favoritos (Bloque C)
+
+**Causa raíz identificada**: Al navegar desde Home, secciones, búsqueda o discover hacia `PageContenido` / `TvPageContenido`, no se pasaban `tmdbId` ni `mediaType` correctamente. Esto causaba:
+- TMDB 404 al intentar enriquecer datos de favoritos (el ID de la base local no es el mismo que el ID de TMDB).
+- `mediaType` defaulteando a `'movie'` incluso para series, invalidando la llamada a la API.
+
+**Archivos corregidos** (C.1 – Navegación con parámetros completos):
+- `lib/features/home/presentation/movie_section.dart` — Pasa `tmdbId` explícito al construir `PageContenido`.
+- `lib/features/home/presentation/series_section.dart` — Pasa `tmdbId` y `mediaType: 'tv'`.
+- `lib/features/home/presentation/tv_movie_section.dart` — Pasa `tmdbId` para TV home.
+- `lib/features/home/presentation/tv_series_section.dart` — Pasa `tmdbId` y `mediaType: 'tv'` para TV home.
+- `lib/features/home/presentation/category_list_page.dart` — Detección mejorada de `mediaType` por tipo de categoría.
+- `lib/features/search/presentation/search_page.dart` — Parseo correcto de `id` y `media_type` de resultados TMDB.
+- `lib/features/search/presentation/tv_search_page.dart` — Mismo parseo correcto para TV.
+
+**Arquitectura compartida creada** (C.2 – Modelo unificado `Contenido`):
+- **`lib/core/services/guardados_bus.dart`** (nuevo): Define `Contenido` (modelo VO inmutable con `id`, `tmdbId`, `titulo`, `poster`, `mediaType`, `year`), `GuardadosBus` (ValueNotifier para propagar cambios de guardados en tiempo real) y `GuardadosCache` (fachada única que coordina `GuardadosService`, `AppDatabase` y `GuardadosBus`).
+- **`lib/supabase/guardados_service.dart`**: `toggle()` ahora acepta tanto `Map` como `Contenido`, adaptándose al modelo unificado.
+- **`lib/features/content/presentation/content_page.dart`**: Exporta `guardados_bus.dart`, integra `GuardadosCache` para toggle, construye `Contenido` parcial con datos del TMDB enriquecido.
+- **`lib/features/content/presentation/tv_content_page.dart`**: Mismo tratamiento + `showTvToast()` para confirmar visualmente la acción con un overlay estilo Android TV.
+
+**`showTvToast`**: Overlay animado (3s) con gradiente oscuro y borde naranja que aparece centrado encima de cualquier interfaz TV, usando `Overlay.maybeOf(context, rootOverlay: true)`.
+
+### 21.3 Publicidad en pausa (Bloque N – Feature nueva)
+
+**Política estricta**:
+- ✅ Cero publicidad durante la reproducción activa.
+- ✅ Publicidad solo visible cuando el reproductor esté en pausa real (tras haber iniciado).
+- ✅ Rotación automática configurable (default 15s).
+- ✅ Desaparición instantánea al reanudar.
+- ✅ Respeta `pause_ad_enabled: false` desde Remote Config.
+- ✅ Botón "Ocultar anuncio" descarta hasta la próxima pausa.
+- ✅ Botón "Reanudar" reanuda la reproducción directamente.
+- ✅ Navegación D-Pad completa para Android TV.
+
+**Archivos creados/modificados**:
+- **`lib/core/services/ad_pause_overlay.dart`** (nuevo): Widget `AdPauseOverlay` con debounce de 800ms, rotación por `Timer.periodic`, soporte D-Pad (`FocusNode` + `KeyEvent`), y diseño premium con glassmorphism oscuro.
+- **`lib/core/services/ad_service.dart`**: Añadidos getters `pauseAdEnabled`, `pauseAdRotationSeconds`, `adsterraPauseBannerId`.
+- **`filmotic_config.json`**: Nuevas claves `pause_ad_enabled`, `pause_ad_rotation_seconds`, `adsterra_pause_banner_id`.
+- **`lib/features/player/presentation/player_page.dart`**: Integrado `AdPauseOverlay` con `_hasStartedPlaying` flag.
+- **`lib/features/player/presentation/tv/tv_player_page.dart`**: Integrado `AdPauseOverlay` con `_hasStartedPlaying` flag y condición de `_showToolbarOnly`.
+
+### 21.4 Capa de servicios compartida
+
+- **`lib/core/services/server_loader_shared.dart`** (nuevo): `ServerLoader` consolidado, exportado tanto por `player_controller.dart` como `tv_player_controller.dart`. Elimina duplicación de lógica de resolución paralela, blacklist, y caché de servidor ganador.
+

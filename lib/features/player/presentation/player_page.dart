@@ -8,6 +8,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/storage/app_database.dart';
+import '../../../core/services/ad_pause_overlay.dart';
 
 import '../../content/presentation/content_page.dart';
 import 'subtitles/subtitle_widget.dart';
@@ -126,6 +127,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   late VideoPlayerController _controller;
   bool _isLoading = true;
   bool _isPlaying = false;
+  bool _hasStartedPlaying = false;
   bool _subtitlesEnabled = false;
   String? _switchingLangOverlay;
   Duration _currentPosition = Duration.zero;
@@ -1852,6 +1854,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     if (newPlaying != _isPlaying) {
       _isPlaying = newPlaying;
+      if (newPlaying) _hasStartedPlaying = true;
       needsSetState = true;
     }
     if (newBuffering != _isBuffering) {
@@ -2544,6 +2547,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 maxWidth: 640,
                 verticalOffset: _subtitleVerticalOffset,
               ),
+            // ── Anuncio en pausa (WAVE 9) ─────────────────────────────
+            if (!_isLoading && _errorMessage.isEmpty)
+              AdPauseOverlay(
+                isPaused: !_isPlaying,
+                hasStartedPlaying: _hasStartedPlaying,
+                isControlsOrModalOpen: _showControls,
+                isTv: false,
+                onResume: () {
+                  if (_controllerReady) {
+                    _controller.play();
+                  }
+                },
+              ),
+
             // Controles debajo; skip intro / next ENCIMA para recibir toques
             if (!_isLoading && _errorMessage.isEmpty && _showControls)
               _buildControlsOverlay(),

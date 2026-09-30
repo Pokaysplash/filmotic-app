@@ -90,10 +90,9 @@ class _CategoryListPageState extends State<CategoryListPage> {
         (item['id'] as num?)?.toInt() ??
         0;
     if (id <= 0) return;
-    final isMovie = widget.isMovie ||
-        item['tipo'] == 'movie' ||
-        item['media_type'] == 'movie' ||
-        (item['title'] != null && item['name'] == null);
+    final rawTipo = (item['tipo'] ?? item['type'] ?? item['media_type'] ?? '').toString().toLowerCase();
+    final bool isSeries = rawTipo == 'tv' || rawTipo == 'serie' || (item['name'] != null && item['title'] == null);
+    final isMovie = widget.isMovie ? !isSeries : (rawTipo == 'movie' || rawTipo == 'pelicula' || !isSeries);
     final mediaType = isMovie ? 'movie' : 'tv';
 
     if (widget.isTv) {

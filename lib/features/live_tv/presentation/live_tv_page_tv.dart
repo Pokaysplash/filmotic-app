@@ -247,7 +247,7 @@ class _LiveTvPageTvState extends State<LiveTvPageTv> {
   void _openFullScreenPlayer(LiveChannel channel) {
     // Pausar mini player mientras se reproduce en fullscreen
     final channelIndex = _filteredChannels.indexOf(channel);
-    tv_player.PlayerScreen.openLiveChannel(
+    tv_player.TvPlayerPage.openLiveChannel(
       context,
       channel,
       initialStreamIndex: _selectedStreamIndex,

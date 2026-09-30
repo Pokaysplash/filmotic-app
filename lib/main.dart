@@ -131,7 +131,7 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(seconds: 2));
 
     // Verificar si se requiere actualización forzada u opcional
-    const currentVersion = '1.0.0-beta.1';
+    const currentVersion = '1.0.0-beta.2';
     final appConfig = RemoteConfigService.instance.config.app;
 
     if (RemoteConfigService.instance.isMandatoryUpdateRequired(currentVersion)) {

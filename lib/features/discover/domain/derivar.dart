@@ -493,8 +493,9 @@ class _DerivarTvPageState extends State<DerivarTvPage> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PlayerScreen(
+        builder: (_) => TvPlayerPage(
           videoUrl: '',
+          contenidoId: tmdbId > 0 ? tmdbId : 0,
           idcontenido: tmdbId > 0 ? tmdbId : 0,
           tmdbId: tmdbId,
           temporada: _isMovie ? null : (cap?.temporada ?? 1),

@@ -91,16 +91,16 @@ class _EpgPageTvState extends State<EpgPageTv> {
 
   void _onProgramSelected(LiveChannel channel, EpgProgram? program) {
     if (program != null && program.isCurrentlyAiring) {
-      tv_player.PlayerScreen.openLiveChannel(context, channel);
+      tv_player.TvPlayerPage.openLiveChannel(context, channel);
     } else if (program != null) {
       EpgProgramDetailModal.show(
         context,
         channel: channel,
         program: program,
-        onPlay: () => tv_player.PlayerScreen.openLiveChannel(context, channel),
+        onPlay: () => tv_player.TvPlayerPage.openLiveChannel(context, channel),
       );
     } else {
-      tv_player.PlayerScreen.openLiveChannel(context, channel);
+      tv_player.TvPlayerPage.openLiveChannel(context, channel);
     }
   }
 

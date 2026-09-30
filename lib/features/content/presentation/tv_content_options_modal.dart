@@ -279,8 +279,9 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
     Navigator.of(context).pop(); // cierra modal
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => PlayerScreen(
+        builder: (_) => TvPlayerPage(
           videoUrl: videoUrl,
+          contenidoId: widget.idcontenido,
           idcontenido: widget.idcontenido,
           tmdbId: widget.tmdbId,
           temporada: temporada,

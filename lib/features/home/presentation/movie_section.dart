@@ -248,12 +248,21 @@ class _MoviePageState extends State<MoviePage> {
   }
 
   void _abrirContenido(Map<String, dynamic> item) {
-    final id = item['idcontenido'];
+    final id = item['idcontenido'] ?? item['tmdb_id'] ?? item['id'] ?? item['contenido_id'];
     if (id == null) return;
     final idInt = id is int ? id : int.tryParse(id.toString());
     if (idInt == null) return;
+    final tmdbId = item['tmdb_id'] is int
+        ? item['tmdb_id'] as int
+        : (int.tryParse(item['tmdb_id']?.toString() ?? '') ?? idInt);
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => PageContenido(idcontenido: idInt)),
+      MaterialPageRoute(
+        builder: (_) => PageContenido(
+          idcontenido: idInt,
+          tmdbId: tmdbId,
+          mediaType: 'movie',
+        ),
+      ),
     );
   }
 

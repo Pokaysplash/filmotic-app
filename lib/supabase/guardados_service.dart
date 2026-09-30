@@ -10,8 +10,21 @@ class GuardadosService {
     return AppDatabase.instance.isFavorite(idcontenido);
   }
 
-  static Future<bool> toggle(Map<String, dynamic> item) async {
-    return AppDatabase.instance.toggleFavorite(item);
+  static Future<bool> toggle(dynamic item) async {
+    if (item == null) return false;
+    final Map<String, dynamic> map;
+    if (item is Map<String, dynamic>) {
+      map = item;
+    } else if (item is Map) {
+      map = Map<String, dynamic>.from(item);
+    } else {
+      try {
+        map = (item as dynamic).toMap() as Map<String, dynamic>;
+      } catch (_) {
+        return false;
+      }
+    }
+    return AppDatabase.instance.toggleFavorite(map);
   }
 
   static Future<void> update(Map<String, dynamic> item) async {

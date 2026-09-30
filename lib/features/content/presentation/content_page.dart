@@ -15,34 +15,13 @@ import '../../../supabase/guardados_service.dart';
 // Recordatorios de capítulos (ajusta rutas si hace falta)
 import 'widgets/tmdb_upcoming_service.dart';
 import 'widgets/upcoming_episodes_modal.dart';
+import '../../../core/services/guardados_bus.dart';
+export '../../../core/services/guardados_bus.dart';
 
 const kAccentColor = Color(0xFFFF6B35);
 const kPurpleSeason = Color(0xFFC026FF);
 const kOrangeVer = Color(0xFFFF6B35);
 const kDownloadGreen = Color(0xFF22C55E);
-
-class GuardadosBus {
-  GuardadosBus._();
-  static final ValueNotifier<int> version = ValueNotifier<int>(0);
-  static void bump() => version.value++;
-}
-
-class GuardadosCache {
-  /// Delega a GuardadosService (Supabase si hay usuario logueado, cache local si no).
-  static Future<List<Map<String, dynamic>>> getAll() async {
-    return GuardadosService.getAll();
-  }
-
-  static Future<bool> isSaved(int idcontenido) async {
-    return GuardadosService.isSaved(idcontenido);
-  }
-
-  static Future<bool> toggle(Map<String, dynamic> item) async {
-    final result = await GuardadosService.toggle(item);
-    GuardadosBus.bump();
-    return result;
-  }
-}
 
 
 class PageContenido extends StatefulWidget {
@@ -100,8 +79,8 @@ class _PageContenidoState extends State<PageContenido>
   int get _resolvedTmdbId => widget.tmdbId ?? widget.idcontenido;
 
   String get _resolvedMediaType {
-    final t = widget.mediaType?.toString().toLowerCase();
-    if (t == 'tv' || t == 'movie') return t!;
+    final t = widget.mediaType?.toString().toLowerCase().trim();
+    if (t == 'tv' || t == 'serie' || t == 'series') return 'tv';
     return 'movie';
   }
 
@@ -118,12 +97,14 @@ class _PageContenidoState extends State<PageContenido>
     );
     _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     GuardadosBus.version.addListener(_onProgressBus);
+    _loadSavedState();
     _loadDownloadSettings();
     _fetchContent();
   }
 
   void _onProgressBus() {
     if (!mounted) return;
+    _loadSavedState();
     _loadProgress();
     _loadEpisodeProgress();
     _loadDownloadedState();
@@ -170,6 +151,39 @@ class _PageContenidoState extends State<PageContenido>
         _loadDownloadedState();
         _checkAiring();
         _preResolveServers();
+
+        // Si ya estaba guardado con metadatos parciales, enriquecer en Sembast
+        if (_isSaved) {
+          final data = _data!;
+          final posterUrl = _firstUrl(data['poster_path']);
+          final backdropUrl = _firstUrl(data['backdrop_path']);
+          final year = data['release_date'] ?? data['first_air_date'] ?? data['año'] ?? data['year'] ?? '';
+          final rawTitle = (data['name'] ?? data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? data['nombre'] ?? '').toString().trim();
+          final title = rawTitle.isNotEmpty ? rawTitle : 'Sin título';
+          GuardadosCache.update({
+            'idcontenido': _resolvedTmdbId,
+            'contenido_id': _resolvedTmdbId,
+            'tmdb_id': _resolvedTmdbId,
+            'idtmdb': _resolvedTmdbId,
+            'tipo': (_resolvedMediaType == 'tv') ? 'serie' : 'pelicula',
+            'type': _resolvedMediaType,
+            'media_type': _resolvedMediaType,
+            'title': title,
+            'titulo': title,
+            'name': title,
+            'poster': posterUrl,
+            'poster_path': posterUrl,
+            'backdrop': backdropUrl,
+            'backdrop_path': backdropUrl,
+            'logo_path': _firstUrl(data['logo_path']),
+            'año': year,
+            'year': year,
+            'vote_average': data['vote_average'],
+            'overview': data['overview'] ?? '',
+            'release_date': data['release_date'] ?? data['first_air_date'],
+            'metadatos_completos': true,
+          });
+        }
       } else {
         setState(() {
           _error = json['error']?.toString() ?? 'No se encontró el contenido';
@@ -343,42 +357,39 @@ class _PageContenidoState extends State<PageContenido>
   }
 
   Future<void> _toggleSaved() async {
-    if (_data == null) return;
-    final data = _data!;
-
-    final tipo = (data['type'] ?? data['media_type'] ?? _resolvedMediaType)
+    final data = _data;
+    final tipo = (data?['type'] ?? data?['media_type'] ?? _resolvedMediaType)
         .toString()
         .toLowerCase();
-
-    final posterUrl = _firstUrl(data['poster_path']);
-    final backdropUrl = _firstUrl(data['backdrop_path']);
-    final year = data['release_date'] ?? data['first_air_date'] ?? data['año'] ?? data['year'] ?? '';
-    final rawTitle = (data['name'] ?? data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? data['nombre'] ?? '').toString().trim();
-    final title = rawTitle.isNotEmpty ? rawTitle : 'Sin título';
+    final posterUrl = data != null ? _firstUrl(data['poster_path']) : null;
+    final backdropUrl = data != null ? _firstUrl(data['backdrop_path']) : null;
+    final year = data?['release_date'] ?? data?['first_air_date'] ?? data?['año'] ?? data?['year'] ?? '';
+    final rawTitle = (data?['name'] ?? data?['title'] ?? data?['titulo_contenido'] ?? data?['titulo'] ?? data?['nombre'] ?? '').toString().trim();
+    final title = rawTitle.isNotEmpty ? rawTitle : 'Cargando contenido...';
 
     final item = <String, dynamic>{
       'idcontenido': _resolvedTmdbId,
       'contenido_id': _resolvedTmdbId,
       'tmdb_id': _resolvedTmdbId,
       'idtmdb': _resolvedTmdbId,
-      'tipo': tipo,
+      'tipo': (tipo == 'tv' || tipo == 'serie') ? 'serie' : 'pelicula',
       'type': tipo,
-      'media_type': tipo,
+      'media_type': (tipo == 'tv' || tipo == 'serie') ? 'tv' : 'movie',
       'title': title,
       'titulo': title,
       'name': title,
-      'poster': posterUrl,
-      'poster_path': posterUrl,
-      'backdrop': backdropUrl,
-      'backdrop_path': backdropUrl,
-      'logo_path': _firstUrl(data['logo_path']),
+      if (posterUrl != null) 'poster': posterUrl,
+      if (posterUrl != null) 'poster_path': posterUrl,
+      if (backdropUrl != null) 'backdrop': backdropUrl,
+      if (backdropUrl != null) 'backdrop_path': backdropUrl,
+      if (data?['logo_path'] != null) 'logo_path': _firstUrl(data!['logo_path']),
       'año': year,
       'year': year,
-      'vote_average': data['vote_average'],
-      'overview': data['overview'] ?? '',
-      'release_date': data['release_date'] ?? data['first_air_date'],
+      'vote_average': data?['vote_average'],
+      'overview': data?['overview'] ?? '',
+      'release_date': data?['release_date'] ?? data?['first_air_date'],
       'timestamp': DateTime.now().toIso8601String(),
-      'metadatos_completos': true,
+      'metadatos_completos': data != null,
       'addedAt': DateTime.now().toIso8601String(),
     };
 

@@ -234,9 +234,12 @@ class BuscarPageState extends State<BuscarPage> {
   }
 
   void _openContent(Map<String, dynamic> item) {
-    final id = item['tmdb_id'] as int? ?? item['idcontenido'] as int? ?? 0;
+    final rawId = item['tmdb_id'] ?? item['idcontenido'] ?? item['id'] ?? item['contenido_id'];
+    final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '') ?? 0;
     if (id <= 0) return;
-    final tipo = item['media_type']?.toString() ?? 'movie';
+    final rawTipo = (item['media_type'] ?? item['type'] ?? item['tipo'] ?? '').toString().toLowerCase();
+    final bool isSeries = rawTipo == 'tv' || rawTipo == 'serie' || (item['name'] != null && item['title'] == null);
+    final tipo = isSeries ? 'tv' : 'movie';
 
     Navigator.push(
       context,

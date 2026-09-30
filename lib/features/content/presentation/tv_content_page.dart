@@ -13,41 +13,20 @@ import '../../player/presentation/tv/tv_player_page.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_content.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_recommendations_api.dart';
 import '../../../supabase/guardados_service.dart';
+import '../../../core/services/guardados_bus.dart';
+export '../../../core/services/guardados_bus.dart';
 
 const kAccentColor = Color(0xFFFF6B35);
 const double _kEpisodeItemExtent =
     214.0; // ancho tarjeta + margen (slider horizontal)
 const double _kRecoItemExtent = 148.0; // ancho poster reco + margen
 
-class GuardadosBus {
-  GuardadosBus._();
-  static final ValueNotifier<int> version = ValueNotifier<int>(0);
-
-  static void bump() => version.value++;
-}
 
 class HistorialBus {
   HistorialBus._();
   static final ValueNotifier<int> version = ValueNotifier<int>(0);
 
   static void bump() => version.value++;
-}
-
-class GuardadosCache {
-  /// Delega a GuardadosService (Supabase si hay usuario logueado, cache local si no).
-  static Future<List<Map<String, dynamic>>> getAll() async {
-    return GuardadosService.getAll();
-  }
-
-  static Future<bool> isSaved(int idcontenido) async {
-    return GuardadosService.isSaved(idcontenido);
-  }
-
-  static Future<bool> toggle(Map<String, dynamic> item) async {
-    final result = await GuardadosService.toggle(item);
-    GuardadosBus.bump();
-    return result;
-  }
 }
 
 
@@ -144,6 +123,7 @@ class _PageContenidoState extends State<PageContenido>
     WidgetsBinding.instance.addObserver(this);
     GuardadosBus.version.addListener(_onExternalCacheChange);
     HistorialBus.version.addListener(_onExternalCacheChange);
+    _loadSavedState();
     _fetchContent();
   }
 
@@ -187,7 +167,9 @@ class _PageContenidoState extends State<PageContenido>
   }
 
   void _onExternalCacheChange() {
-    if (!mounted || _loading) return;
+    if (!mounted) return;
+    _loadSavedState();
+    if (_loading) return;
     _loadFullProgress(silent: true);
   }
 
@@ -221,6 +203,36 @@ class _PageContenidoState extends State<PageContenido>
         await _loadFullProgress();
         _startLiveRefresh();
         _preResolveServers();
+
+        // Enriquecer en Sembast si ya estaba guardado
+        if (_isSavedNotifier.value) {
+          final data = _data!;
+          final posterUrl = _firstUrl(data['poster_path']);
+          final backdropUrl = _firstUrl(data['backdrop_path']);
+          final year = data['release_date'] ?? data['first_air_date'] ?? data['año'] ?? data['year'] ?? '';
+          final rawTitle = (data['name'] ?? data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? data['nombre'] ?? '').toString().trim();
+          final title = rawTitle.isNotEmpty ? rawTitle : 'Sin título';
+          GuardadosCache.update({
+            'idcontenido': widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId,
+            'contenido_id': widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId,
+            'tmdb_id': _resolvedTmdbId,
+            'idtmdb': _resolvedTmdbId,
+            'tipo': (_resolvedMediaType == 'tv') ? 'serie' : 'pelicula',
+            'type': _resolvedMediaType,
+            'media_type': _resolvedMediaType,
+            'title': title,
+            'titulo': title,
+            'name': title,
+            'poster': posterUrl,
+            'poster_path': posterUrl,
+            'backdrop': backdropUrl,
+            'backdrop_path': backdropUrl,
+            'año': year,
+            'year': year,
+            'vote_average': data['vote_average'],
+            'metadatos_completos': true,
+          });
+        }
 
         // Aviso superior: solo para TV, dura 10s y luego se borra.
         if (_resolvedMediaType == 'tv' && _seasons.isNotEmpty) {
@@ -409,14 +421,13 @@ class _PageContenidoState extends State<PageContenido>
   }
 
   Future<void> _toggleSaved() async {
-    if (_data == null) return;
-    final data = _data!;
-    final posterUrl = _firstUrl(data['poster_path']);
-    final backdropUrl = _firstUrl(data['backdrop_path']);
-    final tipo = (data['type'] ?? data['media_type'] ?? _resolvedMediaType).toString().toLowerCase();
-    final year = data['release_date'] ?? data['first_air_date'] ?? data['año'] ?? data['year'] ?? '';
-    final rawTitle = (data['name'] ?? data['title'] ?? data['titulo_contenido'] ?? data['titulo'] ?? data['nombre'] ?? '').toString().trim();
-    final title = rawTitle.isNotEmpty ? rawTitle : 'Sin título';
+    final data = _data;
+    final posterUrl = data != null ? _firstUrl(data['poster_path']) : null;
+    final backdropUrl = data != null ? _firstUrl(data['backdrop_path']) : null;
+    final tipo = (data?['type'] ?? data?['media_type'] ?? _resolvedMediaType).toString().toLowerCase();
+    final year = data?['release_date'] ?? data?['first_air_date'] ?? data?['año'] ?? data?['year'] ?? '';
+    final rawTitle = (data?['name'] ?? data?['title'] ?? data?['titulo_contenido'] ?? data?['titulo'] ?? data?['nombre'] ?? '').toString().trim();
+    final title = rawTitle.isNotEmpty ? rawTitle : 'Cargando contenido...';
     final targetContentId = widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId;
 
     final item = <String, dynamic>{
@@ -424,21 +435,21 @@ class _PageContenidoState extends State<PageContenido>
       'contenido_id': targetContentId,
       'tmdb_id': _resolvedTmdbId,
       'idtmdb': _resolvedTmdbId,
-      'media_type': _resolvedMediaType,
-      'tipo': tipo,
+      'media_type': (tipo == 'tv' || tipo == 'serie') ? 'tv' : 'movie',
+      'tipo': (tipo == 'tv' || tipo == 'serie') ? 'serie' : 'pelicula',
       'type': tipo,
       'title': title,
       'titulo': title,
       'name': title,
-      'poster': posterUrl,
-      'poster_path': posterUrl,
-      'backdrop': backdropUrl,
-      'backdrop_path': backdropUrl,
+      if (posterUrl != null) 'poster': posterUrl,
+      if (posterUrl != null) 'poster_path': posterUrl,
+      if (backdropUrl != null) 'backdrop': backdropUrl,
+      if (backdropUrl != null) 'backdrop_path': backdropUrl,
       'año': year,
       'year': year,
-      'vote_average': data['vote_average'],
+      'vote_average': data?['vote_average'],
       'timestamp': DateTime.now().toIso8601String(),
-      'metadatos_completos': true,
+      'metadatos_completos': data != null,
       'addedAt': DateTime.now().toIso8601String(),
     };
 
@@ -448,30 +459,11 @@ class _PageContenidoState extends State<PageContenido>
     final nowSaved = await GuardadosCache.toggle(item);
     if (mounted) {
       _isSavedNotifier.value = nowSaved;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                nowSaved ? Icons.check_circle_rounded : Icons.bookmark_remove_rounded,
-                color: Colors.white,
-                size: 22,
-              ),
-              const SizedBox(width: 10),
-              Text(
-                nowSaved ? 'Añadido a Mi lista' : 'Eliminado de Mi lista',
-                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
-              ),
-            ],
-          ),
-          backgroundColor: nowSaved ? const Color(0xFFFF6B35) : const Color(0xFF2C2C30),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          duration: const Duration(seconds: 2),
-          width: 320,
-        ),
+      showTvToast(
+        context,
+        message: nowSaved ? 'Añadido a Mi lista' : 'Eliminado de Mi lista',
+        icon: nowSaved ? Icons.check_circle_rounded : Icons.bookmark_remove_rounded,
+        iconColor: nowSaved ? const Color(0xFFFF6B35) : Colors.white70,
       );
     }
   }
@@ -1137,57 +1129,22 @@ class _PageContenidoState extends State<PageContenido>
     final titulo = data?['title']?.toString() ?? '';
     final isMovie = tipo.toLowerCase() != 'tv';
 
-    // AUTO: ServerLoader (first-win) → player solo si hay fuente;
-    // si no encuentra servidor óptimo → modal de servidores.
-    bool dialogShown = false;
-    if (mounted) {
-      dialogShown = true;
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        barrierColor: Colors.black87,
-        builder: (_) => const _BuscandoServidorDialog(),
-      );
-    }
-
-    String videoUrl = '';
-    String? idioma;
-    try {
-      final loader = ServerLoader();
-      final playable = await loader.resolvePlayable(
-        contentId: _resolvedTmdbId,
-        isMovie: isMovie,
-        season: isMovie ? 0 : (temporada ?? 0),
-        episode: isMovie ? 0 : (capitulo ?? 0),
-        context: mounted ? context : null,
-      );
-      if (playable != null && playable.url.isNotEmpty) {
-        videoUrl = playable.url;
-        idioma = playable.idioma;
-      }
-    } catch (e) {
-      debugPrint('ServerLoader precarga TV: $e');
-    } finally {
-      if (dialogShown && mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-    }
-
     if (!mounted) return;
 
-    // Navegar directamente al reproductor
+    // Navegar directamente al reproductor TV unificado
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => PlayerScreen(
-          videoUrl: videoUrl,
+        builder: (_) => TvPlayerPage(
+          videoUrl: '', // se resuelve internamente en TvPlayerPage
+          contenidoId: widget.idcontenido,
           idcontenido: widget.idcontenido,
           tmdbId: _resolvedTmdbId,
           temporada: isMovie ? null : temporada,
           capitulo: isMovie ? null : capitulo,
+          mediaType: tipo,
           tipo: tipo,
           titulo: titulo,
-          idioma: idioma,
         ),
       ),
     );

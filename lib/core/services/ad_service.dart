@@ -40,6 +40,36 @@ class AdService {
     return 'https://pl31504029.profitableratecpmnetwork.com/512fc1ea8b3c9db09a992edbaf608772/invoke.js';
   }
 
+  /// Activar o desactivar anuncios en pausa desde remote config
+  bool get pauseAdEnabled {
+    if (!enabled) return false;
+    final ads = RemoteConfigService.instance.config.ads;
+    final val = ads['pause_ad_enabled'];
+    if (val is bool) return val;
+    if (val != null) return val.toString().toLowerCase() == 'true';
+    return true;
+  }
+
+  /// Período de rotación de anuncios en pausa en segundos (default: 15s)
+  int get pauseAdRotationSeconds {
+    final ads = RemoteConfigService.instance.config.ads;
+    final val = ads['pause_ad_rotation_seconds'];
+    if (val is int && val > 0) return val;
+    if (val != null) {
+      final parsed = int.tryParse(val.toString());
+      if (parsed != null && parsed > 0) return parsed;
+    }
+    return 15;
+  }
+
+  /// Clave de la zona de pausa de Adsterra (fallback a banner key si está PENDIENTE)
+  String get adsterraPauseBannerId {
+    final ads = RemoteConfigService.instance.config.ads;
+    final id = ads['adsterra_pause_banner_id']?.toString() ?? '';
+    if (id.isNotEmpty && id != 'PENDIENTE') return id;
+    return adsterraBannerKey;
+  }
+
   /// URL de HilltopAds VAST (preparado para VAST pre-roll)
   String get hilltopadsVastUrl {
     final ads = RemoteConfigService.instance.config.ads;
