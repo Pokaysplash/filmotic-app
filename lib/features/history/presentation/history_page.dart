@@ -368,20 +368,27 @@ class GuardadosPageState extends State<GuardadosPage>
   void _openGuardado(Map<String, dynamic> item) {
     if (_ignoreSelectUntil) return;
 
-    final id = item['idcontenido'] as int? ?? 0;
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        0;
     if (id <= 0) return;
 
-    final tmdbId = item['tmdb_id'] as int? ?? id;
-    final mediaType =
-        item['media_type']?.toString() ?? item['type']?.toString() ?? 'movie';
+    final mediaType = canonicalMediaType(
+        item['media_type'] ?? item['type'] ?? item['tipo']);
+    final titulo = (item['titulo'] ?? item['title'] ?? item['name'] ?? '')
+        .toString()
+        .trim();
 
     Navigator.of(context)
         .push(
           MaterialPageRoute(
             builder: (_) => PageContenido(
               idcontenido: id,
-              tmdbId: tmdbId,
+              tmdbId: id,
               mediaType: mediaType,
+              expectedTitle: titulo.isNotEmpty ? titulo : null,
             ),
           ),
         )
@@ -396,15 +403,18 @@ class GuardadosPageState extends State<GuardadosPage>
   void _openOpcionesFromHistorial(Map<String, dynamic> item) {
     if (_ignoreSelectUntil) return;
 
-    final id = item['idcontenido'] as int? ?? 0;
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        0;
     if (id <= 0) return;
-    final tmdbId = item['tmdb_id'] as int? ?? id;
-    final tipo =
-        item['tipo']?.toString() ?? item['media_type']?.toString() ?? 'movie';
+    final tipo = canonicalMediaType(
+        item['tipo'] ?? item['media_type'] ?? item['type']);
 
     showContenidoOpcionesModal(
       context,
-      tmdbId: tmdbId,
+      tmdbId: id,
       tipo: tipo,
       idcontenido: id,
       titulo: item['titulo']?.toString() ?? item['title']?.toString(),

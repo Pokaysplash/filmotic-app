@@ -319,6 +319,7 @@ class _DerivarTvPageState extends State<DerivarTvPage> {
             idcontenido: tmdbId,
             tmdbId: tmdbId,
             mediaType: mediaType,
+            expectedTitle: _data?.titulo ?? widget.titulo,
           ),
         ),
       );

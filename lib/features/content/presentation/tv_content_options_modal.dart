@@ -306,6 +306,7 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
           idcontenido: widget.idcontenido,
           tmdbId: widget.tmdbId,
           mediaType: widget.tipo,
+          expectedTitle: _titulo,
         ),
       ),
     );
@@ -313,14 +314,19 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
 
   Future<void> _toggleSave() async {
     try {
+      final canonTmdb = parseCanonicalTmdbId(widget.tmdbId) ??
+          parseCanonicalTmdbId(widget.idcontenido) ??
+          0;
+      final canonTipo = canonicalTipo(widget.tipo);
+      final canonMedia = canonicalMediaType(widget.tipo);
       final item = <String, dynamic>{
-        'idcontenido': widget.idcontenido,
-        'contenido_id': widget.idcontenido,
-        'tmdb_id': widget.tmdbId,
-        'idtmdb': widget.tmdbId,
-        'media_type': widget.tipo,
-        'tipo': widget.tipo,
-        'type': widget.tipo,
+        'idcontenido': canonTmdb,
+        'contenido_id': canonTmdb,
+        'tmdb_id': canonTmdb,
+        'idtmdb': canonTmdb,
+        'media_type': canonMedia,
+        'tipo': canonTipo,
+        'type': canonMedia,
         'title': _titulo,
         'titulo': _titulo,
         'poster': _poster,

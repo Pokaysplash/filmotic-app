@@ -131,6 +131,7 @@ class _DerivarPageState extends State<DerivarPage> {
           idcontenido: id,
           tmdbId: id,
           mediaType: mediaType,
+          expectedTitle: _data?.titulo ?? widget.titulo,
         ),
       ),
     );

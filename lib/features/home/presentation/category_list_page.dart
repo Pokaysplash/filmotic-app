@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../../content/presentation/content_page.dart' as mobile_content;
 import '../../content/presentation/tv_content_page.dart' as tv_content;
+import '../../../core/services/guardados_bus.dart';
 
 const Color kAccentColor = Color(0xFFFF6B35);
 const Color kBgColor = Color(0xFF0A0A0A);
@@ -85,15 +86,18 @@ class _CategoryListPageState extends State<CategoryListPage> {
   }
 
   void _openItem(Map<String, dynamic> item) {
-    final id = item['tmdb_id'] as int? ??
-        item['idcontenido'] as int? ??
-        (item['id'] as num?)?.toInt() ??
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        parseCanonicalTmdbId(item['id']) ??
         0;
     if (id <= 0) return;
     final rawTipo = (item['tipo'] ?? item['type'] ?? item['media_type'] ?? '').toString().toLowerCase();
     final bool isSeries = rawTipo == 'tv' || rawTipo == 'serie' || (item['name'] != null && item['title'] == null);
     final isMovie = widget.isMovie ? !isSeries : (rawTipo == 'movie' || rawTipo == 'pelicula' || !isSeries);
     final mediaType = isMovie ? 'movie' : 'tv';
+    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '').toString().trim();
 
     if (widget.isTv) {
       Navigator.of(context).push(
@@ -104,6 +108,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
               idcontenido: id,
               tmdbId: id,
               mediaType: mediaType,
+              expectedTitle: titulo.isNotEmpty ? titulo : null,
             ),
           ),
           transitionDuration: const Duration(milliseconds: 250),
@@ -116,6 +121,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
             idcontenido: id,
             tmdbId: id,
             mediaType: mediaType,
+            expectedTitle: titulo.isNotEmpty ? titulo : null,
           ),
         ),
       );

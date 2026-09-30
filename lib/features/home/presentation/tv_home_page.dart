@@ -291,9 +291,17 @@ class _HomePageState extends State<HomePage>
   }
 
   void _openContent(Map<String, dynamic> item) {
-    final id = item['tmdb_id'] as int? ?? item['idcontenido'] as int? ?? 0;
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        0;
     if (id <= 0) return;
-    final tipo = item['media_type']?.toString() ?? 'movie';
+    final tipo = canonicalMediaType(
+        item['media_type'] ?? item['tipo'] ?? item['type']);
+    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '')
+        .toString()
+        .trim();
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -301,6 +309,7 @@ class _HomePageState extends State<HomePage>
           idcontenido: id,
           tmdbId: id,
           mediaType: tipo,
+          expectedTitle: titulo.isNotEmpty ? titulo : null,
         ),
       ),
     );

@@ -712,7 +712,14 @@ En esta iteración se corrigieron 6 problemas reportados en la Beta 2 tanto para
   - **Causa**: Las listas horizontales (`ListView.builder`) de las categorías ("Continuar viendo", "Agregados Recientemente", "Populares", etc.) en `home_page.dart` no tenían definida una física explícita, generando conflictos con el `CustomScrollView` vertical padre. En `tv_home_page.dart`, `_HorizontalSlider` tenía asignado `NeverScrollableScrollPhysics()`, impidiendo cualquier desplazamiento táctil o de puntero.
   - **Solución**: Se añadió `physics: const BouncingScrollPhysics(), shrinkWrap: false` a todas las listas horizontales en móvil y TV. En TV, el desplazamiento continuo mediante flechas D-Pad (`_cycle`) y el scroll suave automático (`_scrollController.animateTo`) se preservaron al 100%.
 
-### 22.2 Versionado
+### 22.2 Corrección Integral de Metadatos e IDs Canónicos TMDB (Resolución de Títulos Incorrectos al Guardar/Abrir)
+- **Problema de Fondo**: Al navegar desde diversas fuentes o vistas (categorías, recomendaciones, listas, continuados) o al guardar contenido en Favoritos, ciertos proveedores o capas intermedias generaban colisiones de IDs locales vs. IDs TMDB, o el título original era reemplazado por el de otro contenido asociado al mismo ID numérico erróneo.
+- **Solución Implementada**:
+  - `parseCanonicalTmdbId`: Función utilitaria universal para normalizar de forma estricta los IDs provenientes de cualquier campo (`tmdb_id`, `idtmdb`, `idcontenido`, `contenido_id`, `id`).
+  - `expectedTitle` y Verificación Canónica en TMDB: En `PageContenido` (tanto móvil como TV), se añadió el parámetro `expectedTitle`. Al consultar la API de TMDB (`/movie/{id}` o `/tv/{id}`), si el título devuelto por TMDB difiere de forma radical del título esperado de la tarjeta (por colisión de ID en el scraper), se realiza una búsqueda de rescate por título (`searchTmdbMovie` / `searchTmdbTv`) para resolver el verdadero `tmdbId` canónico del contenido.
+  - Sincronización en Cascada: Actualizados todos los puntos de navegación (`home_page.dart`, `tv_home_page.dart`, `search_page.dart`, `tv_search_page.dart`, `discover_page.dart`, `derivar.dart`, `downloads_page.dart`, `movie_section.dart`, `series_section.dart`, `tv_movie_section.dart`, `tv_series_section.dart`, `category_list_page.dart`) y los modales de guardado/opciones para garantizar que el título, póster y tipo de medio persistan fielmente en Sembast.
+
+### 22.3 Versionado
 - Versión pública: **`v1.0.0-beta.3`** (Build 3).
 - Remote Config (`filmotic_config.json`): `latest_version: "1.0.0-beta.3"`.
 - Documentación y Landing Page (`docs/index.html`): actualizadas a `v1.0.0-beta.3`.

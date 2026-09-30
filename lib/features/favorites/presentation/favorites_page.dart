@@ -254,14 +254,17 @@ class GuardadosPageState extends State<GuardadosPage>
   // 2) MI LISTA → abre la ficha (PageContenido)
   // ─────────────────────────────────────────────────────────────────────────
   void _openGuardado(Map<String, dynamic> item) {
-    final id = item['tmdb_id'] as int? ??
-        item['idtmdb'] as int? ??
-        item['idcontenido'] as int? ??
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
         0;
 
-    final tipo = (item['tipo'] ?? item['type'] ?? item['media_type'] ?? 'movie')
+    final tipo = canonicalMediaType(
+        item['tipo'] ?? item['type'] ?? item['media_type']);
+    final titulo = (item['titulo'] ?? item['title'] ?? item['name'] ?? '')
         .toString()
-        .toLowerCase();
+        .trim();
 
     if (id <= 0) return;
 
@@ -272,6 +275,7 @@ class GuardadosPageState extends State<GuardadosPage>
               idcontenido: id,
               tmdbId: id,
               mediaType: tipo,
+              expectedTitle: titulo.isNotEmpty ? titulo : null,
             ),
           ),
         )
@@ -282,16 +286,16 @@ class GuardadosPageState extends State<GuardadosPage>
   // LONG PRESS → abre el modal de opciones nuevo
   // ─────────────────────────────────────────────────────────────────────────
   void _showOpcionesModal(Map<String, dynamic> item) {
-    final id = item['tmdb_id'] as int? ??
-        item['idtmdb'] as int? ??
-        item['idcontenido'] as int? ??
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
         0;
 
     if (id <= 0) return;
 
-    final tipo = (item['tipo'] ?? item['type'] ?? item['media_type'] ?? 'movie')
-        .toString()
-        .toLowerCase();
+    final tipo = canonicalMediaType(
+        item['tipo'] ?? item['type'] ?? item['media_type']);
 
     final titulo = item['titulo']?.toString() ??
         item['title']?.toString() ??

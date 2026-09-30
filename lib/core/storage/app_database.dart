@@ -4,6 +4,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sembast/sembast_io.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import '../services/guardados_bus.dart';
 
 class LocalAccount {
   final String id;
@@ -364,7 +365,7 @@ class AppDatabase {
 
   Future<bool> isFavorite(int contenidoId, {String? perfilId}) async {
     final targetId = perfilId ?? _cachedActiveProfile?.id;
-    if (targetId == null) return false;
+    if (targetId == null || contenidoId <= 0) return false;
     final db = await database;
     final key = _favKey(targetId, contenidoId);
     final record = await _favoritosStore.record(key).get(db);
@@ -375,16 +376,20 @@ class AppDatabase {
     final targetId = perfilId ?? _cachedActiveProfile?.id;
     if (targetId == null) return false;
 
-    final contenidoId = item['idcontenido'] as int? ??
-        item['contenido_id'] as int? ??
-        item['tmdb_id'] as int? ??
-        item['idtmdb'] as int? ??
-        int.tryParse(item['id']?.toString() ?? '') ??
-        0;
-    if (contenidoId == 0) return false;
+    // TMDB ID canónico es el identificador principal
+    final int? tmdbId = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        parseCanonicalTmdbId(item['id']);
+
+    if (tmdbId == null || tmdbId <= 0) {
+      debugPrint('[AppDatabase] toggleFavorite rechazado: sin tmdb_id canónico válido.');
+      return false;
+    }
 
     final db = await database;
-    final key = _favKey(targetId, contenidoId);
+    final key = _favKey(targetId, tmdbId);
     final exists = await _favoritosStore.record(key).get(db) != null;
 
     if (exists) {
@@ -401,10 +406,9 @@ class AppDatabase {
       final titulo = rawTitulo;
       final poster = item['poster'] ?? item['poster_path'] ?? item['imagen'];
       final backdrop = item['backdrop'] ?? item['backdrop_path'];
-      final rawTipo = (item['tipo'] ?? item['type'] ?? item['media_type'] ?? item['mediaType'] ?? 'movie').toString().toLowerCase();
-      final tipo = (rawTipo == 'tv' || rawTipo == 'serie') ? 'serie' : 'pelicula';
+      final tipo = canonicalTipo(item['tipo'] ?? item['type'] ?? item['media_type'] ?? item['mediaType']);
+      final mediaType = canonicalMediaType(item['media_type'] ?? item['type'] ?? item['tipo'] ?? item['mediaType']);
       final year = item['año'] ?? item['year'] ?? item['release_date'] ?? item['first_air_date'];
-      final tmdbId = item['tmdb_id'] ?? item['idtmdb'] ?? (contenidoId > 0 ? contenidoId : null);
       final voteAverage = item['vote_average'];
       final bool completos = (titulo.isNotEmpty && titulo != 'Sin título' && titulo != 'N/A') &&
           (poster != null && poster.toString().isNotEmpty && poster.toString() != 'null');
@@ -412,18 +416,23 @@ class AppDatabase {
       final data = {
         'id': key,
         'perfil_id': targetId,
-        'idcontenido': contenidoId,
-        'contenido_id': contenidoId,
+        'idcontenido': tmdbId,
+        'contenido_id': tmdbId,
+        'tmdb_id': tmdbId,
+        'idtmdb': tmdbId,
+        if (item['imdb_id'] != null) 'imdb_id': item['imdb_id'].toString(),
         'titulo': titulo,
         'title': titulo,
+        'name': titulo,
         'poster': poster,
         'poster_path': poster,
         'backdrop': backdrop,
         'backdrop_path': backdrop,
         'tipo': tipo,
+        'type': mediaType,
+        'media_type': mediaType,
         'año': year,
         'year': year,
-        'tmdb_id': tmdbId,
         'vote_average': voteAverage,
         'timestamp': DateTime.now().toIso8601String(),
         'metadatos_completos': completos,
@@ -437,24 +446,28 @@ class AppDatabase {
   Future<void> updateFavorite(Map<String, dynamic> item, {String? perfilId}) async {
     final targetId = perfilId ?? _cachedActiveProfile?.id;
     if (targetId == null) return;
-    final contenidoId = item['idcontenido'] as int? ??
-        item['contenido_id'] as int? ??
-        item['tmdb_id'] as int? ??
-        int.tryParse(item['id']?.toString() ?? '') ??
-        0;
-    if (contenidoId == 0) return;
+    final int? tmdbId = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        parseCanonicalTmdbId(item['id']);
+    if (tmdbId == null || tmdbId <= 0) return;
     final db = await database;
-    final key = _favKey(targetId, contenidoId);
+    final key = _favKey(targetId, tmdbId);
     final existing = await _favoritosStore.record(key).get(db);
     if (existing != null) {
       final updated = Map<String, dynamic>.from(existing)..addAll(item);
+      updated['idcontenido'] = tmdbId;
+      updated['contenido_id'] = tmdbId;
+      updated['tmdb_id'] = tmdbId;
+      updated['idtmdb'] = tmdbId;
       await _favoritosStore.record(key).put(db, updated);
     }
   }
 
   Future<void> removeFavorite(int contenidoId, {String? perfilId}) async {
     final targetId = perfilId ?? _cachedActiveProfile?.id;
-    if (targetId == null) return;
+    if (targetId == null || contenidoId <= 0) return;
     final db = await database;
     final key = _favKey(targetId, contenidoId);
     await _favoritosStore.record(key).delete(db);

@@ -15,6 +15,7 @@ import '../../../supabase/guardados_service.dart';
 // Recordatorios de capítulos (ajusta rutas si hace falta)
 import 'widgets/tmdb_upcoming_service.dart';
 import 'widgets/upcoming_episodes_modal.dart';
+import '../../search/presentation/search_page.dart';
 import '../../../core/services/guardados_bus.dart';
 export '../../../core/services/guardados_bus.dart';
 
@@ -28,12 +29,14 @@ class PageContenido extends StatefulWidget {
   final int idcontenido;
   final int? tmdbId;
   final String? mediaType;
+  final String? expectedTitle;
 
   const PageContenido({
     super.key,
     required this.idcontenido,
     this.tmdbId,
     this.mediaType,
+    this.expectedTitle,
   });
 
   @override
@@ -76,13 +79,12 @@ class _PageContenidoState extends State<PageContenido>
   late final Animation<double> _scaleAnim;
   late final Animation<double> _fadeAnim;
 
-  int get _resolvedTmdbId => widget.tmdbId ?? widget.idcontenido;
+  int get _resolvedTmdbId =>
+      parseCanonicalTmdbId(widget.tmdbId) ??
+      parseCanonicalTmdbId(widget.idcontenido) ??
+      0;
 
-  String get _resolvedMediaType {
-    final t = widget.mediaType?.toString().toLowerCase().trim();
-    if (t == 'tv' || t == 'serie' || t == 'series') return 'tv';
-    return 'movie';
-  }
+  String get _resolvedMediaType => canonicalMediaType(widget.mediaType);
 
   @override
   void initState() {
@@ -140,8 +142,95 @@ class _PageContenidoState extends State<PageContenido>
       );
 
       if (json['success'] == true && json['data'] is Map) {
+        var contentData = Map<String, dynamic>.from(json['data'] as Map);
+        final fetchedTitle = (contentData['name'] ??
+                contentData['title'] ??
+                contentData['titulo_contenido'] ??
+                contentData['titulo'] ??
+                '')
+            .toString()
+            .trim();
+
+        // Salvaguarda: validar que el contenido cargado desde TMDB coincide con el título esperado
+        if (widget.expectedTitle != null &&
+            widget.expectedTitle!.trim().isNotEmpty &&
+            widget.expectedTitle != 'Sin título' &&
+            widget.expectedTitle != 'Cargando contenido...' &&
+            widget.expectedTitle != 'N/A') {
+          final expTitle = widget.expectedTitle!.trim();
+          if (!titlesMatch(fetchedTitle, expTitle)) {
+            debugPrint(
+                '[PageContenido] Mismatch detectado: esperado "$expTitle", recibido "$fetchedTitle" para tmdbId $_resolvedTmdbId');
+            final recoveredId = await GuardadosCache.recoverTmdbId(
+              title: expTitle,
+              mediaType: _resolvedMediaType,
+            );
+            if (recoveredId != null &&
+                recoveredId > 0 &&
+                recoveredId != _resolvedTmdbId) {
+              debugPrint(
+                  '[PageContenido] Auto-recuperado tmdbId $recoveredId para "$expTitle"');
+              final retryJson = await _tmdb.fetchContent(
+                tmdbId: recoveredId,
+                mediaType: _resolvedMediaType,
+              );
+              if (retryJson['success'] == true && retryJson['data'] is Map) {
+                final retryData =
+                    Map<String, dynamic>.from(retryJson['data'] as Map);
+                final retryTitle = (retryData['name'] ??
+                        retryData['title'] ??
+                        retryData['titulo'] ??
+                        '')
+                    .toString()
+                    .trim();
+                if (titlesMatch(retryTitle, expTitle)) {
+                  contentData = retryData;
+                  await GuardadosCache.update({
+                    'idcontenido': recoveredId,
+                    'contenido_id': recoveredId,
+                    'tmdb_id': recoveredId,
+                    'idtmdb': recoveredId,
+                    'title': retryTitle,
+                    'titulo': retryTitle,
+                    'poster': _firstUrl(retryData['poster_path']),
+                    'poster_path': _firstUrl(retryData['poster_path']),
+                    'metadatos_completos': true,
+                  });
+                } else {
+                  if (mounted) {
+                    setState(() {
+                      _loading = false;
+                      _error =
+                          'Este contenido no está disponible. Intenta abrirlo desde el buscador.';
+                    });
+                  }
+                  return;
+                }
+              } else {
+                if (mounted) {
+                  setState(() {
+                    _loading = false;
+                    _error =
+                        'Este contenido no está disponible. Intenta abrirlo desde el buscador.';
+                  });
+                }
+                return;
+              }
+            } else {
+              if (mounted) {
+                setState(() {
+                  _loading = false;
+                  _error =
+                      'Este contenido no está disponible. Intenta abrirlo desde el buscador.';
+                });
+              }
+              return;
+            }
+          }
+        }
+
         setState(() {
-          _data = Map<String, dynamic>.from(json['data'] as Map);
+          _data = contentData;
           _loading = false;
           _selectedSeasonIndex = 0;
         });
@@ -1100,26 +1189,71 @@ class _PageContenidoState extends State<PageContenido>
     }
 
     if (_error != null || _data == null) {
+      final isBuscadorPrompt = _error?.contains('buscador') == true;
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _error ?? 'Error',
-                style: const TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _fetchContent,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: kAccentColor,
-                  foregroundColor: Colors.white,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isBuscadorPrompt ? Icons.search_off_rounded : Icons.error_outline_rounded,
+                  color: isBuscadorPrompt ? kAccentColor : Colors.white54,
+                  size: 56,
                 ),
-                child: const Text('Reintentar'),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Text(
+                  _error ?? 'Error',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                      ),
+                      child: const Text('Volver'),
+                    ),
+                    const SizedBox(width: 12),
+                    if (isBuscadorPrompt)
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(builder: (_) => const BuscarPage()),
+                          );
+                        },
+                        icon: const Icon(Icons.search, size: 18),
+                        label: const Text('Abrir buscador'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kAccentColor,
+                          foregroundColor: Colors.white,
+                        ),
+                      )
+                    else
+                      ElevatedButton(
+                        onPressed: _fetchContent,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: kAccentColor,
+                          foregroundColor: Colors.white,
+                        ),
+                        child: const Text('Reintentar'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -2130,7 +2264,7 @@ class _PageContenidoState extends State<PageContenido>
                         separatorBuilder: (_, __) => const SizedBox(width: 12),
                         itemBuilder: (context, i) {
                           final s = similar[i];
-                          final sTitle = s['title']?.toString() ?? '';
+                          final sTitle = (s['title'] ?? s['name'] ?? s['titulo'] ?? '').toString().trim();
                           final sPoster = _firstUrl(s['poster_path']);
                           final sId =
                               s['tmdb_id'] as int? ??
@@ -2151,6 +2285,7 @@ class _PageContenidoState extends State<PageContenido>
                                       idcontenido: sId,
                                       tmdbId: sId,
                                       mediaType: sType,
+                                      expectedTitle: sTitle.isNotEmpty ? sTitle : null,
                                     ),
                                   ),
                                 );

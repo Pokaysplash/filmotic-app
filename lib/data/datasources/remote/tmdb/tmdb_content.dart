@@ -540,4 +540,34 @@ class TmdbContentService {
 
     return seasons;
   }
+
+  /// Busca contenidos por título en TMDB (movie, tv o multi)
+  Future<List<Map<String, dynamic>>> searchContent({
+    required String query,
+    String? mediaType,
+    int? year,
+  }) async {
+    final lang = await _apiLanguage();
+    final type = (mediaType == 'tv' || mediaType == 'serie')
+        ? 'tv'
+        : (mediaType == 'movie' || mediaType == 'pelicula')
+            ? 'movie'
+            : 'multi';
+    final params = <String, String>{
+      'query': query,
+    };
+    if (year != null && year > 0) {
+      if (type == 'movie') {
+        params['primary_release_year'] = year.toString();
+      } else if (type == 'tv') {
+        params['first_air_date_year'] = year.toString();
+      }
+    }
+    final res = await _get('/search/$type', query: params, language: lang);
+    if (res != null && res['results'] is List) {
+      return List<Map<String, dynamic>>.from(res['results']);
+    }
+    return [];
+  }
 }
+

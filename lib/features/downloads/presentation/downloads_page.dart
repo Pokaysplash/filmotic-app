@@ -550,6 +550,7 @@ class _DescargasPageState extends State<DescargasPage> {
           idcontenido: tmdb,
           tmdbId: tmdb,
           mediaType: tipo,
+          expectedTitle: item.title,
         ),
       ),
     );

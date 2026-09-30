@@ -240,24 +240,39 @@ class _EscrubirPageState extends State<EscrubirPage>
   }
 
   void _openContent(Map<String, dynamic> item) {
-    final id = item['tmdb_id'] as int? ?? item['idcontenido'] as int? ?? 0;
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        0;
     if (id <= 0) return;
-    final tipo =
-        item['media_type']?.toString() ?? item['type']?.toString() ?? 'movie';
+    final tipo = canonicalMediaType(
+        item['media_type'] ?? item['type'] ?? item['tipo']);
+    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '')
+        .toString()
+        .trim();
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) =>
-            PageContenido(idcontenido: id, tmdbId: id, mediaType: tipo),
+        builder: (_) => PageContenido(
+          idcontenido: id,
+          tmdbId: id,
+          mediaType: tipo,
+          expectedTitle: titulo.isNotEmpty ? titulo : null,
+        ),
       ),
     );
   }
 
   void _openOpciones(Map<String, dynamic> item) {
-    final id = item['tmdb_id'] as int? ?? item['idcontenido'] as int? ?? 0;
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        0;
     if (id <= 0) return;
-    final tipo =
-        item['media_type']?.toString() ?? item['type']?.toString() ?? 'movie';
+    final tipo = canonicalMediaType(
+        item['media_type'] ?? item['type'] ?? item['tipo']);
     showContenidoOpcionesModal(
       context,
       tmdbId: id,

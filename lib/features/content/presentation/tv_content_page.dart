@@ -13,6 +13,7 @@ import '../../player/presentation/tv/tv_player_page.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_content.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_recommendations_api.dart';
 import '../../../supabase/guardados_service.dart';
+import '../../search/presentation/tv_search_page.dart';
 import '../../../core/services/guardados_bus.dart';
 export '../../../core/services/guardados_bus.dart';
 
@@ -48,12 +49,14 @@ class PageContenido extends StatefulWidget {
   final int idcontenido;
   final int? tmdbId;
   final String mediaType;
+  final String? expectedTitle;
 
   const PageContenido({
     super.key,
     required this.idcontenido,
     this.tmdbId,
     this.mediaType = 'movie',
+    this.expectedTitle,
   });
 
   @override
@@ -109,13 +112,12 @@ class _PageContenidoState extends State<PageContenido>
   final ValueNotifier<Map<String, dynamic>?> _selectedRecoNotifier =
       ValueNotifier(null);
 
-  int get _resolvedTmdbId => widget.tmdbId ?? widget.idcontenido;
+  int get _resolvedTmdbId =>
+      parseCanonicalTmdbId(widget.tmdbId) ??
+      parseCanonicalTmdbId(widget.idcontenido) ??
+      0;
 
-  String get _resolvedMediaType {
-    final t = widget.mediaType.toLowerCase().trim();
-    if (t == 'tv' || t == 'serie' || t == 'series') return 'tv';
-    return 'movie';
-  }
+  String get _resolvedMediaType => canonicalMediaType(widget.mediaType);
 
   @override
   void initState() {
@@ -193,8 +195,96 @@ class _PageContenidoState extends State<PageContenido>
       );
 
       if (json['success'] == true && json['data'] != null) {
+        var contentData = Map<String, dynamic>.from(json['data'] as Map);
+        final fetchedTitle = (contentData['name'] ??
+                contentData['title'] ??
+                contentData['titulo_contenido'] ??
+                contentData['titulo'] ??
+                contentData['nombre'] ??
+                '')
+            .toString()
+            .trim();
+
+        // Salvaguarda: validar que el contenido cargado desde TMDB coincide con el título esperado
+        if (widget.expectedTitle != null &&
+            widget.expectedTitle!.trim().isNotEmpty &&
+            widget.expectedTitle != 'Sin título' &&
+            widget.expectedTitle != 'Cargando contenido...' &&
+            widget.expectedTitle != 'N/A') {
+          final expTitle = widget.expectedTitle!.trim();
+          if (!titlesMatch(fetchedTitle, expTitle)) {
+            debugPrint(
+                '[TvPageContenido] Mismatch detectado: esperado "$expTitle", recibido "$fetchedTitle" para tmdbId $_resolvedTmdbId');
+            final recoveredId = await GuardadosCache.recoverTmdbId(
+              title: expTitle,
+              mediaType: _resolvedMediaType,
+            );
+            if (recoveredId != null &&
+                recoveredId > 0 &&
+                recoveredId != _resolvedTmdbId) {
+              debugPrint(
+                  '[TvPageContenido] Auto-recuperado tmdbId $recoveredId para "$expTitle"');
+              final retryJson = await _tmdb.fetchContent(
+                tmdbId: recoveredId,
+                mediaType: _resolvedMediaType,
+              );
+              if (retryJson['success'] == true && retryJson['data'] != null) {
+                final retryData =
+                    Map<String, dynamic>.from(retryJson['data'] as Map);
+                final retryTitle = (retryData['name'] ??
+                        retryData['title'] ??
+                        retryData['titulo'] ??
+                        '')
+                    .toString()
+                    .trim();
+                if (titlesMatch(retryTitle, expTitle)) {
+                  contentData = retryData;
+                  await GuardadosCache.update({
+                    'idcontenido': recoveredId,
+                    'contenido_id': recoveredId,
+                    'tmdb_id': recoveredId,
+                    'idtmdb': recoveredId,
+                    'title': retryTitle,
+                    'titulo': retryTitle,
+                    'poster': _firstUrl(retryData['poster_path']),
+                    'poster_path': _firstUrl(retryData['poster_path']),
+                    'metadatos_completos': true,
+                  });
+                } else {
+                  if (mounted) {
+                    setState(() {
+                      _loading = false;
+                      _error =
+                          'Este contenido no está disponible. Intenta abrirlo desde el buscador.';
+                    });
+                  }
+                  return;
+                }
+              } else {
+                if (mounted) {
+                  setState(() {
+                    _loading = false;
+                    _error =
+                        'Este contenido no está disponible. Intenta abrirlo desde el buscador.';
+                  });
+                }
+                return;
+              }
+            } else {
+              if (mounted) {
+                setState(() {
+                  _loading = false;
+                  _error =
+                      'Este contenido no está disponible. Intenta abrirlo desde el buscador.';
+                });
+              }
+              return;
+            }
+          }
+        }
+
         setState(() {
-          _data = Map<String, dynamic>.from(json['data'] as Map);
+          _data = contentData;
           _loading = false;
           _selectedSeasonIndex = 0;
         });
@@ -428,16 +518,14 @@ class _PageContenidoState extends State<PageContenido>
     final year = data?['release_date'] ?? data?['first_air_date'] ?? data?['año'] ?? data?['year'] ?? '';
     final rawTitle = (data?['name'] ?? data?['title'] ?? data?['titulo_contenido'] ?? data?['titulo'] ?? data?['nombre'] ?? '').toString().trim();
     final title = rawTitle.isNotEmpty ? rawTitle : 'Cargando contenido...';
-    final targetContentId = widget.idcontenido > 0 ? widget.idcontenido : _resolvedTmdbId;
-
     final item = <String, dynamic>{
-      'idcontenido': targetContentId,
-      'contenido_id': targetContentId,
+      'idcontenido': _resolvedTmdbId,
+      'contenido_id': _resolvedTmdbId,
       'tmdb_id': _resolvedTmdbId,
       'idtmdb': _resolvedTmdbId,
-      'media_type': (tipo == 'tv' || tipo == 'serie') ? 'tv' : 'movie',
-      'tipo': (tipo == 'tv' || tipo == 'serie') ? 'serie' : 'pelicula',
-      'type': tipo,
+      'media_type': canonicalMediaType(tipo),
+      'tipo': canonicalTipo(tipo),
+      'type': canonicalMediaType(tipo),
       'title': title,
       'titulo': title,
       'name': title,
@@ -1047,12 +1135,17 @@ class _PageContenidoState extends State<PageContenido>
     final mediaType = (mt == 'tv' || mt == 'serie' || mt == 'series')
         ? 'tv'
         : 'movie';
+    final sTitle = (item['title'] ?? item['name'] ?? item['titulo'] ?? '').toString().trim();
 
     if (!mounted) return;
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
-        builder: (_) =>
-            PageContenido(idcontenido: id, tmdbId: id, mediaType: mediaType),
+        builder: (_) => PageContenido(
+          idcontenido: id,
+          tmdbId: id,
+          mediaType: mediaType,
+          expectedTitle: sTitle.isNotEmpty ? sTitle : null,
+        ),
       ),
     );
   }
@@ -1165,22 +1258,76 @@ class _PageContenidoState extends State<PageContenido>
     }
 
     if (_error != null || _data == null) {
+      final isBuscadorPrompt = _error?.contains('buscador') == true;
       return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _error ?? 'Error',
-                style: const TextStyle(color: Colors.white70),
-              ),
-              const SizedBox(height: 16),
-              ElevatedButton(
-                onPressed: _fetchContent,
-                child: const Text('Reintentar'),
-              ),
-            ],
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  isBuscadorPrompt ? Icons.search_off_rounded : Icons.error_outline_rounded,
+                  color: isBuscadorPrompt ? const Color(0xFFFF6B35) : Colors.white54,
+                  size: 64,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  _error ?? 'Error al cargar el contenido',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    height: 1.4,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 28),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    OutlinedButton(
+                      autofocus: !isBuscadorPrompt,
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white70,
+                        side: const BorderSide(color: Colors.white24),
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      ),
+                      child: const Text('Volver', style: TextStyle(fontSize: 15)),
+                    ),
+                    const SizedBox(width: 16),
+                    if (isBuscadorPrompt)
+                      ElevatedButton.icon(
+                        autofocus: true,
+                        onPressed: () {
+                          Navigator.of(context).pushReplacement(
+                            MaterialPageRoute(builder: (_) => const BuscarPage()),
+                          );
+                        },
+                        icon: const Icon(Icons.search, size: 20),
+                        label: const Text('Abrir buscador', style: TextStyle(fontSize: 15)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B35),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                        ),
+                      )
+                    else
+                      ElevatedButton(
+                        onPressed: _fetchContent,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF6B35),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                        ),
+                        child: const Text('Reintentar', style: TextStyle(fontSize: 15)),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       );

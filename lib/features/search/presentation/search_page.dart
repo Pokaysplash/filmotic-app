@@ -169,12 +169,18 @@ class BuscarPageState extends State<BuscarPage>
   }
 
   void _openContent(Map<String, dynamic> item) {
-    final rawId = item['tmdb_id'] ?? item['idcontenido'] ?? item['id'] ?? item['contenido_id'];
-    final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '') ?? 0;
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        parseCanonicalTmdbId(item['id']) ??
+        0;
     if (id <= 0) return;
-    final rawTipo = (item['media_type'] ?? item['type'] ?? item['tipo'] ?? '').toString().toLowerCase();
-    final bool isSeries = rawTipo == 'tv' || rawTipo == 'serie' || (item['name'] != null && item['title'] == null);
-    final tipo = isSeries ? 'tv' : 'movie';
+    final tipo = canonicalMediaType(
+        item['media_type'] ?? item['type'] ?? item['tipo'] ?? (item['name'] != null && item['title'] == null ? 'tv' : 'movie'));
+    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '')
+        .toString()
+        .trim();
     FocusScope.of(context).unfocus();
     Navigator.push(
       context,
@@ -183,6 +189,7 @@ class BuscarPageState extends State<BuscarPage>
           idcontenido: id,
           tmdbId: id,
           mediaType: tipo,
+          expectedTitle: titulo.isNotEmpty ? titulo : null,
         ),
       ),
     );
@@ -190,11 +197,16 @@ class BuscarPageState extends State<BuscarPage>
 
   // ── LONG PRESS → abre modal de opciones ────────────────────────────────
   void _showOpcionesModal(Map<String, dynamic> item) {
-    final id = item['tmdb_id'] as int? ?? item['idcontenido'] as int? ?? 0;
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        parseCanonicalTmdbId(item['id']) ??
+        0;
     if (id <= 0) return;
 
-    final tipo =
-        (item['media_type'] ?? item['type'] ?? 'movie').toString().toLowerCase();
+    final tipo = canonicalMediaType(
+        item['media_type'] ?? item['type'] ?? item['tipo'] ?? (item['name'] != null && item['title'] == null ? 'tv' : 'movie'));
 
     final titulo = item['title']?.toString() ??
         item['titulo']?.toString() ??

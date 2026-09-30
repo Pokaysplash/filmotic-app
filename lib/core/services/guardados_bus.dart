@@ -1,5 +1,48 @@
 import 'package:flutter/material.dart';
+import '../../data/datasources/remote/tmdb/tmdb_content.dart';
 import '../../supabase/guardados_service.dart';
+
+/// Parsea de forma segura cualquier representación de TMDB ID a int canónico.
+int? parseCanonicalTmdbId(dynamic raw) {
+  if (raw == null) return null;
+  if (raw is int && raw > 0) return raw;
+  if (raw is num && raw > 0) return raw.toInt();
+  if (raw is String) {
+    final trimmed = raw.trim();
+    final parsed = int.tryParse(trimmed);
+    if (parsed != null && parsed > 0) return parsed;
+  }
+  return null;
+}
+
+/// Normaliza el tipo multimedia a 'tv' o 'movie' para llamadas TMDB.
+String canonicalMediaType(dynamic raw) {
+  final str = raw?.toString().toLowerCase().trim() ?? '';
+  if (str == 'tv' || str == 'serie' || str == 'series') return 'tv';
+  return 'movie';
+}
+
+/// Normaliza el tipo a 'serie' o 'pelicula' para almacenamiento local.
+String canonicalTipo(dynamic raw) {
+  final str = raw?.toString().toLowerCase().trim() ?? '';
+  if (str == 'tv' || str == 'serie' || str == 'series') return 'serie';
+  return 'pelicula';
+}
+
+/// Compara dos títulos limpiando signos y acentos para evitar falsos negativos.
+bool titlesMatch(String? a, String? b) {
+  if (a == null || b == null) return false;
+  String clean(String s) => s
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9áéíóúüñ]'), '')
+      .trim();
+  final cleanA = clean(a);
+  final cleanB = clean(b);
+  if (cleanA.isEmpty || cleanB.isEmpty) return false;
+  if (cleanA == cleanB) return true;
+  if (cleanA.contains(cleanB) || cleanB.contains(cleanA)) return true;
+  return false;
+}
 
 /// Modelo canónico para representar un contenido reproducible o almacenable en favoritos.
 class Contenido {
@@ -10,8 +53,10 @@ class Contenido {
   final String tipo; // 'pelicula' | 'serie'
   final int? year;
   final int? tmdbId;
+  final String? imdbId;
   final double? voteAverage;
   final DateTime timestamp;
+  final bool isUnrecoverable;
 
   const Contenido({
     required this.id,
@@ -21,16 +66,18 @@ class Contenido {
     required this.tipo,
     this.year,
     this.tmdbId,
+    this.imdbId,
     this.voteAverage,
     required this.timestamp,
+    this.isUnrecoverable = false,
   });
 
   factory Contenido.fromMap(Map<String, dynamic> map) {
-    final rawId = map['idcontenido'] ??
-        map['contenido_id'] ??
-        map['tmdb_id'] ??
-        map['id'] ??
-        '';
+    final tmdb = parseCanonicalTmdbId(map['tmdb_id']) ??
+        parseCanonicalTmdbId(map['idtmdb']) ??
+        parseCanonicalTmdbId(map['idcontenido']) ??
+        parseCanonicalTmdbId(map['id']);
+
     final rawTitulo = (map['titulo'] ??
             map['title'] ??
             map['name'] ??
@@ -38,14 +85,7 @@ class Contenido {
             'Sin título')
         .toString()
         .trim();
-    final rawTipo = (map['tipo'] ??
-            map['type'] ??
-            map['media_type'] ??
-            map['mediaType'] ??
-            'pelicula')
-        .toString()
-        .toLowerCase();
-    final tipo = (rawTipo == 'tv' || rawTipo == 'serie') ? 'serie' : 'pelicula';
+    final tipo = canonicalTipo(map['tipo'] ?? map['type'] ?? map['media_type'] ?? map['mediaType']);
 
     final rawYear = map['año'] ?? map['year'] ?? map['release_date'] ?? map['first_air_date'];
     int? parsedYear;
@@ -63,8 +103,8 @@ class Contenido {
     final rawVote = map['vote_average'] ?? map['voteAverage'];
     final vote = rawVote != null ? double.tryParse(rawVote.toString()) : null;
 
-    final rawTmdb = map['tmdb_id'] ?? map['tmdbId'] ?? map['idtmdb'];
-    final tmdb = rawTmdb != null ? int.tryParse(rawTmdb.toString()) : int.tryParse(rawId.toString());
+    final imdb = map['imdb_id']?.toString();
+    final unrec = map['unrecoverable'] == true;
 
     DateTime ts;
     if (map['timestamp'] != null) {
@@ -73,27 +113,34 @@ class Contenido {
       ts = DateTime.now();
     }
 
+    final canonicalId = (tmdb != null && tmdb > 0)
+        ? tmdb.toString()
+        : (map['id']?.toString() ?? '');
+
     return Contenido(
-      id: rawId.toString(),
+      id: canonicalId,
       titulo: rawTitulo.isNotEmpty ? rawTitulo : 'Sin título',
       poster: (map['poster'] ?? map['poster_path'] ?? map['imagen'])?.toString(),
       backdrop: (map['backdrop'] ?? map['backdrop_path'])?.toString(),
       tipo: tipo,
       year: parsedYear,
       tmdbId: tmdb,
+      imdbId: imdb,
       voteAverage: vote,
       timestamp: ts,
+      isUnrecoverable: unrec,
     );
   }
 
   Map<String, dynamic> toMap() {
-    final intId = int.tryParse(id) ?? tmdbId ?? 0;
+    final validTmdb = tmdbId ?? parseCanonicalTmdbId(id) ?? 0;
     return {
-      'id': id,
-      'idcontenido': intId,
-      'contenido_id': intId,
-      'tmdb_id': tmdbId ?? intId,
-      'idtmdb': tmdbId ?? intId,
+      'id': validTmdb > 0 ? validTmdb.toString() : id,
+      'idcontenido': validTmdb,
+      'contenido_id': validTmdb,
+      'tmdb_id': validTmdb,
+      'idtmdb': validTmdb,
+      if (imdbId != null) 'imdb_id': imdbId,
       'titulo': titulo,
       'title': titulo,
       'name': titulo,
@@ -102,17 +149,19 @@ class Contenido {
       'backdrop': backdrop,
       'backdrop_path': backdrop,
       'tipo': tipo,
-      'type': tipo,
-      'media_type': tipo == 'serie' ? 'tv' : 'movie',
+      'type': canonicalMediaType(tipo),
+      'media_type': canonicalMediaType(tipo),
       'año': year,
       'year': year,
       'vote_average': voteAverage,
       'timestamp': timestamp.toIso8601String(),
+      'unrecoverable': isUnrecoverable,
       'metadatos_completos': titulo.isNotEmpty &&
           titulo != 'Sin título' &&
           poster != null &&
           poster!.isNotEmpty &&
-          poster != 'null',
+          poster != 'null' &&
+          validTmdb > 0,
     };
   }
 }
@@ -163,7 +212,41 @@ class GuardadosCache {
     await GuardadosService.remove(idcontenido);
     GuardadosBus.bump();
   }
+
+  /// Intenta recuperar un tmdb_id correcto buscando en TMDB por título (+ año opcional).
+  static Future<int?> recoverTmdbId({
+    required String title,
+    String? mediaType,
+    int? year,
+  }) async {
+    final clean = title.trim();
+    if (clean.isEmpty || clean == 'Sin título' || clean == 'N/A' || clean == 'Cargando contenido...') {
+      return null;
+    }
+    try {
+      final results = await TmdbContentService().searchContent(
+        query: clean,
+        mediaType: mediaType,
+        year: year,
+      );
+      for (final res in results) {
+        final resTitle = (res['title'] ?? res['name'] ?? '').toString();
+        if (titlesMatch(clean, resTitle)) {
+          final id = parseCanonicalTmdbId(res['id']);
+          if (id != null && id > 0) return id;
+        }
+      }
+      if (results.isNotEmpty) {
+        final firstId = parseCanonicalTmdbId(results.first['id']);
+        if (firstId != null && firstId > 0) return firstId;
+      }
+    } catch (e) {
+      debugPrint('[GuardadosCache] Error en recoverTmdbId: $e');
+    }
+    return null;
+  }
 }
+
 
 /// Toast flotante centrado para Android TV, visible sobre cualquier interfaz o D-Pad.
 void showTvToast(

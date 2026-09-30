@@ -247,19 +247,21 @@ class _TvPageState extends State<TvPage> {
   }
 
   void _abrirContenido(Map<String, dynamic> item) {
-    final id = item['idcontenido'] ?? item['tmdb_id'] ?? item['id'] ?? item['contenido_id'];
-    if (id == null) return;
-    final idInt = id is int ? id : int.tryParse(id.toString());
-    if (idInt == null) return;
-    final tmdbId = item['tmdb_id'] is int
-        ? item['tmdb_id'] as int
-        : (int.tryParse(item['tmdb_id']?.toString() ?? '') ?? idInt);
+    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+        parseCanonicalTmdbId(item['idtmdb']) ??
+        parseCanonicalTmdbId(item['idcontenido']) ??
+        parseCanonicalTmdbId(item['contenido_id']) ??
+        parseCanonicalTmdbId(item['id']) ??
+        0;
+    if (id <= 0) return;
+    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '').toString().trim();
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => PageContenido(
-          idcontenido: idInt,
-          tmdbId: tmdbId,
+          idcontenido: id,
+          tmdbId: id,
           mediaType: 'tv',
+          expectedTitle: titulo.isNotEmpty ? titulo : null,
         ),
       ),
     );
