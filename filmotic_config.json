@@ -30,9 +30,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.3",
+    "latest_version": "1.0.0-beta.4",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Actualización v1.0.0-beta.3: Corrección integral de metadatos e IDs canónicos TMDB (soluciona títulos incorrectos al guardar/abrir películas o series), reproducción en TV fluida (preview a pantalla completa), selector de audio desplegable en TV, audio en segundo plano al salir de Live TV resuelto, respeto estricto al volumen del sistema, publicidad en pausa corregida y scroll horizontal fluido en móvil y TV.",
+    "update_message": "Actualización v1.0.0-beta.4: Nueva sección y catálogo de Anime y Novelas en portada y descubrir, integración de servidor AnimeFLV con streams directos en HD, soporte de casting DLNA a Xbox y Smart TV, y optimizaciones de estabilidad.",
     "force_update": false,
     "is_beta": true
   },

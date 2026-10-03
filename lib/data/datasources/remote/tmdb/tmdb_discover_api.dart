@@ -60,8 +60,34 @@ class TmdbDiscoverService {
     'Suspense': 9648,
   };
 
+  /// Géneros novela (filtro secundario sobre el género Soap 10766).
+  static const Map<String, int?> novelaGenreIds = {
+    'Recientes': null,
+    'Drama': 18,
+    'Romance': 10749,
+    'Comedia': 35,
+    'Crimen': 80,
+    'Misterio': 9648,
+    'Familia': 10751,
+    'Acción y Aventura': 10759,
+  };
+
+  /// Géneros anime (filtro secundario sobre el género Animación 16 japonés).
+  static const Map<String, int?> animeGenreIds = {
+    'Recientes': null,
+    'Acción y Aventura': 10759,
+    'Comedia': 35,
+    'Drama': 18,
+    'Fantasía y Sci-Fi': 10765,
+    'Misterio': 9648,
+    'Romance': 10749,
+    'Animación': 16,
+  };
+
   static List<String> movieGenreLabels() => movieGenreIds.keys.toList();
   static List<String> tvGenreLabels() => tvGenreIds.keys.toList();
+  static List<String> novelaGenreLabels() => novelaGenreIds.keys.toList();
+  static List<String> animeGenreLabels() => animeGenreIds.keys.toList();
 
   Future<_DiscPrefs> _loadPrefs() async {
     final p = await SharedPreferences.getInstance();
@@ -161,12 +187,16 @@ class TmdbDiscoverService {
     String sortBy = 'popularity',
     int page = 1,
   }) async {
-    final isTv = mediaType.toLowerCase() == 'tv';
+    final isNovela = mediaType.toLowerCase() == 'novela';
+    final isAnime = mediaType.toLowerCase() == 'anime';
+    final isTv = mediaType.toLowerCase() == 'tv' || isNovela || isAnime;
     final tipo = isTv ? 'tv' : 'movie';
     final prefs = await _loadPrefs();
     final language = await _apiLanguage(prefs);
 
-    final genreMap = isTv ? tvGenreIds : movieGenreIds;
+    final genreMap = isAnime
+        ? animeGenreIds
+        : (isNovela ? novelaGenreIds : (isTv ? tvGenreIds : movieGenreIds));
     final genreId = genreMap[genero]; // null = Recientes
 
     final query = <String, String>{
@@ -174,15 +204,29 @@ class TmdbDiscoverService {
       'page': '$page',
       'sort_by': _sortBy(tipo, sortBy),
       'include_adult': prefs.allowAdult ? 'true' : 'false',
-      'vote_count.gte': sortBy == 'rating' ? '50' : '10',
+      'vote_count.gte': (isNovela || isAnime) ? '3' : (sortBy == 'rating' ? '50' : '10'),
     };
 
-    if (genreId != null) {
+    if (isNovela) {
+      if (genreId != null) {
+        query['with_genres'] = '10766,$genreId';
+      } else {
+        query['with_genres'] = '10766';
+      }
+      query['with_original_language'] = 'es|tr|pt';
+    } else if (isAnime) {
+      if (genreId != null && genreId != 16) {
+        query['with_genres'] = '16,$genreId';
+      } else {
+        query['with_genres'] = '16';
+      }
+      query['with_original_language'] = 'ja';
+    } else if (genreId != null) {
       query['with_genres'] = '$genreId';
     }
 
-    // Excluir reality / talk / news / soap en Descubrir (no en búsqueda)
-    if (isTv && TmdbApis.tvWithoutGenres.isNotEmpty) {
+    // Excluir reality / talk / news / soap en Descubrir general (no en novelas ni anime)
+    if (isTv && !isNovela && !isAnime && TmdbApis.tvWithoutGenres.isNotEmpty) {
       query['without_genres'] = TmdbApis.tvWithoutGenres;
     }
 

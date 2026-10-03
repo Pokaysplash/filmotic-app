@@ -243,9 +243,34 @@ class AnimeFLVScraper {
     final pageHtml = html ?? await fetchHtml(url);
     if (pageHtml == null) return [];
 
+    final doc = parser.parse(pageHtml);
     final servers = <DetalleServidor>[];
 
-    // AnimeFLV almacena los streams en: var videos = {"SUB": [...], "LAT": [...]};
+    // 1. Extraer botones data-src codificados en Base64 (nuevo formato AnimeFLV)
+    final elementsWithDataSrc = doc.querySelectorAll('[data-src]');
+    for (final el in elementsWithDataSrc) {
+      final rawB64 = el.attributes['data-src']?.trim() ?? '';
+      if (rawB64.isEmpty) continue;
+
+      String decodedUrl = '';
+      try {
+        decodedUrl = utf8.decode(base64.decode(base64.normalize(rawB64))).trim();
+      } catch (_) {
+        if (rawB64.startsWith('http')) decodedUrl = rawB64;
+      }
+
+      if (decodedUrl.isNotEmpty && decodedUrl.startsWith('http')) {
+        final label = el.text.trim();
+        servers.add(DetalleServidor(
+          nombre: label.isNotEmpty ? 'AnimeFLV · $label' : 'AnimeFLV · Server',
+          url: decodedUrl,
+          idioma: _detectIdioma('$label $decodedUrl'),
+          calidad: 'HD',
+        ));
+      }
+    }
+
+    // 2. AnimeFLV almacena los streams en: var videos = {"SUB": [...], "LAT": [...]};
     final matchVideos = RegExp(r'var videos\s*=\s*(\{[\s\S]*?\});').firstMatch(pageHtml);
     if (matchVideos != null) {
       try {
@@ -273,8 +298,7 @@ class AnimeFLVScraper {
       } catch (_) {}
     }
 
-    // Iframes adicionales en el HTML
-    final doc = parser.parse(pageHtml);
+    // 3. Iframes adicionales en el HTML
     final iframes = doc.querySelectorAll('iframe');
     for (final iframe in iframes) {
       var src = iframe.attributes['src'] ?? '';

@@ -15,6 +15,7 @@ import '../../data/extractors/providers/pelispedia_extractor.dart';
 import '../../data/extractors/providers/seriesmetro_extractor.dart';
 import '../../data/extractors/providers/smartpelis_extractor.dart';
 import '../../data/extractors/providers/canela_extractor.dart';
+import '../../data/extractors/providers/animeflv_extractor.dart';
 import '../../data/datasources/remote/sources/custom_api.dart';
 typedef SourceScraper = Stream<Map<String, dynamic>> Function({
   required int tmdbId,
@@ -436,6 +437,33 @@ final List<SourceDefinition> kRegisteredSources = [
       ).map((s) {
         final map = s.toModalMap();
         map['es_canela'] = true;
+        return map;
+      });
+    },
+  ),
+  SourceDefinition(
+    id: 'animeflv',
+    label: 'AnimeFLV',
+    prefsKey: 'animeflv_enabled',
+    badgeColor: const Color(0xFFFBBF24),
+    badgeText: 'ANIMEFLV',
+    flagKey: 'es_animeflv',
+    icon: Icons.animation_rounded,
+    maxResults: 15,
+    scrape: ({
+      required tmdbId,
+      required isMovie,
+      required season,
+      required episode,
+    }) {
+      return AnimeFlvService.scrape(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+      ).map((s) {
+        final map = s.toModalMap();
+        map['es_animeflv'] = true;
         return map;
       });
     },

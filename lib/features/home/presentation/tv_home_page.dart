@@ -128,6 +128,8 @@ class _HomePageState extends State<HomePage>
     addSection('year_tv', isMovie: false);
     addSection('recent_movies', isMovie: true);
     addSection('recent_tv', isMovie: false);
+    addSection('novelas', isMovie: false);
+    addSection('anime', isMovie: false);
     addSection('recent_episodes', horizontalCards: true, isMovie: false);
 
     // Banner 320x50 entre secciones horizontales de películas y series

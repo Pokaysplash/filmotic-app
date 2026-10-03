@@ -98,11 +98,21 @@ class _EscrubirPageState extends State<EscrubirPage>
     super.dispose();
   }
 
-  List<String> get _currentGenres => _tipo == 'tv'
-      ? TmdbDiscoverService.tvGenreLabels()
-      : TmdbDiscoverService.movieGenreLabels();
+  static List<String> _genresFor(String tipo) => switch (tipo) {
+        'tv' => TmdbDiscoverService.tvGenreLabels(),
+        'novela' => TmdbDiscoverService.novelaGenreLabels(),
+        'anime' => TmdbDiscoverService.animeGenreLabels(),
+        _ => TmdbDiscoverService.movieGenreLabels(),
+      };
 
-  String get _tipoLabel => _tipo == 'tv' ? 'Series' : 'Película';
+  List<String> get _currentGenres => _genresFor(_tipo);
+
+  String get _tipoLabel => switch (_tipo) {
+        'tv' => 'Series',
+        'novela' => 'Novelas',
+        'anime' => 'Anime',
+        _ => 'Película',
+      };
   String get _sortLabel => _sortLabels[_sortBy] ?? 'Popular';
 
   FocusNode _getPosterFocus(int index) {
@@ -216,9 +226,7 @@ class _EscrubirPageState extends State<EscrubirPage>
 
   void _changeTipo(String tipo) {
     if (tipo == _tipo) return;
-    final genres = tipo == 'tv'
-        ? TmdbDiscoverService.tvGenreLabels()
-        : TmdbDiscoverService.movieGenreLabels();
+    final genres = _genresFor(tipo);
     final newGenero = genres.contains(_genero) ? _genero : 'Recientes';
     setState(() {
       _tipo = tipo;
@@ -288,7 +296,12 @@ class _EscrubirPageState extends State<EscrubirPage>
   void _showTipoMenu() {
     _showFilterMenu(
       title: 'Tipo',
-      options: const [('movie', 'Película'), ('tv', 'Series')],
+      options: const [
+        ('movie', 'Película'),
+        ('tv', 'Series'),
+        ('novela', 'Novelas'),
+        ('anime', 'Anime'),
+      ],
       current: _tipo,
       onSelected: _changeTipo,
     );

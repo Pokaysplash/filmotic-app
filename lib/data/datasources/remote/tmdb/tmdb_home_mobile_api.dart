@@ -129,8 +129,11 @@ class TmdbHomeMobileService {
     List<Map<String, dynamic>> items,
     _HomePrefs prefs, {
     required bool isMovie,
+    bool isNovela = false,
+    bool isAnime = false,
   }) {
-    final minVotes = isMovie ? _minVoteCountMovies : _minVoteCountTv;
+    final minVotes = (isNovela || isAnime) ? 3 : (isMovie ? _minVoteCountMovies : _minVoteCountTv);
+    final minPop = (isNovela || isAnime) ? 3.0 : _minPopularity;
 
     return items.where((item) {
       final poster = item['poster_path']?.toString() ?? '';
@@ -143,7 +146,7 @@ class TmdbHomeMobileService {
           ? (item['popularity'] as num).toDouble()
           : double.tryParse('${item['popularity']}') ?? 0.0;
 
-      if (voteCount < minVotes && popularity < _minPopularity) return false;
+      if (voteCount < minVotes && popularity < minPop) return false;
 
       if (item['adult'] == true && !prefs.allowAdult) return false;
 
@@ -161,7 +164,11 @@ class TmdbHomeMobileService {
       final origLang =
           (item['original_language'] ?? '').toString().toLowerCase();
       if (prefs.regionalFilter && _excludedRegionalLangs.contains(origLang)) {
-        return false;
+        final allowRegional = (isNovela && origLang == 'tr') ||
+            (isAnime && origLang == 'ja');
+        if (!allowRegional) {
+          return false;
+        }
       }
 
       if (prefs.disableNonLatin) {
@@ -606,6 +613,40 @@ class TmdbHomeMobileService {
       );
     }
 
+    // Novelas (Soap 10766 hispanas, turcas y brasileñas populares)
+    futures['novelas'] = _listResultsMultiPage(
+      '/discover/tv',
+      query: {
+        'include_adult': prefs.allowAdult ? 'true' : 'false',
+        'sort_by': 'popularity.desc',
+        'with_genres': '10766',
+        'with_original_language': 'es|tr|pt',
+        'vote_count.gte': '3',
+        if (!prefs.showUnreleased)
+          'first_air_date.lte':
+              '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
+      },
+      language: language,
+      max: _targetPerSection + 10,
+    );
+
+    // Anime (Animación 16 japonesa popular)
+    futures['anime'] = _listResultsMultiPage(
+      '/discover/tv',
+      query: {
+        'include_adult': prefs.allowAdult ? 'true' : 'false',
+        'sort_by': 'popularity.desc',
+        'with_genres': '16',
+        'with_original_language': 'ja',
+        'vote_count.gte': '3',
+        if (!prefs.showUnreleased)
+          'first_air_date.lte':
+              '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
+      },
+      language: language,
+      max: _targetPerSection + 10,
+    );
+
     final keys = futures.keys.toList();
     final results = await Future.wait(futures.values);
     final rawMap = <String, List<Map<String, dynamic>>>{};
@@ -617,11 +658,13 @@ class TmdbHomeMobileService {
       String title,
       List<Map<String, dynamic>>? raw, {
       required bool isMovie,
+      bool isNovela = false,
+      bool isAnime = false,
       int minItems = 4,
       bool withLogos = false,
     }) async {
       if (raw == null || raw.isEmpty) return null;
-      final filtered = _applyFilters(raw, prefs, isMovie: isMovie);
+      final filtered = _applyFilters(raw, prefs, isMovie: isMovie, isNovela: isNovela, isAnime: isAnime);
       if (filtered.length < minItems) return null;
 
       var mapped = filtered
@@ -709,6 +752,22 @@ class TmdbHomeMobileService {
       );
       if (recentTv != null) data['recent_tv'] = recentTv;
     }
+
+    final novelas = await section(
+      'Novelas',
+      rawMap['novelas'],
+      isMovie: false,
+      isNovela: true,
+    );
+    if (novelas != null) data['novelas'] = novelas;
+
+    final anime = await section(
+      'Anime',
+      rawMap['anime'],
+      isMovie: false,
+      isAnime: true,
+    );
+    if (anime != null) data['anime'] = anime;
 
     // year opcional (por si lo usas después)
     if (prefs.homeYearMovies) {

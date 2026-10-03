@@ -26,6 +26,7 @@ import '../extractors/providers/seriesmetro_extractor.dart';
 import '../extractors/providers/smartpelis_extractor.dart';
 import '../extractors/providers/cinesrc_extractor.dart';
 import '../extractors/providers/canela_extractor.dart';
+import '../extractors/providers/animeflv_extractor.dart';
 import '../datasources/remote/sources/custom_api.dart';
 import '../extractors/hls/hls_extractor.dart';
 
@@ -77,6 +78,7 @@ enum FuenteId {
   smartpelis,
   cinesrc,
   canela,
+  animeflv,
   customapi, // APIs del usuario (códigos PHP ilimitados)
 }
 
@@ -109,6 +111,8 @@ extension FuenteIdX on FuenteId {
         return 'CineSrc';
       case FuenteId.canela:
         return 'Canela.TV';
+      case FuenteId.animeflv:
+        return 'AnimeFLV';
       case FuenteId.customapi:
         return 'Mis APIs';
     }
@@ -142,6 +146,8 @@ extension FuenteIdX on FuenteId {
         return 'es_cinesrc';
       case FuenteId.canela:
         return 'es_canela';
+      case FuenteId.animeflv:
+        return 'es_animeflv';
       case FuenteId.customapi:
         return 'es_customapi';
     }
@@ -175,6 +181,8 @@ extension FuenteIdX on FuenteId {
         return const Color(0xFFEF4444);
       case FuenteId.canela:
         return const Color(0xFFE11D48);
+      case FuenteId.animeflv:
+        return const Color(0xFFFBBF24);
       case FuenteId.customapi:
         return const Color(0xFF60A5FA);
     }
@@ -198,6 +206,7 @@ class FuentesConfig {
   final bool smartpelisEnabled;
   final bool cinesrcEnabled;
   final bool canelaEnabled;
+  final bool animeflvEnabled;
   final bool customApiEnabled;
 
   final bool verificarServidores;
@@ -222,6 +231,7 @@ class FuentesConfig {
     required this.smartpelisEnabled,
     required this.cinesrcEnabled,
     required this.canelaEnabled,
+    required this.animeflvEnabled,
     required this.customApiEnabled,
     required this.verificarServidores,
     required this.unServidorPorIdioma,
@@ -258,6 +268,7 @@ class FuentesConfig {
       smartpelisEnabled: prefs.getBool('smartpelis_enabled') ?? false,
       cinesrcEnabled: prefs.getBool('cinesrc_enabled') ?? false,
       canelaEnabled: prefs.getBool('canela_enabled') ?? true,
+      animeflvEnabled: prefs.getBool('animeflv_enabled') ?? true,
       customApiEnabled: prefs.getBool('custom_api_enabled') ?? false,
       verificarServidores: prefs.getBool('verificar_servidores') ?? true,
       unServidorPorIdioma: prefs.getBool('un_servidor_por_idioma') ?? true,
@@ -288,6 +299,7 @@ class FuentesConfig {
     if (smartpelisEnabled) list.add(FuenteId.smartpelis);
     if (cinesrcEnabled) list.add(FuenteId.cinesrc);
     if (canelaEnabled) list.add(FuenteId.canela);
+    if (animeflvEnabled) list.add(FuenteId.animeflv);
     if (customApiEnabled) list.add(FuenteId.customapi);
     return list;
   }
@@ -718,6 +730,16 @@ class MainFuentes {
         break;
       case FuenteId.canela:
         await for (final s in CanelaService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
+        }
+        break;
+      case FuenteId.animeflv:
+        await for (final s in AnimeFlvService.scrape(
           tmdbId: tmdbId,
           isMovie: isMovie,
           season: season,

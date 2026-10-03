@@ -14,6 +14,7 @@ import '../extractors/providers/cinecalidad_extractor.dart';
 import '../scrapers/cinecalidad_scraper.dart';
 import '../scrapers/thanhdattoday_scraper.dart';
 import '../scrapers/animeflv_scraper.dart';
+import '../extractors/providers/animeflv_extractor.dart';
 
 class ServerEvent {
   final Map<String, dynamic>? servidor;
@@ -262,18 +263,13 @@ class MainFuentesServidores {
         break;
 
       case 'animeflv':
-        final animeServers = await AnimeFLVScraper.fetchServers(
-          url: 'https://animeflv.com.es/ver/$tmdbId-${isMovie ? 1 : episode}',
-        );
-        for (final s in animeServers) {
-          yield {
-            'servidor_nombre': s.nombre,
-            'servidor_url': s.url,
-            'calidad': s.calidad ?? 'HD',
-            'idioma': s.idioma ?? 'subtitulado',
-            'estado': 'activo',
-            'es_animeflv': true,
-          };
+        await for (final s in AnimeFlvService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
         }
         break;
 

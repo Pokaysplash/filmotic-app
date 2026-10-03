@@ -597,6 +597,8 @@ class _HomePageState extends State<HomePage>
                   : _itemsOf('recent_tv'),
               categoryKeyPrefix: 'recent',
             ),
+            if (_itemsOf('novelas').isNotEmpty) ..._buildNovelasSection(),
+            if (_itemsOf('anime').isNotEmpty) ..._buildAnimeSection(),
             if (_itemsOf('recent_episodes').isNotEmpty)
               SliverToBoxAdapter(
                 child: _EpisodeSection(
@@ -725,6 +727,128 @@ class _HomePageState extends State<HomePage>
         },
       ),
     );
+  }
+
+  List<Widget> _buildNovelasSection() {
+    final items = _itemsOf('novelas');
+    final title = _titleOf('novelas', 'Novelas');
+    return [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+          child: Row(
+            children: [
+              Expanded(child: Text(title, style: kSectionTitleStyle)),
+              GestureDetector(
+                onTap: () => _openCategoryList(
+                  title: title,
+                  items: items,
+                  isMovie: false,
+                  categoryKey: 'novelas',
+                ),
+                behavior: HitTestBehavior.opaque,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Text(
+                    'Ver más +',
+                    style: TextStyle(
+                      fontFamily: 'sans-serif',
+                      color: kAccentColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: 190,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            shrinkWrap: false,
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+            itemCount: items.length,
+            cacheExtent: 200,
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return _PosterCard(
+                item: item,
+                showRating: true,
+                onTap: () => _openContent(item),
+                onLongPress: () => _showOpcionesModal(item),
+              );
+            },
+          ),
+        ),
+      ),
+      const SliverToBoxAdapter(child: SizedBox(height: 4)),
+    ];
+  }
+
+  List<Widget> _buildAnimeSection() {
+    final items = _itemsOf('anime');
+    final title = _titleOf('anime', 'Anime');
+    return [
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+          child: Row(
+            children: [
+              Expanded(child: Text(title, style: kSectionTitleStyle)),
+              GestureDetector(
+                onTap: () => _openCategoryList(
+                  title: title,
+                  items: items,
+                  isMovie: false,
+                  categoryKey: 'anime',
+                ),
+                behavior: HitTestBehavior.opaque,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  child: Text(
+                    'Ver más +',
+                    style: TextStyle(
+                      fontFamily: 'sans-serif',
+                      color: kAccentColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: 190,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            physics: const BouncingScrollPhysics(),
+            shrinkWrap: false,
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+            itemCount: items.length,
+            cacheExtent: 200,
+            itemBuilder: (context, index) {
+              final item = items[index];
+              return _PosterCard(
+                item: item,
+                showRating: true,
+                onTap: () => _openContent(item),
+                onLongPress: () => _showOpcionesModal(item),
+              );
+            },
+          ),
+        ),
+      ),
+      const SliverToBoxAdapter(child: SizedBox(height: 4)),
+    ];
   }
 
   List<Widget> _buildGenreSection() {
