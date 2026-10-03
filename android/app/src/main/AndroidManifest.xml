@@ -121,6 +121,9 @@
             android:exported="false"
             android:stopWithTask="false" />
 
+        <!-- UPnP Service for DLNA Casting (media_cast_dlna) -->
+        <service android:name="org.jupnp.android.AndroidUpnpServiceImpl"/>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

@@ -14,7 +14,9 @@ import '../../content/presentation/content_page.dart';
 import 'subtitles/subtitle_widget.dart';
 import 'quality/quality_selector.dart';
 import 'subtitles/subtitle_selector.dart'; // ← NUEVO
-import 'widgets/cast_button.dart'; // ← CAST
+import '../../../core/services/cast_service.dart';
+import 'widgets/dlna_cast_sheet.dart';
+import 'widgets/dlna_remote_control_bar.dart';
 import 'widgets/mobile_skip_next_overlay.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_player_api.dart';
 import 'player_controller.dart'; // Módulo independiente de servidores / HLS
@@ -2297,7 +2299,112 @@ class _PlayerScreenState extends State<PlayerScreen> {
       WakelockPlus.disable();
     }
 
+    if (CastService.instance.state == CastState.casting ||
+        CastService.instance.state == CastState.connected) {
+      CastService.instance.disconnect();
+    }
+
     super.dispose();
+  }
+
+  Future<void> _handleDlnaCastPressed() async {
+    if (widget.isLive) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('El envío a TV estará disponible próximamente para TV en vivo.'),
+          backgroundColor: Color(0xFF1E1E1E),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final castService = CastService.instance;
+
+    // Si ya está conectado o casteando, ofrecer desconectar o cambiar
+    if (castService.state == CastState.connected ||
+        castService.state == CastState.casting) {
+      final devName = castService.connectedDevice?.friendlyName ?? 'TV';
+      final action = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.cast_connected_rounded, color: Color(0xFFFF6B35)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Transmitiendo a $devName',
+                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            '¿Deseas desconectar la sesión de Cast o cambiar de dispositivo?',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('disconnect'),
+              child: const Text('Desconectar', style: TextStyle(color: Colors.redAccent)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('change'),
+              child: const Text('Cambiar dispositivo', style: TextStyle(color: Color(0xFFFF6B35))),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Cerrar', style: TextStyle(color: Colors.white60)),
+            ),
+          ],
+        ),
+      );
+
+      if (action == 'disconnect') {
+        await castService.disconnect();
+        if (mounted) setState(() {});
+        return;
+      } else if (action != 'change') {
+        return;
+      }
+    }
+
+    if (!mounted) return;
+
+    // Esperar a que la URL del stream esté resuelta si el loader aún está cargando
+    String streamUrl = _activeUrl.isNotEmpty ? _activeUrl : widget.videoUrl;
+    if (streamUrl.trim().isEmpty || _isLoading) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cargando el enlace del video, espera un momento...'),
+          backgroundColor: Color(0xFF1E1E1E),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    final title = _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo;
+    final poster = _backdropUrl;
+
+    if (!mounted) return;
+
+    await DlnaCastSheet.show(
+      context: context,
+      videoUrl: streamUrl,
+      title: title,
+      posterUrl: poster,
+      onCastStarted: () {
+        // Pausar reproducción local para evitar duplicidad de audio
+        if (_controllerReady && _isPlaying) {
+          _controller.pause();
+        }
+        if (mounted) setState(() {});
+      },
+    );
   }
 
   void _showLiveStreamSelector() {
@@ -2624,6 +2731,29 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   },
                 ),
               ),
+
+            // ── Barra de control remoto DLNA (Xbox / Smart TV) ────────
+            ValueListenableBuilder<CastState>(
+              valueListenable: CastService.instance.stateNotifier,
+              builder: (context, castState, _) {
+                if (castState != CastState.connected &&
+                    castState != CastState.casting) {
+                  return const SizedBox.shrink();
+                }
+                return Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: _showControls
+                      ? (_showBottomPanel ? 230.0 : 120.0)
+                      : 20.0,
+                  child: DlnaRemoteControlBar(
+                    onDisconnect: () {
+                      if (mounted) setState(() {});
+                    },
+                  ),
+                );
+              },
+            ),
           ],
         ),
       ),
@@ -3051,24 +3181,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onPressed: _showAudioLanguageSelector,
                   ),
                   const SizedBox(width: 4),
-                  // ── BOTÓN CAST ──────────────────────────────────
-                  CastButton(
-                    videoUrl: _activeUrl.isNotEmpty
-                        ? _activeUrl
-                        : widget.videoUrl,
-                    headers: _playerHeaders(),
-                    title: _tituloContenido.isNotEmpty
-                        ? _tituloContenido
-                        : widget.titulo,
-                    accentColor: accentOrange,
-                    backdropUrl: _backdropUrl,
-                    introStartSec: _introStartSec,
-                    introEndSec: _introEndSec,
-                    // outroStartSec / outroEndSec si los tienes
-                    openCastScreenOnConnect:
-                        true, // ← abre CastScreen al conectar
-                    onCastStarted: () {
-                      if (_controllerReady && _isPlaying) _controller.pause();
+                  // ── BOTÓN CAST DLNA (Enviar a TV) ────────────────
+                  ValueListenableBuilder<CastState>(
+                    valueListenable: CastService.instance.stateNotifier,
+                    builder: (context, castState, _) {
+                      final isConnected = castState == CastState.connected ||
+                          castState == CastState.casting;
+                      return IconButton(
+                        icon: Icon(
+                          isConnected
+                              ? Icons.cast_connected_rounded
+                              : Icons.cast_rounded,
+                          color: isConnected ? accentOrange : Colors.white,
+                          size: 22,
+                        ),
+                        tooltip: isConnected
+                            ? 'Conectado a TV (Administrar)'
+                            : 'Enviar a TV',
+                        onPressed: _handleDlnaCastPressed,
+                      );
                     },
                   ),
                 ],

@@ -724,4 +724,66 @@ En esta iteración se corrigieron 6 problemas reportados en la Beta 2 tanto para
 - Remote Config (`filmotic_config.json`): `latest_version: "1.0.0-beta.3"`.
 - Documentación y Landing Page (`docs/index.html`): actualizadas a `v1.0.0-beta.3`.
 
+---
+
+## 23. WAVE 11 – Casting DLNA (Enviar a TV desde Móvil)
+
+Se implementó la funcionalidad completa de casting mediante el protocolo universal **DLNA / UPnP (Digital Living Network Alliance / Universal Plug and Play)**, permitiendo a los usuarios transmitir películas y series directamente desde su teléfono móvil a receptores en la misma red local WiFi (consolas Xbox One, Xbox Series X|S, Smart TVs Samsung/LG/Sony/TCL, TV Boxes y dongles compatibles).
+
+### 23.1 Arquitectura y Rol de la App Móvil (DMC - Digital Media Controller)
+- **Rol DMC**: La app Filmotic actúa exclusivamente como controlador de medios. Descubre los receptores DLNA (Digital Media Renderers - DMR), transmite la URL del stream resuelta por el reproductor y controla la reproducción remota (Play, Pause, Stop, Seek).
+- **Sin duplicación en local**: El dispositivo receptor reproduce el stream directamente por su cuenta vía red. La reproducción local en el teléfono se pausa automáticamente al iniciar el cast para evitar duplicidad de audio y ahorrar batería.
+- **Sin WebViews**: El envío se realiza puramente a nivel de red (URL directa de video y metadatos UPnP AVTransport), garantizando máxima fluidez y compatibilidad.
+
+### 23.2 Componentes Implementados
+
+1. **Dependencia y Configuración Android**:
+   - Librería: `media_cast_dlna: ^0.3.1` (basada en el stack robusto jUPnP / Cling).
+   - Permisos en `android/app/src/main/AndroidManifest.xml`:
+     - `android.permission.INTERNET`
+     - `android.permission.ACCESS_NETWORK_STATE`
+     - `android.permission.ACCESS_WIFI_STATE`
+     - `android.permission.CHANGE_WIFI_MULTICAST_STATE`
+     - `android.permission.NEARBY_WIFI_DEVICES`
+   - Servicio UPnP en `<application>`: `<service android:name="org.jupnp.android.AndroidUpnpServiceImpl"/>`.
+   - `android/app/src/main/res/values/strings.xml`: `<string name="app_name">Filmotic</string>`.
+
+2. **Servicio Central `CastService` (`lib/core/services/cast_service.dart`)**:
+   - Singleton con inicialización segura (`init()`) de UPnP en Android.
+   - **Descubrimiento en tiempo real**: `discoverDevices(timeout: 10s)` mediante `MediaCastDlnaDiscoveryEvents` escuchando eventos nativos `onDeviceFound`, `onDeviceLost` y `onRendererOffline`.
+   - **Conexión con reintento automático**: `connectToDevice(deviceUdn)` con verificación de disponibilidad en red.
+   - **Envío de Streams y Metadatos**: `castMedia(videoUrl, title, posterUrl)` empaqueta `VideoMetadata` (título, póster, clase UPnP `object.item.videoItem.movie`) y ejecuta `setMediaUri` + `play`.
+   - **Control de Transporte Remoto**: métodos asíncronos `play()`, `pause()`, `stop()`, `seek(Duration)` y `disconnect()`.
+   - **Manejo de Errores y Estados**: `ValueNotifier<CastState>` expone los estados `idle`, `discovering`, `connected`, `casting` y `error`. Si no se hallan dispositivos tras 10 segundos o el formato no es soportado, emite mensajes claros y precisos.
+
+3. **Interfaz de Usuario y Modal de Selección (`lib/features/player/presentation/widgets/dlna_cast_sheet.dart`)**:
+   - Modal bottom sheet con diseño oscuro y acento naranja Filmotic (`#FF6B35`).
+   - Spinner animado durante el escaneo activo de red.
+   - Listado en tiempo real con iconos dedicados: consola (Xbox), TV o equipo de audio.
+   - Manejo de timeout de 10 segundos con tarjeta de aviso y botón para reintentar la búsqueda.
+   - Notificación SnackBar informativa al iniciar la transmisión exitosamente ("Reproduciendo en [dispositivo]").
+
+4. **Barra de Control Remoto Flotante (`lib/features/player/presentation/widgets/dlna_remote_control_bar.dart`)**:
+   - Barra minimalista con efecto glassmorphism en la parte inferior del reproductor móvil.
+   - Muestra el nombre del dispositivo activo, botón Play/Pause remoto sincronizado en tiempo real, botón Stop y botón de Desconectar.
+   - Se adapta a la visibilidad de los controles generales del reproductor.
+
+5. **Integración en el Reproductor Móvil (`lib/features/player/presentation/player_page.dart`)**:
+   - Botón Cast en la barra superior con indicador reactivo de conexión (icono `cast_connected_rounded` resaltado en naranja al estar activo).
+   - Diálogo de administración rápida al tocar el botón con sesión activa (opción de cambiar de dispositivo o desconectar).
+   - Liberación limpia de recursos y desconexión en `dispose()` del reproductor.
+
+### 23.3 Requisitos y Limitaciones
+- **Requisitos de Red**: Teléfono móvil y dispositivo receptor deben estar conectados a la **misma red WiFi / subred local** (asegurar que el router no tenga activo "Aislamiento de Clientes / AP Isolation").
+- **Dispositivos Compatibles**:
+  - Consolas: Xbox One, Xbox One S/X, Xbox Series S/X (función "Play To" / DLNA habilitada por defecto).
+  - Smart TVs: LG (webOS), Samsung (Tizen), Sony, Philips, TCL, Hisense, Xiaomi con soporte DLNA/DMR.
+  - TV Boxes / Dongles: Android TV Boxes, Fire TV, Roku (con receptor UPnP/DLNA activo).
+- **Alcance de Contenido**: Exclusivo para Video on Demand (**VOD**: Películas y Series). Si se intenta enviar TV en Vivo, la app notifica: *"El envío a TV estará disponible próximamente para TV en vivo"*.
+- **Plataformas**: Implementación enfocada en Android. En iOS el soporte se integrará mediante AirPlay nativo en una fase posterior.
+
+### 23.4 Cómo Añadir Nuevos Dispositivos Compatibles en el Futuro
+- Para integrar nuevos protocolos (por ejemplo, Google Cast v2 o Apple AirPlay), basta con conectar sus controladores a la interfaz de `CastService` sin modificar los componentes de la interfaz de usuario ni los reproductores, o extender las opciones de búsqueda en `DiscoveryOptions` ampliando los `SearchTarget` a servicios UPnP propietarios adicionales.
+
+
 
