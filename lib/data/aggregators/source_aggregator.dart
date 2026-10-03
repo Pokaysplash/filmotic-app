@@ -25,6 +25,7 @@ import '../extractors/providers/pelispedia_extractor.dart';
 import '../extractors/providers/seriesmetro_extractor.dart';
 import '../extractors/providers/smartpelis_extractor.dart';
 import '../extractors/providers/cinesrc_extractor.dart';
+import '../extractors/providers/canela_extractor.dart';
 import '../datasources/remote/sources/custom_api.dart';
 import '../extractors/hls/hls_extractor.dart';
 
@@ -75,6 +76,7 @@ enum FuenteId {
   seriesmetro,
   smartpelis,
   cinesrc,
+  canela,
   customapi, // APIs del usuario (códigos PHP ilimitados)
 }
 
@@ -105,6 +107,8 @@ extension FuenteIdX on FuenteId {
         return 'SmartPelis';
       case FuenteId.cinesrc:
         return 'CineSrc';
+      case FuenteId.canela:
+        return 'Canela.TV';
       case FuenteId.customapi:
         return 'Mis APIs';
     }
@@ -136,6 +140,8 @@ extension FuenteIdX on FuenteId {
         return 'es_smartpelis';
       case FuenteId.cinesrc:
         return 'es_cinesrc';
+      case FuenteId.canela:
+        return 'es_canela';
       case FuenteId.customapi:
         return 'es_customapi';
     }
@@ -167,6 +173,8 @@ extension FuenteIdX on FuenteId {
         return const Color(0xFFF97316);
       case FuenteId.cinesrc:
         return const Color(0xFFEF4444);
+      case FuenteId.canela:
+        return const Color(0xFFE11D48);
       case FuenteId.customapi:
         return const Color(0xFF60A5FA);
     }
@@ -189,6 +197,7 @@ class FuentesConfig {
   final bool seriesmetroEnabled;
   final bool smartpelisEnabled;
   final bool cinesrcEnabled;
+  final bool canelaEnabled;
   final bool customApiEnabled;
 
   final bool verificarServidores;
@@ -212,6 +221,7 @@ class FuentesConfig {
     required this.seriesmetroEnabled,
     required this.smartpelisEnabled,
     required this.cinesrcEnabled,
+    required this.canelaEnabled,
     required this.customApiEnabled,
     required this.verificarServidores,
     required this.unServidorPorIdioma,
@@ -247,6 +257,7 @@ class FuentesConfig {
       seriesmetroEnabled: prefs.getBool('seriesmetro_enabled') ?? false,
       smartpelisEnabled: prefs.getBool('smartpelis_enabled') ?? false,
       cinesrcEnabled: prefs.getBool('cinesrc_enabled') ?? false,
+      canelaEnabled: prefs.getBool('canela_enabled') ?? true,
       customApiEnabled: prefs.getBool('custom_api_enabled') ?? false,
       verificarServidores: prefs.getBool('verificar_servidores') ?? true,
       unServidorPorIdioma: prefs.getBool('un_servidor_por_idioma') ?? true,
@@ -276,6 +287,7 @@ class FuentesConfig {
     if (seriesmetroEnabled) list.add(FuenteId.seriesmetro);
     if (smartpelisEnabled) list.add(FuenteId.smartpelis);
     if (cinesrcEnabled) list.add(FuenteId.cinesrc);
+    if (canelaEnabled) list.add(FuenteId.canela);
     if (customApiEnabled) list.add(FuenteId.customapi);
     return list;
   }
@@ -696,6 +708,16 @@ class MainFuentes {
         break;
       case FuenteId.cinesrc:
         await for (final s in CineSrcService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
+        }
+        break;
+      case FuenteId.canela:
+        await for (final s in CanelaService.scrape(
           tmdbId: tmdbId,
           isMovie: isMovie,
           season: season,

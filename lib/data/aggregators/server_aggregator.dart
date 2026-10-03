@@ -339,6 +339,7 @@ class ServidoresAggregator {
       'pelispedia': [],
       'seriesmetro': [],
       'smartpelis': [],
+      'canela': [],
       'customapi': [],
     };
     for (final s in all) {
@@ -362,6 +363,8 @@ class ServidoresAggregator {
         map['seriesmetro']!.add(s);
       } else if (s['es_smartpelis'] == true) {
         map['smartpelis']!.add(s);
+      } else if (s['es_canela'] == true) {
+        map['canela']!.add(s);
       } else if (s['es_customapi'] == true) {
         map['customapi']!.add(s);
       }

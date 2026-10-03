@@ -432,6 +432,8 @@ class _FuentesSectionState extends State<FuentesSection> {
         return 'SeriesMetro – Series actualizadas';
       case 'smartpelis':
         return 'SmartPelis – Streaming inteligente';
+      case 'canela':
+        return 'Canela.TV – Películas y series en streaming oficial HD';
       default:
         return 'Proveedor de contenido streaming';
     }

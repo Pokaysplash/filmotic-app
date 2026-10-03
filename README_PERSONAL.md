@@ -719,7 +719,16 @@ En esta iteración se corrigieron 6 problemas reportados en la Beta 2 tanto para
   - `expectedTitle` y Verificación Canónica en TMDB: En `PageContenido` (tanto móvil como TV), se añadió el parámetro `expectedTitle`. Al consultar la API de TMDB (`/movie/{id}` o `/tv/{id}`), si el título devuelto por TMDB difiere de forma radical del título esperado de la tarjeta (por colisión de ID en el scraper), se realiza una búsqueda de rescate por título (`searchTmdbMovie` / `searchTmdbTv`) para resolver el verdadero `tmdbId` canónico del contenido.
   - Sincronización en Cascada: Actualizados todos los puntos de navegación (`home_page.dart`, `tv_home_page.dart`, `search_page.dart`, `tv_search_page.dart`, `discover_page.dart`, `derivar.dart`, `downloads_page.dart`, `movie_section.dart`, `series_section.dart`, `tv_movie_section.dart`, `tv_series_section.dart`, `category_list_page.dart`) y los modales de guardado/opciones para garantizar que el título, póster y tipo de medio persistan fielmente en Sembast.
 
-### 22.3 Versionado
+### 22.3 Integración del Extractor Canela.TV (Master HLS 1080p con Firma JWT HS256)
+- **Proveedor VOD en Español**: Se integró `CanelaService` (`lib/data/extractors/providers/canela_extractor.dart`) para películas y series.
+- **Autenticación Edge y Sesión Criptográfica**:
+  - Obtención de OAuth Client Credentials con `webclient-ui-app`.
+  - Generación de token QPAT vinculado a `deviceId` consistente.
+  - Registro de dispositivo en el microservicio Edge (`device-register-service.edge.api.canela.tv`) para adquirir la clave secreta Base64.
+  - Firma dinámica de JWT tokens (`alg: HS256`, `typ: JWT`) mediante HMAC-SHA256 con payload expiratorio corto para solicitar autorización de reproducción (`playback-auth-service.edge.api.canela.tv`).
+  - Obtención de streams directos BoltDNS HLS AES-128 (`master.m3u8`) con calidad 1080p y audio nativo en español latino, sin necesidad de WebViews ni reproductores externos.
+
+### 22.4 Versionado
 - Versión pública: **`v1.0.0-beta.3`** (Build 3).
 - Remote Config (`filmotic_config.json`): `latest_version: "1.0.0-beta.3"`.
 - Documentación y Landing Page (`docs/index.html`): actualizadas a `v1.0.0-beta.3`.

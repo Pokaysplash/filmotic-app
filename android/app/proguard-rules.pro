@@ -34,3 +34,11 @@
 -keep class io.flutter.view.** { *; }
 -keep class io.flutter.** { *; }
 -keep class io.flutter.plugins.** { *; }
+
+# --- DLNA / jUPnP / media_cast_dlna ---
+-dontwarn org.osgi.service.component.annotations.**
+-dontwarn org.osgi.service.metatype.annotations.**
+-keep class org.jupnp.** { *; }
+-dontwarn org.jupnp.**
+-keep class br.com.felnanuke2.media_cast_dlna.** { *; }
+-dontwarn br.com.felnanuke2.media_cast_dlna.**

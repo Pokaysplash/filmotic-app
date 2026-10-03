@@ -14,6 +14,7 @@ import '../../data/extractors/providers/cinesrc_extractor.dart';
 import '../../data/extractors/providers/pelispedia_extractor.dart';
 import '../../data/extractors/providers/seriesmetro_extractor.dart';
 import '../../data/extractors/providers/smartpelis_extractor.dart';
+import '../../data/extractors/providers/canela_extractor.dart';
 import '../../data/datasources/remote/sources/custom_api.dart';
 typedef SourceScraper = Stream<Map<String, dynamic>> Function({
   required int tmdbId,
@@ -408,6 +409,33 @@ final List<SourceDefinition> kRegisteredSources = [
       ).map((s) {
         final map = s.toModalMap();
         map['es_smartpelis'] = true;
+        return map;
+      });
+    },
+  ),
+  SourceDefinition(
+    id: 'canela',
+    label: 'Canela.TV',
+    prefsKey: 'canela_enabled',
+    badgeColor: const Color(0xFFE11D48),
+    badgeText: 'CANELA',
+    flagKey: 'es_canela',
+    icon: Icons.live_tv_rounded,
+    maxResults: 6,
+    scrape: ({
+      required tmdbId,
+      required isMovie,
+      required season,
+      required episode,
+    }) {
+      return CanelaService.scrape(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+      ).map((s) {
+        final map = s.toModalMap();
+        map['es_canela'] = true;
         return map;
       });
     },
