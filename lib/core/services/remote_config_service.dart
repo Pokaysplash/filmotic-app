@@ -280,8 +280,8 @@ class FilmoticPlayerConfig {
     this.reconnectTimeoutSeconds = 60,
     this.fallbackToLowerQualityFirst = true,
     this.showReconnectOverlay = true,
-    this.preValidateServersOnContentOpen = true,
-    this.preValidationTimeoutSeconds = 5,
+    this.preValidateServersOnContentOpen = false,
+    this.preValidationTimeoutSeconds = 15,
     this.preValidationConcurrency = 5,
     this.preValidationCacheTtlMinutes = 15,
   });
@@ -292,8 +292,8 @@ class FilmoticPlayerConfig {
       reconnectTimeoutSeconds: (map['reconnect_timeout_seconds'] as num?)?.toInt() ?? 60,
       fallbackToLowerQualityFirst: map['fallback_to_lower_quality_first'] != false,
       showReconnectOverlay: map['show_reconnect_overlay'] != false,
-      preValidateServersOnContentOpen: map['pre_validate_servers_on_content_open'] != false,
-      preValidationTimeoutSeconds: (map['pre_validation_timeout_seconds'] as num?)?.toInt() ?? 5,
+      preValidateServersOnContentOpen: map['pre_validate_servers_on_content_open'] == true,
+      preValidationTimeoutSeconds: (map['pre_validation_timeout_seconds'] as num?)?.toInt() ?? 15,
       preValidationConcurrency: (map['pre_validation_concurrency'] as num?)?.toInt() ?? 5,
       preValidationCacheTtlMinutes: (map['pre_validation_cache_ttl_minutes'] as num?)?.toInt() ?? 15,
     );

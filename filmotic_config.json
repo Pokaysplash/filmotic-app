@@ -30,9 +30,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.4",
+    "latest_version": "1.0.0-beta.5",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.4 ya está disponible con nuevas fuentes, filtros de Novelas y Anime, y mejoras de estabilidad.",
+    "update_message": "Filmotic v1.0.0-beta.5 ya está disponible con correcciones en servidores y fallback de emergencia.",
     "force_update": false,
     "is_beta": true
   },
@@ -316,8 +316,8 @@
     "reconnect_timeout_seconds": 60,
     "fallback_to_lower_quality_first": true,
     "show_reconnect_overlay": true,
-    "pre_validate_servers_on_content_open": true,
-    "pre_validation_timeout_seconds": 5,
+    "pre_validate_servers_on_content_open": false,
+    "pre_validation_timeout_seconds": 15,
     "pre_validation_concurrency": 5,
     "pre_validation_cache_ttl_minutes": 15
   }

@@ -26,6 +26,7 @@ import '../widgets/because_you_watched_overlay.dart';
 import '../../../../core/services/server_prevalidation_service.dart';
 import '../../../../core/services/remote_config_service.dart';
 import '../../../../core/services/audio_service.dart';
+import '../../../../data/scrapers/base/registry.dart';
 import '../../../live_tv/data/live_tv_service.dart';
 import '../../../live_tv/domain/channel.dart';
 class _SubtitleCue {
@@ -1919,6 +1920,62 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _showAllServersFailedDialog();
   }
 
+  Future<void> _buscarEnTodasLasFuentesFallbackTv() async {
+    final query = _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo;
+    if (query.trim().isEmpty) return;
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Buscando "$query" en todas las fuentes...'),
+          backgroundColor: const Color(0xFF1E1E24),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
+
+    try {
+      final res = await buscarEnFuentes(q: query);
+      if (!mounted || _isDisposing) return;
+
+      final allItems = res.resultados.values.expand((list) => list).toList();
+      if (allItems.isNotEmpty) {
+        final first = allItems.first;
+        final id = first.tmdbId ?? query.hashCode.abs();
+        final effectiveMediaType = first.tipo.isNotEmpty
+            ? first.tipo
+            : (widget.tipo.toLowerCase() == 'tv' ? 'tv' : 'movie');
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PageContenido(
+              idcontenido: id,
+              tmdbId: id,
+              mediaType: effectiveMediaType,
+              expectedTitle: first.titulo.isNotEmpty ? first.titulo : query,
+            ),
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se encontraron otras fuentes disponibles para este contenido.'),
+            backgroundColor: Color(0xFF1E1E24),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al buscar en fuentes: $e'),
+            backgroundColor: const Color(0xFF1E1E24),
+          ),
+        );
+      }
+    }
+  }
+
   void _showAllServersFailedDialog() {
     if (!mounted || _isDisposing) return;
     showDialog(
@@ -1940,7 +1997,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ],
         ),
         content: const Text(
-          'No se pudo reproducir el contenido en ninguno de los servidores disponibles. ¿Quieres probar otra fuente?',
+          'Ningún servidor funcionó. ¿Quieres buscar este contenido en otras fuentes?',
           style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.4),
         ),
         actions: [
@@ -1951,10 +2008,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
             },
             child: const Text('Volver', style: TextStyle(color: Colors.white60, fontSize: 16)),
           ),
-          ElevatedButton(
+          TextButton(
             onPressed: () {
               Navigator.pop(ctx);
               _showAudioLanguageSelectorTv();
+            },
+            child: const Text('Elegir servidor', style: TextStyle(color: Colors.white70, fontSize: 16)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _buscarEnTodasLasFuentesFallbackTv();
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: accentOrange,
@@ -1962,7 +2026,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
             ),
-            child: const Text('Elegir servidor / fuente', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            child: const Text('Buscar en todas las fuentes', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -3105,28 +3169,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
 
     // Cargar caché Sembast de servidores validados (TTL 15m / 1h)
-    final invalidKeys = <String>{};
+    final verifiedKeys = <String>{};
+    final unverifiedKeys = <String>{};
     final noAudioKeys = <String>{};
     for (final srv in _fallbackServers) {
       final key = _serverKey(srv);
       final cached = await AppDatabase.instance.getCachedServerStatus(key);
       if (cached != null) {
-        if (cached['is_valid'] == false) invalidKeys.add(key);
         if (cached['has_audio'] == false) noAudioKeys.add(key);
       }
       final srvUrl = (srv['resolved_m3u8'] ?? srv['servidor_url'] ?? '').toString();
       if (srvUrl.isNotEmpty) {
         final preVal = await ServerPreValidationService.instance.getCachedResult(srvUrl);
-        if (preVal != null && !preVal.isValid) {
-          invalidKeys.add(key);
+        if (preVal != null && preVal.isValid) {
+          verifiedKeys.add(key);
+        } else if (preVal != null && !preVal.isValid) {
+          unverifiedKeys.add(key);
         }
       }
     }
 
-    // Filtrar idiomas donde todos los servidores son inválidos
-    byLang.removeWhere((lang, servers) => servers.every((s) =>
-        _serverLoader.isServerInvalid(s) || invalidKeys.contains(_serverKey(s))));
-
+    // Regla estricta WAVE 12.6: NUNCA ocultar idiomas ni servidores en TV.
     if (byLang.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3159,8 +3222,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 final srvUrl = (srv['resolved_m3u8'] ?? srv['servidor_url'] ?? '').toString();
                 if (srvUrl.isNotEmpty) {
                   final preVal = await ServerPreValidationService.instance.getCachedResult(srvUrl);
-                  if (preVal != null && !preVal.isValid) {
-                    invalidKeys.add(key);
+                  if (preVal != null && preVal.isValid) {
+                    verifiedKeys.add(key);
+                    unverifiedKeys.remove(key);
+                  } else if (preVal != null && !preVal.isValid) {
+                    unverifiedKeys.add(key);
+                    verifiedKeys.remove(key);
                   }
                 }
               }
@@ -3268,11 +3335,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             children: byLang.entries.map((entry) {
                               final isExpanded = expandedLang == entry.key;
                               final isSelectedLang = entry.key == currentLangLabel;
-                              final serverOptions = entry.value;
-                              final validServers = serverOptions.where((s) =>
-                                  !_serverLoader.isServerInvalid(s) &&
-                                  !invalidKeys.contains(_serverKey(s))).toList();
-                              final allServersInvalid = validServers.isEmpty;
+                              final rawServers = entry.value;
+                              final serverOptions = List<Map<String, dynamic>>.from(rawServers);
+                              serverOptions.sort((a, b) {
+                                final aVer = verifiedKeys.contains(_serverKey(a));
+                                final bVer = verifiedKeys.contains(_serverKey(b));
+                                if (aVer && !bVer) return -1;
+                                if (!aVer && bVer) return 1;
+                                return 0;
+                              });
+                              final hasAnyVerified = serverOptions.any((s) => verifiedKeys.contains(_serverKey(s)));
 
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 8),
@@ -3288,11 +3360,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                               event.logicalKey == LogicalKeyboardKey.enter ||
                                               event.logicalKey == LogicalKeyboardKey.space ||
                                               event.logicalKey == LogicalKeyboardKey.gameButtonA) {
-                                            if (!allServersInvalid) {
-                                              setDialogState(() {
-                                                expandedLang = isExpanded ? null : entry.key;
-                                              });
-                                            }
+                                            setDialogState(() {
+                                              expandedLang = isExpanded ? null : entry.key;
+                                            });
                                             return KeyEventResult.handled;
                                           }
                                           if (_isBackKey(event)) {
@@ -3306,50 +3376,40 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                         builder: (fCtx) {
                                           final hasFocus = Focus.of(fCtx).hasFocus;
                                           return InkWell(
-                                            onTap: allServersInvalid
-                                                ? null
-                                                : () {
-                                                    setDialogState(() {
-                                                      expandedLang = isExpanded ? null : entry.key;
-                                                    });
-                                                  },
+                                            onTap: () {
+                                              setDialogState(() {
+                                                expandedLang = isExpanded ? null : entry.key;
+                                              });
+                                            },
                                             borderRadius: BorderRadius.circular(12),
                                             child: AnimatedContainer(
                                               duration: const Duration(milliseconds: 140),
                                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                               decoration: BoxDecoration(
-                                                color: allServersInvalid
-                                                    ? Colors.white.withValues(alpha: 0.01)
-                                                    : hasFocus
-                                                        ? accentOrange.withValues(alpha: 0.28)
-                                                        : isSelectedLang
-                                                            ? accentOrange.withValues(alpha: 0.08)
-                                                            : Colors.white.withValues(alpha: 0.03),
+                                                color: hasFocus
+                                                    ? accentOrange.withValues(alpha: 0.28)
+                                                    : isSelectedLang
+                                                        ? accentOrange.withValues(alpha: 0.08)
+                                                        : Colors.white.withValues(alpha: 0.03),
                                                 borderRadius: BorderRadius.circular(12),
                                                 border: Border.all(
-                                                  color: allServersInvalid
-                                                      ? Colors.white10
-                                                      : hasFocus
-                                                          ? accentOrange
-                                                          : isSelectedLang
-                                                              ? accentOrange.withValues(alpha: 0.5)
-                                                              : Colors.white.withValues(alpha: 0.07),
+                                                  color: hasFocus
+                                                      ? accentOrange
+                                                      : isSelectedLang
+                                                          ? accentOrange.withValues(alpha: 0.5)
+                                                          : Colors.white.withValues(alpha: 0.07),
                                                   width: hasFocus || isSelectedLang ? 1.5 : 1.0,
                                                 ),
                                               ),
                                               child: Row(
                                                 children: [
                                                   Icon(
-                                                    allServersInvalid
-                                                        ? Icons.block_rounded
-                                                        : isSelectedLang
-                                                            ? Icons.check_circle_rounded
-                                                            : Icons.headphones_rounded,
-                                                    color: allServersInvalid
-                                                        ? Colors.white24
-                                                        : hasFocus || isSelectedLang
-                                                            ? accentOrange
-                                                            : Colors.white54,
+                                                    isSelectedLang
+                                                        ? Icons.check_circle_rounded
+                                                        : Icons.headphones_rounded,
+                                                    color: hasFocus || isSelectedLang
+                                                        ? accentOrange
+                                                        : Colors.white54,
                                                     size: 20,
                                                   ),
                                                   const SizedBox(width: 10),
@@ -3357,11 +3417,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                     child: Text(
                                                       entry.key,
                                                       style: TextStyle(
-                                                        color: allServersInvalid
-                                                            ? Colors.white38
-                                                            : hasFocus || isSelectedLang
-                                                                ? Colors.white
-                                                                : Colors.white70,
+                                                        color: hasFocus || isSelectedLang
+                                                            ? Colors.white
+                                                            : Colors.white70,
                                                         fontSize: 15,
                                                         fontWeight: isSelectedLang ? FontWeight.bold : FontWeight.w600,
                                                       ),
@@ -3370,21 +3428,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                   Container(
                                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                                     decoration: BoxDecoration(
-                                                      color: allServersInvalid
-                                                          ? Colors.white.withValues(alpha: 0.03)
-                                                          : Colors.white.withValues(alpha: 0.08),
+                                                      color: Colors.white.withValues(alpha: 0.08),
                                                       borderRadius: BorderRadius.circular(10),
                                                     ),
                                                     child: Text(
-                                                      allServersInvalid
-                                                          ? 'No disponible'
-                                                          : '${validServers.length} opción(es)',
+                                                      '${serverOptions.length} opción(es)',
                                                       style: TextStyle(
-                                                        color: allServersInvalid
-                                                            ? Colors.white38
-                                                            : hasFocus || isSelectedLang
-                                                                ? accentOrange
-                                                                : Colors.white70,
+                                                        color: hasFocus || isSelectedLang
+                                                            ? accentOrange
+                                                            : Colors.white70,
                                                         fontSize: 11.5,
                                                         fontWeight: FontWeight.w500,
                                                       ),
@@ -3405,12 +3457,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                         },
                                       ),
                                     ),
-                                    if (isExpanded && validServers.isNotEmpty)
+                                    if (isExpanded && serverOptions.isNotEmpty)
                                       Padding(
                                         padding: const EdgeInsets.only(top: 6, left: 16),
                                         child: Column(
                                           mainAxisSize: MainAxisSize.min,
-                                          children: validServers.map((srv) {
+                                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                                          children: [
+                                            if (!hasAnyVerified)
+                                              Container(
+                                                margin: const EdgeInsets.only(bottom: 6),
+                                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.amber.withValues(alpha: 0.12),
+                                                  borderRadius: BorderRadius.circular(6),
+                                                  border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
+                                                ),
+                                                child: const Row(
+                                                  children: [
+                                                    Icon(Icons.info_outline, size: 13, color: Colors.amberAccent),
+                                                    SizedBox(width: 6),
+                                                    Expanded(
+                                                      child: Text(
+                                                        'No pudimos verificar los servidores automáticamente. Prueba uno por uno.',
+                                                        style: TextStyle(color: Colors.amberAccent, fontSize: 10.5),
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ...serverOptions.map((srv) {
                                             final srvName = srv['fuente_label']?.toString() ??
                                                 srv['servidor_nombre']?.toString() ??
                                                 srv['server']?.toString() ??
@@ -3420,6 +3496,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                 'Auto';
                                             final isCurrentServer = _activeUrl == srv['servidor_url'] ||
                                                 _activeUrl == srv['resolved_m3u8'];
+                                            final isVerified = verifiedKeys.contains(_serverKey(srv));
 
                                             return Padding(
                                               padding: const EdgeInsets.only(bottom: 4),
@@ -3432,7 +3509,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                         event.logicalKey == LogicalKeyboardKey.gameButtonA) {
                                                       Navigator.pop(ctx);
                                                       if (!isCurrentServer) {
-                                                        final othersInLang = validServers.where((s) => s != srv).toList();
+                                                        final othersInLang = serverOptions.where((s) => s != srv).toList();
                                                         _switchToServerLanguage([srv, ...othersInLang]);
                                                       }
                                                       return KeyEventResult.handled;
@@ -3451,7 +3528,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                       onTap: () {
                                                         Navigator.pop(ctx);
                                                         if (!isCurrentServer) {
-                                                          final othersInLang = validServers.where((s) => s != srv).toList();
+                                                          final othersInLang = serverOptions.where((s) => s != srv).toList();
                                                           _switchToServerLanguage([srv, ...othersInLang]);
                                                         }
                                                       },
@@ -3504,6 +3581,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                               ),
                                                             ),
                                                             Container(
+                                                              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                                                              decoration: BoxDecoration(
+                                                                color: isVerified
+                                                                    ? Colors.green.withValues(alpha: 0.18)
+                                                                    : Colors.white.withValues(alpha: 0.06),
+                                                                borderRadius: BorderRadius.circular(4),
+                                                                border: Border.all(
+                                                                  color: isVerified ? Colors.greenAccent : Colors.white24,
+                                                                  width: 0.8,
+                                                                ),
+                                                             ),
+                                                             child: Row(
+                                                               mainAxisSize: MainAxisSize.min,
+                                                               children: [
+                                                                 Icon(
+                                                                   isVerified ? Icons.check_circle_rounded : Icons.help_outline_rounded,
+                                                                   size: 10,
+                                                                   color: isVerified ? Colors.greenAccent : Colors.white60,
+                                                                 ),
+                                                                 const SizedBox(width: 3),
+                                                                 Text(
+                                                                   isVerified ? 'Verificado' : 'Sin verificar',
+                                                                   style: TextStyle(
+                                                                     color: isVerified ? Colors.greenAccent : Colors.white60,
+                                                                     fontSize: 9.5,
+                                                                     fontWeight: FontWeight.w500,
+                                                                   ),
+                                                                 ),
+                                                               ],
+                                                             ),
+                                                            ),
+                                                            const SizedBox(width: 6),
+                                                            Container(
                                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                               decoration: BoxDecoration(
                                                                 color: Colors.white12,
@@ -3522,9 +3632,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                 ),
                                               ),
                                             );
-                                          }).toList(),
-                                        ),
+                                          }),
+                                        ],
                                       ),
+                                    ),
                                   ],
                                 ),
                               );

@@ -83,8 +83,12 @@ class ServerPreValidationService {
     } catch (_) {}
   }
 
-  /// Valida una sola URL haciendo HEAD request o GET parcial (Range: bytes=0-512)
-  Future<ServerValidationResult> validateUrl(String url) async {
+  /// Valida una sola URL haciendo GET parcial (Range: bytes=0-1024) con timeout de 15s
+  Future<ServerValidationResult> validateUrl(
+    String url, {
+    String? referer,
+    Map<String, String>? extraHeaders,
+  }) async {
     final cleanUrl = url.trim();
     if (cleanUrl.isEmpty) {
       return ServerValidationResult(isValid: false, statusCode: 0, timestamp: DateTime.now());
@@ -106,43 +110,47 @@ class ServerPreValidationService {
     int statusCode = 0;
     bool isValid = false;
 
-    try {
-      // 1. Intentar HEAD request
-      final headRes = await http.head(
-        uri,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': '*/*',
-        },
-      ).timeout(Duration(seconds: timeoutSec));
+    final headers = <String, String>{
+      'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Range': 'bytes=0-1024',
+    };
+    if (referer != null && referer.isNotEmpty) {
+      headers['Referer'] = referer;
+    } else {
+      headers['Referer'] = '${uri.scheme}://${uri.host}/';
+    }
+    if (extraHeaders != null) {
+      headers.addAll(extraHeaders);
+    }
 
-      statusCode = headRes.statusCode;
-      if ((statusCode >= 200 && statusCode < 400) || statusCode == 206) {
+    final client = http.Client();
+    try {
+      final request = http.Request('GET', uri);
+      request.headers.addAll(headers);
+      request.followRedirects = true;
+      request.maxRedirects = 5;
+
+      final streamedResponse = await client.send(request).timeout(Duration(seconds: timeoutSec));
+      statusCode = streamedResponse.statusCode;
+
+      // WAVE 12.6: Códigos considerados "probablemente válidos"
+      // 200-399 (éxito y redirecciones seguidas)
+      // 206 (Partial Content)
+      // 401 y 403 (pueden funcionar con Referer/cookies específicas al reproducir en ExoPlayer)
+      if ((statusCode >= 200 && statusCode < 400) ||
+          statusCode == 206 ||
+          statusCode == 401 ||
+          statusCode == 403) {
         isValid = true;
       }
     } catch (_) {
-      // Si HEAD falla o es rechazado (ej. 405 Method Not Allowed), intentar GET parcial
-    }
-
-    if (!isValid) {
-      try {
-        final getRes = await http.get(
-          uri,
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': '*/*',
-            'Range': 'bytes=0-512',
-          },
-        ).timeout(Duration(seconds: timeoutSec));
-
-        statusCode = getRes.statusCode;
-        if ((statusCode >= 200 && statusCode < 400) || statusCode == 206) {
-          isValid = true;
-        }
-      } catch (_) {
-        statusCode = 0;
-        isValid = false;
-      }
+      // Errores de red o timeout: no descartar fatalmente, se marcan como no verificados
+      statusCode = 0;
+      isValid = false;
+    } finally {
+      client.close();
     }
 
     final result = ServerValidationResult(
@@ -156,6 +164,8 @@ class ServerPreValidationService {
   }
 
   /// Ejecuta validaciones en paralelo con límite de concurrencia (máximo 5)
+  /// NUNCA elimina servidores: los que pasan van al inicio (verificados),
+  /// y los que no se pudieron verificar se colocan al final pero siguen disponibles.
   Future<List<Map<String, dynamic>>> filterValidServers(
     List<Map<String, dynamic>> servers, {
     void Function(double progress)? onProgress,
@@ -163,7 +173,8 @@ class ServerPreValidationService {
     if (servers.isEmpty) return [];
 
     final concurrency = RemoteConfigService.instance.config.player.preValidationConcurrency;
-    final validServers = <Map<String, dynamic>>[];
+    final verified = <Map<String, dynamic>>[];
+    final unverified = <Map<String, dynamic>>[];
     int completed = 0;
 
     isValidatingNotifier.value = true;
@@ -176,13 +187,24 @@ class ServerPreValidationService {
         final results = await Future.wait(chunk.map((srv) async {
           final url = (srv['resolved_m3u8'] ?? srv['servidor_url'] ?? srv['url'] ?? '').toString();
           if (url.isEmpty) return false;
-          final res = await validateUrl(url);
+
+          String? ref = srv['referer']?.toString();
+          Map<String, String>? hdrs;
+          if (srv['headers'] is Map) {
+            hdrs = (srv['headers'] as Map).map((k, v) => MapEntry(k.toString(), v.toString()));
+            ref ??= hdrs['Referer'] ?? hdrs['referer'];
+          }
+          final res = await validateUrl(url, referer: ref, extraHeaders: hdrs);
           return res.isValid;
         }));
 
         for (int j = 0; j < chunk.length; j++) {
+          final srvCopy = Map<String, dynamic>.from(chunk[j]);
+          srvCopy['_is_verified'] = results[j];
           if (results[j]) {
-            validServers.add(chunk[j]);
+            verified.add(srvCopy);
+          } else {
+            unverified.add(srvCopy);
           }
         }
 
@@ -195,6 +217,7 @@ class ServerPreValidationService {
       _validationCompletedController.add(null);
     }
 
-    return validServers;
+    // Regla estricta: NUNCA ocultar servidores. Retornamos todos (verificados primero)
+    return [...verified, ...unverified];
   }
 }
