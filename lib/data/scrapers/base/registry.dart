@@ -18,6 +18,8 @@ import '../canelatv_scraper.dart';
 import '../telemundo_scraper.dart';
 import '../jkanime_scraper.dart';
 import '../tioanime_scraper.dart';
+import '../seriesflix_scraper.dart';
+import '../cineby_scraper.dart';
 import 'buscador.dart';
 import '../../../core/services/remote_config_service.dart';
 
@@ -280,6 +282,50 @@ final List<Fuente> fuentesRegistry = [
       );
     },
     search: TioAnimeScraper.search,
+  ),
+
+  // ── Seriesflix (Series y Películas - Latino, Castellano, VOS) ──────────
+  Fuente(
+    id: 'seriesflix',
+    label: 'Seriesflix',
+    category: 'series',
+    language: 'sub',
+    tipos: SeriesflixScraper.tiposDisponibles(),
+    generos: SeriesflixScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return SeriesflixScraper.fetch(
+        tipo: tipo,
+        genero: genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: SeriesflixScraper.search,
+  ),
+
+  // ── Cineby (Películas y Series - VOS Original) ────────────────────────
+  Fuente(
+    id: 'cineby',
+    label: 'Cineby',
+    category: 'movie',
+    language: 'sub',
+    tipos: CinebyScraper.tiposDisponibles(),
+    generos: CinebyScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return CinebyScraper.fetch(
+        tipo: tipo,
+        genero: genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: CinebyScraper.search,
   ),
 ];
 

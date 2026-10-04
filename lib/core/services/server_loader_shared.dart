@@ -61,6 +61,14 @@ class ServerLoaderPrefs {
       case 'castellano':
         return 'es_ES';
       case 'subtitulado':
+      case 'ingles':
+      case 'inglés':
+      case 'vos':
+      case 'original':
+      case 'versión original':
+      case 'version original':
+      case 'inglés subtitulado':
+      case 'ingles subtitulado':
         return 'en_US';
       case 'latino':
       default:
@@ -73,6 +81,14 @@ class ServerLoaderPrefs {
       case 'castellano':
         return ['es_ES', 'es_MX', 'en_US'];
       case 'subtitulado':
+      case 'ingles':
+      case 'inglés':
+      case 'vos':
+      case 'original':
+      case 'versión original':
+      case 'version original':
+      case 'inglés subtitulado':
+      case 'ingles subtitulado':
         return ['en_US', 'es_MX', 'es_ES'];
       case 'latino':
       default:
@@ -772,17 +788,60 @@ class ServerLoader {
       final label = MainFuentes.idiomaLabel(code);
       grouped.putIfAbsent(label, () => []).add(s);
     }
-    for (final list in grouped.values) {
-      _sortServersByPriority(list);
+    for (final entry in grouped.entries) {
+      final langLabel = entry.key;
+      final code = (langLabel == 'Subtitulado')
+          ? 'en_US'
+          : (langLabel == 'Castellano' ? 'es_ES' : 'es_MX');
+      _sortServersByPriority(entry.value, preferredLang: code);
     }
     return grouped;
   }
   
-  void _sortServersByPriority(List<Map<String, dynamic>> servers) {
+  void _sortServersByPriority(
+    List<Map<String, dynamic>> servers, {
+    String? preferredLang,
+  }) {
     final priorityConfig = RemoteConfigService.instance.config.serverPriority;
+    final prefLangCode = preferredLang ?? _prefs?.preferredIdiomaCode ?? 'es_MX';
+    final isVosTarget = prefLangCode == 'en_US';
+
     servers.sort((a, b) {
-      final aName = (a['fuente_label']?.toString() ?? a['servidor_nombre']?.toString() ?? '').toLowerCase();
-      final bName = (b['fuente_label']?.toString() ?? b['servidor_nombre']?.toString() ?? '').toLowerCase();
+      final aName = (a['fuente_label']?.toString() ??
+              a['servidor_nombre']?.toString() ??
+              a['servidor'] ??
+              '')
+          .toLowerCase();
+      final bName = (b['fuente_label']?.toString() ??
+              b['servidor_nombre']?.toString() ??
+              b['servidor'] ??
+              '')
+          .toLowerCase();
+      
+      final aLang = MainFuentes.normalizeIdioma(a['idioma']?.toString());
+      final bLang = MainFuentes.normalizeIdioma(b['idioma']?.toString());
+
+      // 0. Priorizar servidores que coincidan con la pista de audio / idioma preferido
+      final aMatchesPreferred = (aLang == prefLangCode);
+      final bMatchesPreferred = (bLang == prefLangCode);
+      if (aMatchesPreferred != bMatchesPreferred) {
+        return aMatchesPreferred ? -1 : 1;
+      }
+
+      // Si el idioma preferido es VOS / Inglés Subtitulado, priorizar servidores de Seriesflix y Cineby
+      if (isVosTarget) {
+        final aIsSpecialVos = aName.contains('seriesflix') ||
+            aName.contains('cineby') ||
+            (a['es_seriesflix'] == true) ||
+            (a['es_cineby'] == true);
+        final bIsSpecialVos = bName.contains('seriesflix') ||
+            bName.contains('cineby') ||
+            (b['es_seriesflix'] == true) ||
+            (b['es_cineby'] == true);
+        if (aIsSpecialVos != bIsSpecialVos) {
+          return aIsSpecialVos ? -1 : 1;
+        }
+      }
       
       final aQuality = (a['quality']?.toString() ?? a['calidad']?.toString() ?? '').toLowerCase();
       final bQuality = (b['quality']?.toString() ?? b['calidad']?.toString() ?? '').toLowerCase();

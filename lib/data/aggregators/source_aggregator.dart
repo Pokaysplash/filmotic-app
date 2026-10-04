@@ -29,6 +29,8 @@ import '../extractors/providers/canela_extractor.dart';
 import '../extractors/providers/animeflv_extractor.dart';
 import '../datasources/remote/sources/custom_api.dart';
 import '../extractors/hls/hls_extractor.dart';
+import '../scrapers/seriesflix_scraper.dart';
+import '../scrapers/cineby_scraper.dart';
 
 // ─────────────────────────────────────────────────────────────
 // Enums de configuración (alineados con FuentesSection)
@@ -79,6 +81,8 @@ enum FuenteId {
   cinesrc,
   canela,
   animeflv,
+  seriesflix,
+  cineby,
   customapi, // APIs del usuario (códigos PHP ilimitados)
 }
 
@@ -113,6 +117,10 @@ extension FuenteIdX on FuenteId {
         return 'Canela.TV';
       case FuenteId.animeflv:
         return 'AnimeFLV';
+      case FuenteId.seriesflix:
+        return 'Seriesflix';
+      case FuenteId.cineby:
+        return 'Cineby';
       case FuenteId.customapi:
         return 'Mis APIs';
     }
@@ -148,6 +156,10 @@ extension FuenteIdX on FuenteId {
         return 'es_canela';
       case FuenteId.animeflv:
         return 'es_animeflv';
+      case FuenteId.seriesflix:
+        return 'es_seriesflix';
+      case FuenteId.cineby:
+        return 'es_cineby';
       case FuenteId.customapi:
         return 'es_customapi';
     }
@@ -183,6 +195,10 @@ extension FuenteIdX on FuenteId {
         return const Color(0xFFE11D48);
       case FuenteId.animeflv:
         return const Color(0xFFFBBF24);
+      case FuenteId.seriesflix:
+        return const Color(0xFFE50914);
+      case FuenteId.cineby:
+        return const Color(0xFF06B6D4);
       case FuenteId.customapi:
         return const Color(0xFF60A5FA);
     }
@@ -207,6 +223,8 @@ class FuentesConfig {
   final bool cinesrcEnabled;
   final bool canelaEnabled;
   final bool animeflvEnabled;
+  final bool seriesflixEnabled;
+  final bool cinebyEnabled;
   final bool customApiEnabled;
 
   final bool verificarServidores;
@@ -232,6 +250,8 @@ class FuentesConfig {
     required this.cinesrcEnabled,
     required this.canelaEnabled,
     required this.animeflvEnabled,
+    this.seriesflixEnabled = true,
+    this.cinebyEnabled = true,
     required this.customApiEnabled,
     required this.verificarServidores,
     required this.unServidorPorIdioma,
@@ -269,6 +289,8 @@ class FuentesConfig {
       cinesrcEnabled: prefs.getBool('cinesrc_enabled') ?? false,
       canelaEnabled: prefs.getBool('canela_enabled') ?? true,
       animeflvEnabled: prefs.getBool('animeflv_enabled') ?? true,
+      seriesflixEnabled: prefs.getBool('seriesflix_enabled') ?? true,
+      cinebyEnabled: prefs.getBool('cineby_enabled') ?? true,
       customApiEnabled: prefs.getBool('custom_api_enabled') ?? false,
       verificarServidores: prefs.getBool('verificar_servidores') ?? true,
       unServidorPorIdioma: prefs.getBool('un_servidor_por_idioma') ?? true,
@@ -300,6 +322,8 @@ class FuentesConfig {
     if (cinesrcEnabled) list.add(FuenteId.cinesrc);
     if (canelaEnabled) list.add(FuenteId.canela);
     if (animeflvEnabled) list.add(FuenteId.animeflv);
+    if (seriesflixEnabled) list.add(FuenteId.seriesflix);
+    if (cinebyEnabled) list.add(FuenteId.cineby);
     if (customApiEnabled) list.add(FuenteId.customapi);
     return list;
   }
@@ -746,6 +770,26 @@ class MainFuentes {
           episode: episode,
         )) {
           yield s.toModalMap();
+        }
+        break;
+      case FuenteId.seriesflix:
+        await for (final map in SeriesflixScraper.scrapeStream(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
+        break;
+      case FuenteId.cineby:
+        await for (final map in CinebyScraper.scrapeStream(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
         }
         break;
       case FuenteId.customapi:

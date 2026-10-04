@@ -18,6 +18,8 @@ import '../scrapers/canelatv_scraper.dart';
 import '../scrapers/telemundo_scraper.dart';
 import '../scrapers/jkanime_scraper.dart';
 import '../scrapers/tioanime_scraper.dart';
+import '../scrapers/seriesflix_scraper.dart';
+import '../scrapers/cineby_scraper.dart';
 import '../scrapers/base/registry.dart';
 import '../scrapers/base/detalle_scraper.dart';
 
@@ -51,6 +53,10 @@ class MainFuentesServidores {
         return 'tioplus';
       case 'cinehax':
         return 'unlimplay';
+      case 'seriesflix':
+        return 'seriesflix';
+      case 'cineby':
+        return 'cineby';
       default:
         return servicio.toLowerCase().trim();
     }
@@ -352,6 +358,28 @@ class MainFuentesServidores {
             }
           }
         } catch (_) {}
+        break;
+
+      case 'seriesflix':
+        await for (final map in SeriesflixScraper.scrapeStream(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
+        break;
+
+      case 'cineby':
+        await for (final map in CinebyScraper.scrapeStream(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
         break;
 
       default:

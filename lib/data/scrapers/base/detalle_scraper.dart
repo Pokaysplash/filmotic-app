@@ -12,6 +12,8 @@ import '../canelatv_scraper.dart';
 import '../telemundo_scraper.dart';
 import '../jkanime_scraper.dart';
 import '../tioanime_scraper.dart';
+import '../seriesflix_scraper.dart';
+import '../cineby_scraper.dart';
 
 class DetalleScraper {
   static Future<DetalleContenido> fetch({
@@ -54,6 +56,10 @@ class DetalleScraper {
           return await JKAnimeScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         case 'tioanime':
           return await TioAnimeScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'seriesflix':
+          return await SeriesflixScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'cineby':
+          return await CinebyScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         default:
           return DetalleContenido(
             ok: false,

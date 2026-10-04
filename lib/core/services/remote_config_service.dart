@@ -343,7 +343,7 @@ class FilmoticRemoteConfig {
     final sourcesMap = map['sources'] is Map ? map['sources'] : {};
     final enabled = sourcesMap['enabled'] is List
         ? (sourcesMap['enabled'] as List).map((e) => e.toString().toLowerCase()).toList()
-        : <String>['cinecalidad', 'thanhdattoday', 'animeflv', 'serieskao', 'tioplus', 'cuevana', 'pelisplus', 'cinehax'];
+        : <String>['cuevana', 'pelisplus', 'serieskao', 'tioplus', 'animeflv', 'cinehax', 'canela', 'seriesflix', 'cineby'];
     final disabled = sourcesMap['disabled'] is List
         ? (sourcesMap['disabled'] as List).map((e) => e.toString().toLowerCase()).toList()
         : <String>[];
@@ -398,14 +398,15 @@ class FilmoticRemoteConfig {
           'hilltopads_vast_url': 'PENDIENTE',
         },
         enabledSources: [
-          'cinecalidad',
-          'thanhdattoday',
-          'animeflv',
-          'serieskao',
-          'tioplus',
           'cuevana',
           'pelisplus',
-          'cinehax'
+          'serieskao',
+          'tioplus',
+          'animeflv',
+          'cinehax',
+          'canela',
+          'seriesflix',
+          'cineby',
         ],
         disabledSources: [],
         messages: {

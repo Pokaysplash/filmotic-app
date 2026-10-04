@@ -17,7 +17,9 @@
       "tioplus",
       "animeflv",
       "cinehax",
-      "canela"
+      "canela",
+      "seriesflix",
+      "cineby"
     ],
     "disabled": [
       "cinecalidad",
@@ -30,9 +32,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.5",
+    "latest_version": "1.0.0-beta.6",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.5 ya está disponible con correcciones en servidores y fallback de emergencia.",
+    "update_message": "Filmotic v1.0.0-beta.6 ya está disponible con nuevas fuentes VOS (Seriesflix y Cineby) y selector de idiomas optimizado.",
     "force_update": false,
     "is_beta": true
   },
