@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../models/scraper/detalle_model.dart';
 import 'base/base_home_scraper.dart';
 import 'base/buscador.dart';
+import '../extractors/providers/cinecalidad_extractor.dart';
 
 class CinecalidadScraper {
   static const String baseApi = 'https://tmdb.allcalidad.re';
@@ -185,20 +186,74 @@ class CinecalidadScraper {
     required String tipo,
   }) async {
     final servidores = <DetalleServidor>[];
+    final seenUrls = <String>{};
 
-    if (url.contains('vimeos.net/embed-')) {
+    // 1. Extraer tmdbId si está en la URL (ej: /pelicula/533535/deadpool-wolverine)
+    final tmdbMatch = RegExp(r'/pelicula/(\d+)').firstMatch(url);
+    final tmdbId = tmdbMatch != null ? int.tryParse(tmdbMatch.group(1)!) : null;
+
+    if (tmdbId != null && tmdbId > 0) {
+      try {
+        await for (final s in CinecalidadService.scrape(
+          tmdbId: tmdbId,
+          isMovie: tipo == 'movie',
+        )) {
+          if (!seenUrls.contains(s.url)) {
+            seenUrls.add(s.url);
+            servidores.add(DetalleServidor(
+              nombre: s.serverClean.isNotEmpty ? 'Cinecalidad · ${s.serverClean}' : s.serverName,
+              url: s.url,
+              idioma: s.idioma == 'es_ES' ? 'castellano' : (s.idioma == 'en_US' ? 'subtitulado' : 'latino'),
+              calidad: s.calidad,
+            ));
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Si no hay servidores o la URL es directa, intentar scrapear HTML directo
+    if (servidores.isEmpty && url.startsWith('http')) {
+      try {
+        final res = await http.get(Uri.parse(url), headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        }).timeout(const Duration(seconds: 10));
+
+        if (res.statusCode == 200) {
+          final html = res.body;
+          // Buscar data-option o enlaces
+          final optRe = RegExp(r'data-option="([^"]+)"', caseSensitive: false);
+          for (final m in optRe.allMatches(html)) {
+            var raw = m.group(1) ?? '';
+            if (raw.contains('zopass=')) {
+              try {
+                final uri = Uri.parse(raw.startsWith('http') ? raw : 'https://dummy$raw');
+                final zopass = uri.queryParameters['zopass'];
+                if (zopass != null && zopass.isNotEmpty) {
+                  raw = utf8.decode(base64Decode(zopass));
+                }
+              } catch (_) {}
+            }
+            if (raw.isNotEmpty && !seenUrls.contains(raw)) {
+              seenUrls.add(raw);
+              servidores.add(DetalleServidor(
+                nombre: 'Cinecalidad · Stream HD',
+                url: raw,
+                idioma: _detectIdioma(html),
+                calidad: html.contains('4K') ? '4K' : (html.contains('720p') ? '720p' : '1080p'),
+              ));
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 3. Fallback si no hubo otros
+    if (servidores.isEmpty) {
       servidores.add(DetalleServidor(
-        nombre: 'Cinecalidad Fast Server',
+        nombre: 'Cinecalidad · Stream 1080p',
         url: url,
         idioma: 'latino',
-        calidad: 'HD',
-      ));
-    } else {
-      servidores.add(DetalleServidor(
-        nombre: 'Cinecalidad Stream',
-        url: url,
-        idioma: 'latino',
-        calidad: 'HD',
+        calidad: '1080p',
       ));
     }
 

@@ -98,10 +98,8 @@ class CinecalidadService {
         serverName: link.server,
         url: link.url,
         serverClean: link.serverClean,
-        // Cinecalidad suele servir principalmente latino / castellano.
-        // Se marca como latino por defecto para el clasificador del modal.
-        idioma: 'es_MX',
-        calidad: 'HD',
+        idioma: link.idioma,
+        calidad: link.calidad,
       );
     }
   }
@@ -226,51 +224,125 @@ class CinecalidadService {
 
   static List<_ExtractedLink> _extractCinecalidadLinks(String html) {
     final result = <_ExtractedLink>[];
+    final seenUrls = <String>{};
 
-    // <div id="panel_online" ...> ... <ul class="linklist">...</ul>
-    final panelRe = RegExp(
-      r'<div id="panel_online".*?<ul class="linklist">(.*?)</ul>',
+    // Extraer de todos los paneles (panel_online, panel_4k, panel_1080p, panel_720p, etc.)
+    final panelsRe = RegExp(
+      r'<div[^>]+id="(panel[^"]*)"[^>]*>(.*?)</div>\s*(?=<div[^>]+id="panel|\s*<div[^>]+class="nav-tab|\s*</section>|$)',
       caseSensitive: false,
       dotAll: true,
     );
-    final panelMatch = panelRe.firstMatch(html);
-    if (panelMatch == null) return result;
 
-    final panelContent = panelMatch.group(1) ?? '';
-    final liRe = RegExp(
-      r'<li[^>]*data-option="([^"]+)"[^>]*>([^<]+)',
-      caseSensitive: false,
-    );
+    final panelMatches = panelsRe.allMatches(html);
+    final panels = panelMatches.isNotEmpty
+        ? panelMatches.map((m) => MapEntry(m.group(1) ?? '', m.group(2) ?? '')).toList()
+        : [MapEntry('panel_online', html)];
 
-    for (final m in liRe.allMatches(panelContent)) {
-      var serverName = (m.group(2) ?? '').trim();
-      // Quitar posibles spans residuales
-      serverName = serverName.replaceAll(RegExp(r'<span.*'), '').trim();
+    for (final panelEntry in panels) {
+      final panelId = panelEntry.key.toLowerCase();
+      final panelContent = panelEntry.value;
 
-      if (!_kAllowedServers.contains(serverName)) continue;
-
-      var realUrl = m.group(1) ?? '';
-      if (realUrl.startsWith('/zopass/?zopass=')) {
-        try {
-          final uri = Uri.parse(
-            realUrl.startsWith('http') ? realUrl : 'https://dummy$realUrl',
-          );
-          final zopass = uri.queryParameters['zopass'];
-          if (zopass != null && zopass.isNotEmpty) {
-            realUrl = utf8.decode(base64Decode(zopass));
-          }
-        } catch (_) {
-          // Dejar la URL original si falla el decode
-        }
+      // Detectar calidad según el panel
+      String panelCalidad = '1080p';
+      if (panelId.contains('4k') || panelId.contains('2160')) {
+        panelCalidad = '4K';
+      } else if (panelId.contains('720')) {
+        panelCalidad = '720p';
+      } else if (panelId.contains('1080')) {
+        panelCalidad = '1080p';
       }
 
-      if (realUrl.isEmpty) continue;
+      // Detectar idioma según el panel
+      String panelIdioma = 'es_MX';
+      if (panelId.contains('castellano') || panelId.contains('espana') || panelId.contains('es_es')) {
+        panelIdioma = 'es_ES';
+      } else if (panelId.contains('sub') || panelId.contains('vose') || panelId.contains('en_us')) {
+        panelIdioma = 'en_US';
+      }
 
-      result.add(_ExtractedLink(
-        server: serverName,
-        url: realUrl,
-        serverClean: _extractServerName(realUrl),
-      ));
+      final liRe = RegExp(
+        r'<li[^>]*data-option="([^"]+)"[^>]*>(.*?)</li>',
+        caseSensitive: false,
+        dotAll: true,
+      );
+
+      for (final m in liRe.allMatches(panelContent)) {
+        final rawInner = m.group(2) ?? '';
+        var serverName = rawInner.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+
+        // Opciones de calidad e idioma en el item
+        final lowerInner = rawInner.toLowerCase();
+        String itemCalidad = panelCalidad;
+        if (lowerInner.contains('4k') || lowerInner.contains('2160p')) {
+          itemCalidad = '4K';
+        } else if (lowerInner.contains('1080p')) {
+          itemCalidad = '1080p';
+        } else if (lowerInner.contains('720p')) {
+          itemCalidad = '720p';
+        }
+
+        String itemIdioma = panelIdioma;
+        if (lowerInner.contains('castellano') || lowerInner.contains('españa') || lowerInner.contains('español')) {
+          itemIdioma = 'es_ES';
+        } else if (lowerInner.contains('subtitulado') || lowerInner.contains('sub') || lowerInner.contains('vose')) {
+          itemIdioma = 'en_US';
+        } else if (lowerInner.contains('latino')) {
+          itemIdioma = 'es_MX';
+        }
+
+        var realUrl = m.group(1) ?? '';
+        if (realUrl.startsWith('/zopass/?zopass=')) {
+          try {
+            final uri = Uri.parse(
+              realUrl.startsWith('http') ? realUrl : 'https://dummy$realUrl',
+            );
+            final zopass = uri.queryParameters['zopass'];
+            if (zopass != null && zopass.isNotEmpty) {
+              realUrl = utf8.decode(base64Decode(zopass));
+            }
+          } catch (_) {
+            // Dejar la URL original si falla el decode
+          }
+        }
+
+        if (realUrl.isEmpty || seenUrls.contains(realUrl)) continue;
+        seenUrls.add(realUrl);
+
+        result.add(_ExtractedLink(
+          server: serverName.isNotEmpty ? serverName : _extractServerName(realUrl),
+          url: realUrl,
+          serverClean: _extractServerName(realUrl),
+          calidad: itemCalidad,
+          idioma: itemIdioma,
+        ));
+      }
+    }
+
+    // Fallback: si no encontró por paneles, buscar data-option en todo el HTML
+    if (result.isEmpty) {
+      final genericRe = RegExp(r'data-option="([^"]+)"', caseSensitive: false);
+      for (final m in genericRe.allMatches(html)) {
+        var u = m.group(1) ?? '';
+        if (u.contains('zopass=')) {
+          try {
+            final uri = Uri.parse(u.startsWith('http') ? u : 'https://dummy$u');
+            final zopass = uri.queryParameters['zopass'];
+            if (zopass != null && zopass.isNotEmpty) {
+              u = utf8.decode(base64Decode(zopass));
+            }
+          } catch (_) {}
+        }
+        if (u.isNotEmpty && !seenUrls.contains(u)) {
+          seenUrls.add(u);
+          result.add(_ExtractedLink(
+            server: _extractServerName(u),
+            url: u,
+            serverClean: _extractServerName(u),
+            calidad: '1080p',
+            idioma: 'es_MX',
+          ));
+        }
+      }
     }
 
     return result;
@@ -279,7 +351,7 @@ class CinecalidadService {
   static String _extractServerName(String url) {
     try {
       final host = Uri.parse(url).host;
-      if (host.isEmpty) return 'desconocido';
+      if (host.isEmpty) return 'Stream';
       final parts = host.split('.');
       if (parts.length >= 3 &&
           (host.startsWith('www.') || host.startsWith('cdn.'))) {
@@ -287,7 +359,7 @@ class CinecalidadService {
       }
       return parts[0];
     } catch (_) {
-      return 'desconocido';
+      return 'Stream';
     }
   }
 
@@ -330,10 +402,14 @@ class _ExtractedLink {
   final String server;
   final String url;
   final String serverClean;
+  final String calidad;
+  final String idioma;
 
   const _ExtractedLink({
     required this.server,
     required this.url,
     required this.serverClean,
+    this.calidad = '1080p',
+    this.idioma = 'es_MX',
   });
 }

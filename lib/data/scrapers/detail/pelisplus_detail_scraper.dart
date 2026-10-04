@@ -133,23 +133,66 @@ class DetallePelisPlus {
 
     final seenSrv = <String>{};
     var i = 1;
+
+    // Método 1: data-url y data-name
     for (final m in RegExp(
-      r'data-url="(https?://[^"]+)"\s+data-name="([^"]+)"',
+      r'data-url="(https?://[^"]+)"[^>]*?(?:data-name="([^"]+)")?',
+      caseSensitive: false,
+    ).allMatches(html)) {
+      final u = m.group(1)!;
+      if (seenSrv.contains(u)) continue;
+      seenSrv.add(u);
+      final rawName = m.group(2) ?? '';
+      servidores.add(DetalleServidor(
+        nombre: rawName.isNotEmpty ? 'PelisPlus · $rawName' : 'PelisPlus · Opción $i',
+        url: u,
+        idioma: rawName.toLowerCase().contains('cast') ? 'castellano' : (rawName.toLowerCase().contains('sub') ? 'subtitulado' : 'latino'),
+        calidad: 'HD',
+      ));
+      i++;
+    }
+
+    // Método 2: data-video
+    for (final m in RegExp(
+      r'data-video="(https?://[^"]+)"',
+      caseSensitive: false,
     ).allMatches(html)) {
       final u = m.group(1)!;
       if (seenSrv.contains(u)) continue;
       seenSrv.add(u);
       servidores.add(DetalleServidor(
-        nombre: 'Opción $i',
+        nombre: 'PelisPlus · Opción $i',
         url: u,
-        idioma: m.group(2),
+        idioma: 'latino',
+        calidad: 'HD',
       ));
       i++;
     }
 
+    // Método 3: var options = { ... }
+    final optMatch = RegExp(r'var\s+options\s*=\s*(\{[\s\S]*?\});', caseSensitive: false).firstMatch(html);
+    if (optMatch != null) {
+      final rawOpt = optMatch.group(1)!;
+      final urlMatches = RegExp(r'"url"\s*:\s*"(https?:\\?/\\?/[^"]+)"').allMatches(rawOpt);
+      for (final um in urlMatches) {
+        final u = um.group(1)!.replaceAll(r'\/', '/');
+        if (seenSrv.contains(u)) continue;
+        seenSrv.add(u);
+        servidores.add(DetalleServidor(
+          nombre: 'PelisPlus · Server $i',
+          url: u,
+          idioma: 'latino',
+          calidad: 'HD',
+        ));
+        i++;
+      }
+    }
+
+    // ─── TEMPORADAS Y EPISODIOS EXHAUSTIVOS ───────────────────────
     if (!isMovie) {
+      // 1. Bloques por id de temporada (pills-vertical-X, season-X, tab-X)
       final blocks = RegExp(
-        r'<div[^>]+id="pills-vertical-(\d+)"[^>]*>(.*?)</div>',
+        r'<div[^>]+id="(?:pills-vertical-|season-|tab-)(\d+)"[^>]*>(.*?)</div>',
         dotAll: true,
       ).allMatches(html);
 
@@ -157,20 +200,45 @@ class DetallePelisPlus {
         final tNum = int.tryParse(b.group(1)!) ?? 0;
         if (tNum <= 0) continue;
         final content = b.group(2)!;
-        final links =
-            RegExp(r'<a\s+href="([^"]+)"[^>]*>([^<]+)</a>').allMatches(content);
+        final links = RegExp(r'<a\s+[^>]*href="([^"]+)"[^>]*>(.*?)</a>', dotAll: true).allMatches(content);
         for (final a in links) {
           final href = a.group(1)!;
-          final title = _d(a.group(2)!);
-          final m2 =
-              RegExp(r'/temporada/(\d+)/capitulo/(\d+)').firstMatch(href);
+          final titleRaw = _d(a.group(2)!.replaceAll(RegExp(r'<[^>]*>'), ''));
+          final m2 = RegExp(r'/temporada/(\d+)/capitulo/(\d+)').firstMatch(href);
           if (m2 == null) continue;
+          final sNum = int.parse(m2.group(1)!);
+          final eNum = int.parse(m2.group(2)!);
           final full = href.startsWith('http') ? href : '$_base$href';
-          temporadasMap.putIfAbsent(tNum, () => []);
-          temporadasMap[tNum]!.add(DetalleCapitulo(
-            temporada: int.parse(m2.group(1)!),
-            numero: int.parse(m2.group(2)!),
-            titulo: title,
+          temporadasMap.putIfAbsent(sNum, () => []);
+          if (!temporadasMap[sNum]!.any((c) => c.numero == eNum)) {
+            temporadasMap[sNum]!.add(DetalleCapitulo(
+              temporada: sNum,
+              numero: eNum,
+              titulo: titleRaw.isNotEmpty ? titleRaw : 'Episodio $eNum',
+              url: full,
+            ));
+          }
+        }
+      }
+
+      // 2. Extracción global de fallback: cualquier link /temporada/S/capitulo/E
+      final globalEpLinks = RegExp(
+        r'<a\s+[^>]*href="([^"]*/temporada/(\d+)/capitulo/(\d+))"[^>]*>(.*?)</a>',
+        dotAll: true,
+      ).allMatches(html);
+
+      for (final a in globalEpLinks) {
+        final href = a.group(1)!;
+        final sNum = int.parse(a.group(2)!);
+        final eNum = int.parse(a.group(3)!);
+        final titleRaw = _d(a.group(4)!.replaceAll(RegExp(r'<[^>]*>'), ''));
+        final full = href.startsWith('http') ? href : '$_base$href';
+        temporadasMap.putIfAbsent(sNum, () => []);
+        if (!temporadasMap[sNum]!.any((c) => c.numero == eNum)) {
+          temporadasMap[sNum]!.add(DetalleCapitulo(
+            temporada: sNum,
+            numero: eNum,
+            titulo: titleRaw.isNotEmpty ? titleRaw : 'Episodio $eNum',
             url: full,
           ));
         }

@@ -364,11 +364,7 @@ class PelisPlusService {
   }
 
   static bool _isLanguageSupported(String lang) {
-    final l = lang.toLowerCase();
-    return l.contains('latino') ||
-        l.contains('castellano') ||
-        l.contains('español') ||
-        l.contains('esp');
+    return true; // Support latino, castellano, and subtitulado
   }
 
   static String _toCanonicalIdioma(String lang) {

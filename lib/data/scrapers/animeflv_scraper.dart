@@ -214,6 +214,31 @@ class AnimeFLVScraper {
       } catch (_) {}
     }
 
+    // Fallback: Si no había var episodes, buscar enlaces de episodios en el DOM
+    if (capitulos.isEmpty) {
+      final epLinks = doc.querySelectorAll('ul.ListEpisodes li a, #episodeList li a, .fa-play-circle, a[href*="/ver/"]');
+      final seenEp = <int>{};
+      for (final a in epLinks) {
+        final href = a.attributes['href'] ?? '';
+        final m = RegExp(r'-(\d+)$').firstMatch(href);
+        if (m != null) {
+          final epNum = int.tryParse(m.group(1)!) ?? 0;
+          if (epNum > 0 && !seenEp.contains(epNum)) {
+            seenEp.add(epNum);
+            final epUrl = href.startsWith('http') ? href : '$base$href';
+            capitulos.add(DetalleCapitulo(
+              temporada: 1,
+              numero: epNum,
+              titulo: 'Episodio $epNum',
+              url: epUrl,
+              imagen: poster,
+            ));
+          }
+        }
+      }
+      capitulos.sort((a, b) => a.numero.compareTo(b.numero));
+    }
+
     // Servidores del primer episodio o película si aplica
     final servidores = await fetchServers(url: url, html: html);
 
@@ -235,7 +260,7 @@ class AnimeFLVScraper {
     );
   }
 
-  // ─── SERVIDORES Y DETECCIÓN DE IDIOMA ─────────────────────────
+  // ─── SERVIDORES Y DETECCIÓN DE IDIOMA (SUB & LAT) ────────────
   static Future<List<DetalleServidor>> fetchServers({
     required String url,
     String? html,
@@ -245,47 +270,29 @@ class AnimeFLVScraper {
 
     final doc = parser.parse(pageHtml);
     final servers = <DetalleServidor>[];
+    final seen = <String>{};
 
-    // 1. Extraer botones data-src codificados en Base64 (nuevo formato AnimeFLV)
-    final elementsWithDataSrc = doc.querySelectorAll('[data-src]');
-    for (final el in elementsWithDataSrc) {
-      final rawB64 = el.attributes['data-src']?.trim() ?? '';
-      if (rawB64.isEmpty) continue;
-
-      String decodedUrl = '';
-      try {
-        decodedUrl = utf8.decode(base64.decode(base64.normalize(rawB64))).trim();
-      } catch (_) {
-        if (rawB64.startsWith('http')) decodedUrl = rawB64;
-      }
-
-      if (decodedUrl.isNotEmpty && decodedUrl.startsWith('http')) {
-        final label = el.text.trim();
-        servers.add(DetalleServidor(
-          nombre: label.isNotEmpty ? 'AnimeFLV · $label' : 'AnimeFLV · Server',
-          url: decodedUrl,
-          idioma: _detectIdioma('$label $decodedUrl'),
-          calidad: 'HD',
-        ));
-      }
-    }
-
-    // 2. AnimeFLV almacena los streams en: var videos = {"SUB": [...], "LAT": [...]};
+    // 1. AnimeFLV almacena todos los servidores en: var videos = {"SUB": [...], "LAT": [...]};
     final matchVideos = RegExp(r'var videos\s*=\s*(\{[\s\S]*?\});').firstMatch(pageHtml);
     if (matchVideos != null) {
       try {
         final videosMap = jsonDecode(matchVideos.group(1)!) as Map<String, dynamic>;
 
         videosMap.forEach((langKey, list) {
-          final idioma = _detectIdioma(langKey);
+          final isLat = langKey.toUpperCase().contains('LAT');
+          final idioma = isLat ? 'latino' : 'subtitulado';
+          final langBadge = isLat ? 'LAT' : 'SUB';
+
           if (list is List) {
             for (final item in list) {
               if (item is Map) {
-                final title = item['title']?.toString() ?? 'Server';
-                final code = item['code']?.toString() ?? item['url']?.toString() ?? '';
-                if (code.isNotEmpty) {
+                final title = item['title']?.toString() ?? item['server']?.toString() ?? 'Server';
+                var code = item['code']?.toString() ?? item['url']?.toString() ?? '';
+                if (code.startsWith('//')) code = 'https:$code';
+                if (code.isNotEmpty && !seen.contains(code)) {
+                  seen.add(code);
                   servers.add(DetalleServidor(
-                    nombre: 'AnimeFLV · $title',
+                    nombre: 'AnimeFLV · $title ($langBadge)',
                     url: code,
                     idioma: idioma,
                     calidad: 'HD',
@@ -298,18 +305,47 @@ class AnimeFLVScraper {
       } catch (_) {}
     }
 
+    // 2. Extraer botones data-src codificados en Base64 (fallback moderno)
+    final elementsWithDataSrc = doc.querySelectorAll('[data-src]');
+    for (final el in elementsWithDataSrc) {
+      final rawB64 = el.attributes['data-src']?.trim() ?? '';
+      if (rawB64.isEmpty) continue;
+
+      String decodedUrl = '';
+      try {
+        decodedUrl = utf8.decode(base64.decode(base64.normalize(rawB64))).trim();
+      } catch (_) {
+        if (rawB64.startsWith('http')) decodedUrl = rawB64;
+      }
+
+      if (decodedUrl.startsWith('//')) decodedUrl = 'https:$decodedUrl';
+      if (decodedUrl.isNotEmpty && decodedUrl.startsWith('http') && !seen.contains(decodedUrl)) {
+        seen.add(decodedUrl);
+        final label = el.text.trim();
+        servers.add(DetalleServidor(
+          nombre: label.isNotEmpty ? 'AnimeFLV · $label' : 'AnimeFLV · Server',
+          url: decodedUrl,
+          idioma: _detectIdioma('$label $decodedUrl'),
+          calidad: 'HD',
+        ));
+      }
+    }
+
     // 3. Iframes adicionales en el HTML
     final iframes = doc.querySelectorAll('iframe');
     for (final iframe in iframes) {
       var src = iframe.attributes['src'] ?? '';
-      if (src.isNotEmpty && !src.contains('recaptcha')) {
+      if (src.isNotEmpty && !src.contains('recaptcha') && !src.contains('google')) {
         if (src.startsWith('//')) src = 'https:$src';
-        servers.add(DetalleServidor(
-          nombre: 'Stream Direct',
-          url: src,
-          idioma: _detectIdioma(pageHtml),
-          calidad: 'HD',
-        ));
+        if (!seen.contains(src)) {
+          seen.add(src);
+          servers.add(DetalleServidor(
+            nombre: 'AnimeFLV · Embed Directo',
+            url: src,
+            idioma: _detectIdioma(pageHtml),
+            calidad: 'HD',
+          ));
+        }
       }
     }
 

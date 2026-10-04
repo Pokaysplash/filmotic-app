@@ -267,6 +267,49 @@ class ServerPriorityConfig {
   }
 }
 
+class FilmoticPlayerConfig {
+  final int reconnectTimeoutSeconds;
+  final bool fallbackToLowerQualityFirst;
+  final bool showReconnectOverlay;
+  final bool preValidateServersOnContentOpen;
+  final int preValidationTimeoutSeconds;
+  final int preValidationConcurrency;
+  final int preValidationCacheTtlMinutes;
+
+  const FilmoticPlayerConfig({
+    this.reconnectTimeoutSeconds = 60,
+    this.fallbackToLowerQualityFirst = true,
+    this.showReconnectOverlay = true,
+    this.preValidateServersOnContentOpen = true,
+    this.preValidationTimeoutSeconds = 5,
+    this.preValidationConcurrency = 5,
+    this.preValidationCacheTtlMinutes = 15,
+  });
+
+  factory FilmoticPlayerConfig.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return const FilmoticPlayerConfig();
+    return FilmoticPlayerConfig(
+      reconnectTimeoutSeconds: (map['reconnect_timeout_seconds'] as num?)?.toInt() ?? 60,
+      fallbackToLowerQualityFirst: map['fallback_to_lower_quality_first'] != false,
+      showReconnectOverlay: map['show_reconnect_overlay'] != false,
+      preValidateServersOnContentOpen: map['pre_validate_servers_on_content_open'] != false,
+      preValidationTimeoutSeconds: (map['pre_validation_timeout_seconds'] as num?)?.toInt() ?? 5,
+      preValidationConcurrency: (map['pre_validation_concurrency'] as num?)?.toInt() ?? 5,
+      preValidationCacheTtlMinutes: (map['pre_validation_cache_ttl_minutes'] as num?)?.toInt() ?? 15,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'reconnect_timeout_seconds': reconnectTimeoutSeconds,
+    'fallback_to_lower_quality_first': fallbackToLowerQualityFirst,
+    'show_reconnect_overlay': showReconnectOverlay,
+    'pre_validate_servers_on_content_open': preValidateServersOnContentOpen,
+    'pre_validation_timeout_seconds': preValidationTimeoutSeconds,
+    'pre_validation_concurrency': preValidationConcurrency,
+    'pre_validation_cache_ttl_minutes': preValidationCacheTtlMinutes,
+  };
+}
+
 class FilmoticRemoteConfig {
   final int version;
   final Map<String, dynamic> ads;
@@ -276,6 +319,7 @@ class FilmoticRemoteConfig {
   final FilmoticAppInfo app;
   final FilmoticLiveTvConfig liveTv;
   final ServerPriorityConfig serverPriority;
+  final FilmoticPlayerConfig player;
 
   /// Compatibilidad hacia atrás con min_app_version
   String get minAppVersion => app.minVersion;
@@ -289,8 +333,10 @@ class FilmoticRemoteConfig {
     required this.app,
     FilmoticLiveTvConfig? liveTv,
     ServerPriorityConfig? serverPriority,
+    FilmoticPlayerConfig? player,
   }) : liveTv = liveTv ?? FilmoticLiveTvConfig.defaults,
-       serverPriority = serverPriority ?? const ServerPriorityConfig();
+       serverPriority = serverPriority ?? const ServerPriorityConfig(),
+       player = player ?? const FilmoticPlayerConfig();
 
   factory FilmoticRemoteConfig.fromMap(Map<String, dynamic> map) {
     final adsMap = map['ads'] is Map ? Map<String, dynamic>.from(map['ads']) : <String, dynamic>{};
@@ -312,6 +358,9 @@ class FilmoticRemoteConfig {
     final serverPriorityConf = map['server_priority'] is Map
         ? ServerPriorityConfig.fromMap(Map<String, dynamic>.from(map['server_priority']))
         : const ServerPriorityConfig();
+    final playerConf = map['player'] is Map
+        ? FilmoticPlayerConfig.fromMap(Map<String, dynamic>.from(map['player']))
+        : const FilmoticPlayerConfig();
 
     return FilmoticRemoteConfig(
       version: (map['version'] is int) ? map['version'] : 1,
@@ -322,6 +371,7 @@ class FilmoticRemoteConfig {
       app: appInfo,
       liveTv: liveTvConf,
       serverPriority: serverPriorityConf,
+      player: playerConf,
     );
   }
 
@@ -336,6 +386,7 @@ class FilmoticRemoteConfig {
         'app': app.toMap(),
         'min_app_version': app.minVersion,
         'live_tv': liveTv.toMap(),
+        'player': player.toMap(),
       };
 
   static FilmoticRemoteConfig get defaults => FilmoticRemoteConfig(
@@ -363,6 +414,7 @@ class FilmoticRemoteConfig {
         },
         app: FilmoticAppInfo.defaults,
         liveTv: FilmoticLiveTvConfig.defaults,
+        player: const FilmoticPlayerConfig(),
       );
 }
 

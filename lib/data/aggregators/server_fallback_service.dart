@@ -48,12 +48,65 @@ class ServerFallbackService {
     return 'latino';
   }
 
+  /// Agrupa y ordena los servidores por idioma dando prioridad al idioma preferido del usuario.
+  static List<Map<String, dynamic>> groupAndPrioritizeServers(
+    List<Map<String, dynamic>> rawServers, {
+    String? preferredLanguage,
+  }) {
+    if (rawServers.isEmpty) return [];
+
+    final pref = (preferredLanguage ?? 'latino').toLowerCase().trim();
+
+    final Map<String, List<Map<String, dynamic>>> byLang = {};
+    for (final s in rawServers) {
+      final name = s['servidor_nombre']?.toString() ?? s['nombre']?.toString() ?? '';
+      final url = s['servidor_url']?.toString() ?? s['url']?.toString() ?? '';
+      final rawLang = s['idioma']?.toString() ?? detectIdioma('$name $url');
+      final lang = detectIdioma(rawLang);
+      byLang.putIfAbsent(lang, () => []).add(s);
+    }
+
+    // Ordenar servidores dentro de cada idioma (verificados o directos primero)
+    for (final list in byLang.values) {
+      list.sort((a, b) {
+        final aVerified = a['verificado'] == true || a['resolved_m3u8'] != null;
+        final bVerified = b['verificado'] == true || b['resolved_m3u8'] != null;
+        if (aVerified && !bVerified) return -1;
+        if (!aVerified && bVerified) return 1;
+        return 0;
+      });
+    }
+
+    final prioritized = <Map<String, dynamic>>[];
+
+    // 1) Idioma preferido primero
+    for (final entry in byLang.entries) {
+      if (entry.key == pref ||
+          (pref.contains('lat') && entry.key.contains('lat')) ||
+          (pref.contains('cast') && entry.key.contains('cast')) ||
+          (pref.contains('sub') && entry.key.contains('sub'))) {
+        prioritized.addAll(entry.value);
+      }
+    }
+
+    // 2) Resto de idiomas
+    for (final entry in byLang.entries) {
+      if (!prioritized.contains(entry.value.firstOrNull)) {
+        prioritized.addAll(entry.value.where((s) => !prioritized.contains(s)));
+      }
+    }
+
+    return prioritized.isNotEmpty ? prioritized : rawServers;
+  }
+
   /// Ejecuta fallback secuencial sobre la lista de servidores:
+  /// - Agrupa por idioma y prioriza: 1) idioma preferido, 2) mejor servidor de ese idioma.
   /// - Prueba cada servidor con timeout estricto de 5 segundos.
   /// - Si detecta captcha, lo salta de inmediato.
   /// - Al encontrar el primer stream reproducible, detiene el bucle y lo retorna.
   Future<FallbackStreamResult> resolveStreamWithFallback({
     required List<Map<String, dynamic>> servers,
+    String? preferredLanguage,
     void Function(String currentServer, int index, int total)? onProgress,
   }) async {
     if (servers.isEmpty) {
@@ -63,10 +116,16 @@ class ServerFallbackService {
       );
     }
 
+    // Agrupar y priorizar por idioma preferido del usuario
+    final orderedServers = groupAndPrioritizeServers(
+      servers,
+      preferredLanguage: preferredLanguage,
+    );
+
     final attempted = <String>[];
 
-    for (int i = 0; i < servers.length; i++) {
-      final s = servers[i];
+    for (int i = 0; i < orderedServers.length; i++) {
+      final s = orderedServers[i];
       final name = s['servidor_nombre']?.toString() ??
           s['nombre']?.toString() ??
           s['server']?.toString() ??

@@ -6,6 +6,9 @@ import '../../content/presentation/content_page.dart';
 // Ajusta rutas si hace falta
 import '../../../data/datasources/remote/tmdb/tmdb_search_api.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_discover_api.dart';
+import '../../../data/scrapers/base/registry.dart';
+import '../../../data/scrapers/base/buscador.dart';
+import '../../../core/services/guardados_bus.dart';
 // Modal de opciones móvil
 import '../../content/presentation/content_options_modal.dart';
 const kAccentColor = Color(0xFFFF6B35);
@@ -115,6 +118,13 @@ class BuscarPageState extends State<BuscarPage>
     });
   }
 
+  String _normTitle(String t) {
+    return t
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]'), '')
+        .trim();
+  }
+
   Future<void> _doSearch([String? forceQuery]) async {
     final q = (forceQuery ?? _controller.text).trim();
     if (q.isEmpty) return;
@@ -126,28 +136,82 @@ class BuscarPageState extends State<BuscarPage>
     });
 
     try {
-      final json = await _searchService.search(q, limit: 40);
+      // Búsqueda Federada en Paralelo (TMDB + todas las fuentes de fuentesRegistry)
+      final tmdbFuture = _searchService.search(q, limit: 40);
+      final federatedFuture = buscarEnFuentes(q: q);
+
+      final searchResults = await Future.wait([
+        tmdbFuture,
+        federatedFuture,
+      ]);
+
       if (!mounted) return;
 
-      if (json['success'] == true) {
-        final raw = json['data']?['items'];
-        final items = raw is List
-            ? raw
-                .whereType<Map>()
-                .map((e) => Map<String, dynamic>.from(e))
-                .toList()
-            : <Map<String, dynamic>>[];
-        setState(() {
-          _items = items;
-          _loading = false;
-        });
-      } else {
-        setState(() {
-          _error = json['message']?.toString() ?? 'No se pudo buscar';
-          _items = [];
-          _loading = false;
-        });
+      final tmdbJson = searchResults[0] as Map<String, dynamic>;
+      final fedResult = searchResults[1] as BuscadorResult;
+
+      final mapByTitle = <String, Map<String, dynamic>>{};
+
+      // 1. Agregar resultados TMDB
+      if (tmdbJson['success'] == true) {
+        final raw = tmdbJson['data']?['items'];
+        if (raw is List) {
+          for (final e in raw) {
+            if (e is Map) {
+              final map = Map<String, dynamic>.from(e);
+              final title = (map['title'] ?? map['name'] ?? map['titulo'] ?? '').toString();
+              final norm = _normTitle(title);
+              final type = canonicalMediaType(map['media_type'] ?? (map['name'] != null ? 'tv' : 'movie'));
+              final key = '${type}_$norm';
+
+              map['fuentes_agrupadas'] = <Map<String, String>>[];
+              mapByTitle[key] = map;
+            }
+          }
+        }
       }
+
+      // 2. Combinar con resultados de scrapers federados
+      final fedItems = fedResult.resultados['todas'] ?? [];
+      for (final fItem in fedItems) {
+        final norm = _normTitle(fItem.titulo);
+        final type = fItem.tipo == 'anime' || fItem.tipo == 'tv' ? 'tv' : 'movie';
+        final key = '${type}_$norm';
+
+        if (mapByTitle.containsKey(key)) {
+          final existing = mapByTitle[key]!;
+          final fuentes = List<Map<String, String>>.from(existing['fuentes_agrupadas'] ?? []);
+          if (fItem.fuentesAgrupadas != null) {
+            fuentes.addAll(fItem.fuentesAgrupadas!);
+          } else {
+            fuentes.add({'sitio': fItem.sitio, 'url': fItem.url});
+          }
+          existing['fuentes_agrupadas'] = fuentes;
+        } else {
+          // Agregar elemento web-originado no presente en TMDB
+          mapByTitle[key] = {
+            'id': fItem.tmdbId ?? 0,
+            'tmdb_id': fItem.tmdbId ?? 0,
+            'title': fItem.titulo,
+            'name': fItem.titulo,
+            'media_type': type,
+            'poster_path': fItem.imagen,
+            'vote_average': fItem.rating ?? 0.0,
+            'release_date': fItem.anio != null ? '${fItem.anio}-01-01' : null,
+            'fuentes_agrupadas': fItem.fuentesAgrupadas ?? [{'sitio': fItem.sitio, 'url': fItem.url}],
+            'sitio': fItem.sitio,
+            'url': fItem.url,
+          };
+        }
+      }
+
+      setState(() {
+        _items = mapByTitle.values.toList();
+        _loading = false;
+        if (_items.isEmpty && fedResult.error != null) {
+          _error = fedResult.error;
+        }
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -168,19 +232,35 @@ class BuscarPageState extends State<BuscarPage>
     });
   }
 
-  void _openContent(Map<String, dynamic> item) {
-    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+  Future<void> _openContent(Map<String, dynamic> item) async {
+    int id = parseCanonicalTmdbId(item['tmdb_id']) ??
         parseCanonicalTmdbId(item['idtmdb']) ??
         parseCanonicalTmdbId(item['idcontenido']) ??
         parseCanonicalTmdbId(item['contenido_id']) ??
         parseCanonicalTmdbId(item['id']) ??
         0;
-    if (id <= 0) return;
+
     final tipo = canonicalMediaType(
         item['media_type'] ?? item['type'] ?? item['tipo'] ?? (item['name'] != null && item['title'] == null ? 'tv' : 'movie'));
     final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '')
         .toString()
         .trim();
+
+    if (id <= 0 && titulo.isNotEmpty) {
+      try {
+        final res = await _searchService.search(titulo, limit: 1);
+        final first = (res['data']?['items'] as List?)?.firstOrNull;
+        if (first != null) {
+          id = parseCanonicalTmdbId(first['id'] ?? first['tmdb_id']) ?? 0;
+        }
+      } catch (_) {}
+    }
+
+    if (id <= 0) {
+      id = titulo.hashCode.abs();
+    }
+
+    if (!mounted) return;
     FocusScope.of(context).unfocus();
     Navigator.push(
       context,
@@ -1017,6 +1097,26 @@ class _DiscoverPosterCard extends StatelessWidget {
               ),
             ),
           ),
+          if (item['fuentes_agrupadas'] is List && (item['fuentes_agrupadas'] as List).isNotEmpty)
+            Positioned(
+              top: 6,
+              right: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.blueAccent.withValues(alpha: 0.85),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  '${(item['fuentes_agrupadas'] as List).length} ${(item['fuentes_agrupadas'] as List).length == 1 ? 'fuente' : 'fuentes'}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 8.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
           if (_year.isNotEmpty)
             Positioned(
               bottom: 6,

@@ -17,6 +17,8 @@ import 'widgets/tmdb_upcoming_service.dart';
 import 'widgets/upcoming_episodes_modal.dart';
 import '../../search/presentation/search_page.dart';
 import '../../../core/services/guardados_bus.dart';
+import '../../../../core/services/server_prevalidation_service.dart';
+import '../../../../core/services/remote_config_service.dart';
 export '../../../core/services/guardados_bus.dart';
 
 const kAccentColor = Color(0xFFFF6B35);
@@ -299,6 +301,21 @@ class _PageContenidoState extends State<PageContenido>
         episode: episode,
         context: mounted ? context : null,
       );
+
+      // Bloque D.7: Pre-validación en background sin bloquear la UI
+      if (RemoteConfigService.instance.config.player.preValidateServersOnContentOpen) {
+        ServerLoader().getServers(
+          contentId: _resolvedTmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+          context: mounted ? context : null,
+        ).then((servers) {
+          if (servers.isNotEmpty) {
+            ServerPreValidationService.instance.filterValidServers(servers);
+          }
+        }).catchError((_) {});
+      }
     } catch (_) {}
   }
 

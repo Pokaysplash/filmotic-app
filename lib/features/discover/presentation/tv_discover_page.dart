@@ -33,6 +33,7 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
   final ScrollController _scrollController = ScrollController();
 
   late Fuente _servicio;
+  String _categoria = 'Todas';
   String _tipo = 'movie';
   String _genero = '';
   bool _populares = true;
@@ -45,7 +46,8 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
   bool _hasNext = false;
   bool _loadMoreQueued = false;
 
-  // Filtros en orden: Servicio → Tipo → Género → Buscar
+  // Filtros en orden: Categoría → Fuente → Tipo → Género → Buscar
+  final FocusNode _categoriaFocus = FocusNode(debugLabel: 'filtro_categoria');
   final FocusNode _servicioFocus = FocusNode(debugLabel: 'filtro_servicio');
   final FocusNode _tipoFocus = FocusNode(debugLabel: 'filtro_tipo');
   final FocusNode _generoFocus = FocusNode(debugLabel: 'filtro_genero');
@@ -88,6 +90,7 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
   @override
   void dispose() {
     _scrollController.dispose();
+    _categoriaFocus.dispose();
     _servicioFocus.dispose();
     _tipoFocus.dispose();
     _generoFocus.dispose();
@@ -98,8 +101,32 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
     super.dispose();
   }
 
+  List<Fuente> get _fuentesDisponibles {
+    final all = fuentesConListado;
+    if (_categoria == 'Todas') return all;
+    if (_categoria == 'Novelas') {
+      final novel = getFuentesByCategory('novel').where((f) => f.hasListing).toList();
+      return novel.isNotEmpty ? novel : all;
+    }
+    if (_categoria == 'Anime') {
+      final anime = getFuentesByCategory('anime').where((f) => f.hasListing).toList();
+      return anime.isNotEmpty ? anime : all;
+    }
+    if (_categoria == 'Películas') {
+      final pelis = all.where((f) => f.tipos.contains('movie')).toList();
+      return pelis.isNotEmpty ? pelis : all;
+    }
+    if (_categoria == 'Series') {
+      final series = all.where((f) => f.tipos.contains('tv')).toList();
+      return series.isNotEmpty ? series : all;
+    }
+    return all;
+  }
+
   List<String> get _tiposDisponibles => _servicio.tipos;
   List<String> get _generosDisponibles => ['', ..._servicio.generos];
+  String get _categoriaLabel => _categoria;
+  String get _servicioLabel => _servicio.label;
   String get _tipoLabel => Fuente.tipoLabel(_tipo);
 
   String get _generoLabel {
@@ -261,6 +288,21 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
     );
   }
 
+  void _changeCategoria(String cat) {
+    if (cat == _categoria) return;
+    setState(() {
+      _categoria = cat;
+      final fuentes = _fuentesDisponibles;
+      if (!fuentes.any((f) => f.id == _servicio.id)) {
+        _servicio = fuentes.isNotEmpty ? fuentes.first : fuentesConListado.first;
+      }
+      _tipo = _servicio.tipos.isNotEmpty ? _servicio.tipos.first : 'movie';
+      _genero = '';
+      _populares = false;
+    });
+    _load(reset: true);
+  }
+
   void _changeServicio(Fuente s) {
     if (s.id == _servicio.id) return;
     setState(() {
@@ -298,8 +340,18 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
   }
 
   // ── Menús de filtros (mando) ─────────────────────────────────────────────
+  void _showCategoriaMenu() {
+    const cats = ['Todas', 'Películas', 'Series', 'Novelas', 'Anime'];
+    _showFilterMenu(
+      title: 'Categoría',
+      options: cats.map((c) => (c, c)).toList(),
+      current: _categoria,
+      onSelected: _changeCategoria,
+    );
+  }
+
   void _showServicioMenu() {
-    final list = fuentesConListado;
+    final list = _fuentesDisponibles;
     _showFilterMenu(
       title: 'Fuente',
       options: list.map((f) => (f.id, f.label)).toList(),
@@ -546,7 +598,7 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
   }
 
   // ── Navegación de filtros ────────────────────────────────────────────────
-  // 0=Tipo, 1=Género, 2=Buscar
+  // 0=Categoría, 1=Fuente, 2=Tipo, 3=Género, 4=Buscar
   KeyEventResult _onFilterKey(FocusNode node, KeyEvent event, int filterIndex) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
@@ -554,16 +606,24 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
       if (filterIndex == 0) {
         widget.onRequestMenuFocus?.call();
       } else if (filterIndex == 1) {
-        _tipoFocus.requestFocus();
+        _categoriaFocus.requestFocus();
       } else if (filterIndex == 2) {
+        _servicioFocus.requestFocus();
+      } else if (filterIndex == 3) {
+        _tipoFocus.requestFocus();
+      } else if (filterIndex == 4) {
         _generoFocus.requestFocus();
       }
       return KeyEventResult.handled;
     }
     if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
       if (filterIndex == 0) {
-        _generoFocus.requestFocus();
+        _servicioFocus.requestFocus();
       } else if (filterIndex == 1) {
+        _tipoFocus.requestFocus();
+      } else if (filterIndex == 2) {
+        _generoFocus.requestFocus();
+      } else if (filterIndex == 3) {
         _buscarFocus.requestFocus();
       }
       return KeyEventResult.handled;
@@ -580,9 +640,11 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
     }
     if (event.logicalKey == LogicalKeyboardKey.select ||
         event.logicalKey == LogicalKeyboardKey.enter) {
-      if (filterIndex == 0) _showTipoMenu();
-      if (filterIndex == 1) _showGeneroMenu();
-      if (filterIndex == 2) _openBuscar();
+      if (filterIndex == 0) _showCategoriaMenu();
+      if (filterIndex == 1) _showServicioMenu();
+      if (filterIndex == 2) _showTipoMenu();
+      if (filterIndex == 3) _showGeneroMenu();
+      if (filterIndex == 4) _openBuscar();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
@@ -615,7 +677,7 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
           _getPosterFocus(index - _kCols).requestFocus();
         } else {
           // Primera fila → filtros
-          _tipoFocus.requestFocus();
+          _categoriaFocus.requestFocus();
         }
         return KeyEventResult.handled;
 
@@ -653,7 +715,7 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
         children: [
           const SizedBox(height: topPad),
 
-          // ── Filtros fijos ──────────────────────────────────────────────
+          // ── Filtros fijos (Categoría, Fuente, Tipo, Género, Buscar) ───────
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 6, 20, 14),
             child: Row(
@@ -661,28 +723,50 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
                 Expanded(
                   flex: 1,
                   child: _FilterPill(
+                    focusNode: _categoriaFocus,
+                    label: 'Categoría',
+                    value: _categoriaLabel,
+                    onKeyEvent: (n, e) => _onFilterKey(n, e, 0),
+                    onTap: _showCategoriaMenu,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 1,
+                  child: _FilterPill(
+                    focusNode: _servicioFocus,
+                    label: 'Fuente',
+                    value: _servicioLabel,
+                    onKeyEvent: (n, e) => _onFilterKey(n, e, 1),
+                    onTap: _showServicioMenu,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  flex: 1,
+                  child: _FilterPill(
                     focusNode: _tipoFocus,
                     label: 'Tipo',
                     value: _tipoLabel,
-                    onKeyEvent: (n, e) => _onFilterKey(n, e, 0),
+                    onKeyEvent: (n, e) => _onFilterKey(n, e, 2),
                     onTap: _showTipoMenu,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   flex: 1,
                   child: _FilterPill(
                     focusNode: _generoFocus,
                     label: 'Género',
                     value: _generoLabel,
-                    onKeyEvent: (n, e) => _onFilterKey(n, e, 1),
+                    onKeyEvent: (n, e) => _onFilterKey(n, e, 3),
                     onTap: _showGeneroMenu,
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 _SearchPill(
                   focusNode: _buscarFocus,
-                  onKeyEvent: (n, e) => _onFilterKey(n, e, 2),
+                  onKeyEvent: (n, e) => _onFilterKey(n, e, 4),
                   onTap: _openBuscar,
                 ),
               ],

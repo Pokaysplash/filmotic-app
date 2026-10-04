@@ -794,5 +794,128 @@ Se implementó la funcionalidad completa de casting mediante el protocolo univer
 ### 23.4 Cómo Añadir Nuevos Dispositivos Compatibles en el Futuro
 - Para integrar nuevos protocolos (por ejemplo, Google Cast v2 o Apple AirPlay), basta con conectar sus controladores a la interfaz de `CastService` sin modificar los componentes de la interfaz de usuario ni los reproductores, o extender las opciones de búsqueda en `DiscoveryOptions` ampliando los `SearchTarget` a servicios UPnP propietarios adicionales.
 
+---
 
+## 24. Expansión de Catálogo, Refactorización de Scrapers y Búsqueda Federada (WAVE 12)
 
+Esta fase introduce una arquitectura de scraping modular y exhaustiva, ampliación masiva de catálogos (novelas y anime), búsqueda federada paralela y rediseño del selector de idioma y servidores tanto en móvil como en Android TV con navegación D-pad.
+
+### 24.1 Nueva Arquitectura de Fuentes y Scrapers (BLOQUE A)
+1. **Modelo `Fuente` Extendido (`scraper_context.dart`)**:
+   - `category`: Categoría principal ('movie', 'series', 'anime', 'novel').
+   - `language`: Idioma principal de la fuente ('es', 'en', 'sub').
+2. **Registro Centralizado (`registry.dart`)**:
+   - Agrupación por categorías en `fuentesRegistry`.
+   - Método `getFuentesByCategory(String category)` que filtra por categoría respetando `RemoteConfigService`.
+   - Búsqueda federada paralela en `buscarEnFuentes(q: query)` con deduplicación por título normalizado y consolidación de `fuentesAgrupadas`.
+3. **Despachador Detalle (`detalle_scraper.dart`)**:
+   - Mapeo unificado para `CanelaTV`, `Telemundo`, `JKAnime`, `TioAnime`, `AnimeFLV`, `Cinecalidad`, `PelisPlus`, `Cuevana`, `SeriesKao` y `TioPlus`.
+4. **Agregador Genérico de Servidores (`main_fuentes_servidores.dart`)**:
+   - Integración de los nuevos proveedores de novelas y anime.
+   - Fallback genérico para cualquier fuente registrada en `fuentesRegistry` con soporte de búsqueda y detalle.
+
+### 24.2 Nuevos Scrapers de Novelas y Anime (BLOQUE B)
+1. **Canela.TV (`canelatv_scraper.dart`)**:
+   - Especializado en telenovelas latinas y turcas, dramas y series clásicas.
+   - Conexión con endpoints CDN JSON (`search-cdn.cms.api.canela.tv`, `data-store-cdn.cms.api.canela.tv`).
+   - Extracción de temporadas, episodios individuales y streaming directo 1080p en español latino.
+2. **Telemundo (`telemundo_scraper.dart`)**:
+   - Especializado en telenovelas, súper-series y producciones originales.
+   - Extracción de listados por género, episodios y enlaces de reproducción oficiales en audio latino.
+3. **JKAnime (`jkanime_scraper.dart`)**:
+   - Catálogo de anime con filtro por géneros (Shounen, Isekai, Romance, Sobrenatural, etc.).
+   - Extracción de episodios a partir de la estructura del sitio y servidores de video (JKPlayer, embeds directos).
+4. **TioAnime (`tioanime_scraper.dart`)**:
+   - Extracción de series, películas, OVAs y especiales de anime.
+   - Parseo de scripts JavaScript (`var episodes`, `var videos`) para servidores como Mega, YourUpload, StreamSB, OkRu, etc.
+
+### 24.3 Expansión de Scrapers Existentes (BLOQUE C)
+1. **Cinecalidad (`cinecalidad_scraper.dart` & `cinecalidad_extractor.dart`)**:
+   - Extracción multi-calidad: detección exhaustiva de enlaces en 720p, 1080p y 4K (2160p).
+   - Detección precisa de idioma por servidor (Latino `es_MX`, Castellano `es_ES`, Subtitulado `en_US`).
+   - Soporte para múltiples servidores por título sin restricción artificial.
+2. **PelisPlus (`pelisplus_detail_scraper.dart` & `pelisplus_extractor.dart`)**:
+   - Extracción completa de todas las temporadas y episodios de series (escaneo global y por contenedores).
+   - Extracción de todos los servidores disponibles por episodio (data-url, data-video, options object).
+   - Habilitación de servidores subtitulados y castellano junto a latino.
+3. **AnimeFLV (`animeflv_scraper.dart` & `animeflv_extractor.dart`)**:
+   - Catálogo completo de anime y detección de episodios vía `var episodes` y fallback en DOM HTML.
+   - Extracción de todos los servidores SUB y LAT con badges identificativos.
+
+### 24.4 Sistema de Búsqueda Federada (BLOQUE D)
+1. **Búsqueda Federada en Paralelo (`search_page.dart` & `tv_search_page.dart`)**:
+   - Ejecuta simultáneamente la consulta en TMDB y en todas las fuentes de `fuentesRegistry` (`buscarEnFuentes`).
+   - Normalización de títulos (`_normTitle`) para deduplicar resultados entre TMDB y los sitios web.
+   - Las fichas de resultados agrupan todas las fuentes disponibles y muestran un distintivo con la cantidad de fuentes.
+   - Apertura unificada de la ficha de contenido (`PageContenido`) con resolución automática de ID TMDB.
+
+### 24.5 Rediseño del Selector de Idioma y Priorización de Servidores (BLOQUE D)
+1. **Selector de Idioma en Reproductor Móvil (`player_page.dart`)**:
+   - Modal de dos niveles: chips/tabs de idiomas disponibles ("Español Latino", "Castellano", "Subtitulado").
+   - Al tocar un idioma, se filtran y listan exclusivamente los servidores de ese idioma con calidad indicada.
+   - Al seleccionar un servidor, inicia la reproducción inmediatamente en ese servidor específico.
+2. **Selector de Idioma en Android TV (`tv_player_page.dart`)**:
+   - Interfaz navegable al 100% con control remoto (D-Pad).
+   - Lista de idiomas que se expande para mostrar los servidores de esa opción de audio con etiquetas de calidad.
+   - Selección de servidor con inicio de streaming inmediato.
+3. **Agrupación y Priorización de Servidores (`ServerLoader` & `ServerFallbackService`)**:
+   - Método `groupAndPrioritizeServers` y `groupServersByLanguage`.
+   - Prioridad 1: Idioma preferido por el usuario (o por la pista seleccionada).
+   - Prioridad 2: Mejor servidor disponible en ese idioma (verificado HLS / alta velocidad).
+
+### 24.6 Paridad Obligatoria Móvil ↔ Android TV (BLOQUE D.5)
+1. **Catálogo y Filtros en Móvil y TV (`category_list_page.dart` & `tv_discover_page.dart`)**:
+   - Barra de filtros de categoría: 'Todos/Todas', 'Películas', 'Series', 'Novelas', 'Anime' con navegación completa D-Pad.
+   - En Android TV, navegación fluida entre los 5 pills de cabecera (`Categoría` ↔ `Fuente` ↔ `Tipo` ↔ `Género` ↔ `Buscar`) y la fila 0 del grid de contenido.
+   - Carga dinámica y filtrado por categoría mediante `getFuentesByCategory('novel')` y `getFuentesByCategory('anime')`.
+2. **Búsqueda Federada en TV (`tv_search_page.dart`)**:
+   - Consulta paralela a todas las fuentes del catálogo registradas.
+   - Deduplicación de resultados y renderizado en grid con foco visual a distancia de TV.
+   - Apertura directa de `TvContentPage` con los servidores agrupados.
+3. **Selector de Idioma Agrupado en TV (`tv_player_page.dart`)**:
+   - Botón de audífonos que despliega un modal con control D-Pad:
+     - Flechas Arriba/Abajo: desplazamiento entre idiomas.
+     - OK: expandir o contraer un idioma.
+     - Flechas en lista expandida: selección de servidor individual.
+     - OK en servidor: cambio inmediato al servidor preservando la posición exacta del video.
+     - Back: cierre limpio del modal.
+
+### 24.7 Resiliencia ante Cortes de Conexión (BLOQUE D.6)
+1. **Detección Diferenciada de Fallas**:
+   - Buffer stall temporal: `buffering == true` y `hasError == false`.
+   - Falla fatal: `hasError == true` o error HTTP 403/404.
+2. **Temporizador de Tolerancia de 60 Segundos**:
+   - Durante 60 segundos de corte o stall, el reproductor no abandona el stream original.
+   - Muestra overlay discreto con spinner y cuenta regresiva: *"Reconectando... (X s)"*.
+   - Si la red se restablece antes de 60s, el overlay se retira y se notifica con SnackBar: *"Conexión restaurada"*.
+3. **Plan de Contingencia Gradual tras Agotarse el Minuto**:
+   - 1º Intento: fallback a menor calidad (720p / 480p) vía HLS parser sobre el mismo servidor.
+   - 2º Intento: si tras 30s más no responde, salto automático a otro servidor del mismo idioma con SnackBar: *"Cambiando a un servidor más estable..."*.
+   - Preservación de posición exacta de reproducción (`seekTo`) antes y después del cambio.
+   - Prohibición estricta de pantallas negras o cierres del reproductor.
+4. **Configuración Remota en `filmotic_config.json`**:
+   - `reconnect_timeout_seconds`: 60
+   - `fallback_to_lower_quality_first`: true
+   - `show_reconnect_overlay`: true
+
+### 24.8 Pre-validación de Servidores en Background (BLOQUE D.7)
+1. **Validación Asíncrona sin Bloquear la UI (`ServerPreValidationService`)**:
+   - Al abrir `content_page.dart` (móvil) o `tv_content_page.dart` (TV), se desencadena la pre-validación de todos los servidores en segundo plano.
+   - El usuario visualiza la ficha técnica, sinopsis y trailers sin demoras.
+2. **Estrategia de Sonda HTTP y Concurrencia**:
+   - Intento HEAD con timeout de 5 segundos; fallback automático a GET parcial (`Range: bytes=0-512`).
+   - Pool de concurrencia máxima de 5 solicitudes simultáneas para evitar saturación de red.
+   - Validación exitosa en códigos HTTP 200–399 o 206 (Partial Content).
+3. **Caché Persistente en Sembast (`server_validation_cache`)**:
+   - Clave: hash MD5 de la URL del servidor.
+   - TTL de 15 minutos configurable. Evita revalidaciones innecesarias en aperturas subsecuentes.
+4. **Filtrado Dinámico y Notificación en Tiempo Real**:
+   - Servidores caídos o inaccesibles se ocultan automáticamente del modal de selección.
+   - Idiomas con todos los servidores caídos no se muestran. Si ningún servidor funciona, mensaje honesto: *"No hay servidores disponibles para este contenido en este momento. Intenta más tarde."*
+   - Botón de audífonos muestra un sutil spinner de progreso mientras la validación está activa.
+   - Si el modal se abre durante la validación, muestra los ya validados con aviso *"Validando el resto..."* y se refresca automáticamente en tiempo real al finalizar los lotes.
+5. **Configuración en `filmotic_config.json`**:
+   - `pre_validate_servers_on_content_open`: true
+   - `pre_validation_timeout_seconds`: 5
+   - `pre_validation_concurrency`: 5
+   - `pre_validation_cache_ttl_minutes`: 15

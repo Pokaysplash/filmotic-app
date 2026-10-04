@@ -8,6 +8,11 @@ import '../detail/cinehax_detail_scraper.dart';
 import '../cinecalidad_scraper.dart';
 import '../thanhdattoday_scraper.dart';
 import '../animeflv_scraper.dart';
+import '../canelatv_scraper.dart';
+import '../telemundo_scraper.dart';
+import '../jkanime_scraper.dart';
+import '../tioanime_scraper.dart';
+
 class DetalleScraper {
   static Future<DetalleContenido> fetch({
     required String servicio,
@@ -41,6 +46,14 @@ class DetalleScraper {
           return await ThanhDatTodayScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         case 'animeflv':
           return await AnimeFLVScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'canelatv':
+          return await CanelaTVScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'telemundo':
+          return await TelemundoScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'jkanime':
+          return await JKAnimeScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'tioanime':
+          return await TioAnimeScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         default:
           return DetalleContenido(
             ok: false,

@@ -30,6 +30,12 @@ class Fuente {
   /// Si true, aparece en el filtro de búsqueda.
   final bool hasSearch;
 
+  /// Categoría principal: 'movie', 'series', 'anime', 'novel'
+  final String category;
+
+  /// Idioma principal de la fuente: 'es', 'en', 'sub'
+  final String language;
+
   /// Carga de listado. Solo se llama si [hasListing] es true.
   final Future<ScraperResult> Function({
     String? tipo,
@@ -44,6 +50,8 @@ class Fuente {
   const Fuente({
     required this.id,
     required this.label,
+    this.category = 'movie',
+    this.language = 'es',
     this.tipos = const ['movie', 'tv'],
     this.generos = const [],
     this.supportsPopulares = false,

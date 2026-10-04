@@ -762,6 +762,21 @@ class ServerLoader {
     _sortServersByPriority(result);
     return result;
   }
+
+  /// Agrupa y ordena servidores por idioma respetando la prioridad de idioma y servidores.
+  Map<String, List<Map<String, dynamic>>> groupServersByLanguage(List<Map<String, dynamic>> servers) {
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+    for (final s in servers) {
+      if (_isInvalid(s)) continue;
+      final code = MainFuentes.normalizeIdioma(s['idioma']?.toString());
+      final label = MainFuentes.idiomaLabel(code);
+      grouped.putIfAbsent(label, () => []).add(s);
+    }
+    for (final list in grouped.values) {
+      _sortServersByPriority(list);
+    }
+    return grouped;
+  }
   
   void _sortServersByPriority(List<Map<String, dynamic>> servers) {
     final priorityConfig = RemoteConfigService.instance.config.serverPriority;

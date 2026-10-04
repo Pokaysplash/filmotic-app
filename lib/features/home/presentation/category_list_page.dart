@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import '../../content/presentation/content_page.dart' as mobile_content;
 import '../../content/presentation/tv_content_page.dart' as tv_content;
 import '../../../core/services/guardados_bus.dart';
+import '../../../data/scrapers/base/registry.dart';
 
 const Color kAccentColor = Color(0xFFFF6B35);
 const Color kBgColor = Color(0xFF0A0A0A);
@@ -36,16 +37,135 @@ class _CategoryListPageState extends State<CategoryListPage> {
   final FocusNode _backFocusNode = FocusNode(debugLabel: 'category_back_btn');
   final Map<int, FocusNode> _itemFocusNodes = {};
 
+  String _selectedCategory = 'Todos';
+  bool _loadingCategory = false;
+  final Map<String, List<Map<String, dynamic>>> _categoryCache = {};
+  final Map<String, FocusNode> _categoryFocusNodes = {
+    'Todos': FocusNode(debugLabel: 'cat_todos'),
+    'Películas': FocusNode(debugLabel: 'cat_pelis'),
+    'Series': FocusNode(debugLabel: 'cat_series'),
+    'Novelas': FocusNode(debugLabel: 'cat_novelas'),
+    'Anime': FocusNode(debugLabel: 'cat_anime'),
+  };
+
   int _focusedIndex = -1;
+
+  static const List<String> _kCategories = [
+    'Todos',
+    'Películas',
+    'Series',
+    'Novelas',
+    'Anime',
+  ];
 
   @override
   void dispose() {
     _scrollController.dispose();
     _backFocusNode.dispose();
+    for (final node in _categoryFocusNodes.values) {
+      node.dispose();
+    }
     for (final node in _itemFocusNodes.values) {
       node.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _selectCategory(String cat) async {
+    if (_selectedCategory == cat) return;
+    setState(() {
+      _selectedCategory = cat;
+      _focusedIndex = -1;
+    });
+
+    if (cat == 'Novelas' && !_categoryCache.containsKey('Novelas')) {
+      setState(() => _loadingCategory = true);
+      try {
+        final novelSources = getFuentesByCategory('novel');
+        final items = <Map<String, dynamic>>[];
+        for (final src in novelSources) {
+          if (src.fetch != null) {
+            final res = await src.fetch!();
+            for (final it in res.items) {
+              items.add({
+                'id': it.tmdbId ?? it.titulo.hashCode.abs(),
+                'tmdb_id': it.tmdbId ?? 0,
+                'title': it.titulo,
+                'name': it.titulo,
+                'poster_path': it.poster,
+                'vote_average': it.rating ?? 0.0,
+                'year': it.year != null ? '${it.year}' : '',
+                'media_type': 'tv',
+                'sitio': src.id,
+                'url': it.url,
+              });
+            }
+          }
+        }
+        _categoryCache['Novelas'] = items;
+      } catch (_) {}
+      if (mounted) setState(() => _loadingCategory = false);
+    } else if (cat == 'Anime' && !_categoryCache.containsKey('Anime')) {
+      setState(() => _loadingCategory = true);
+      try {
+        final animeSources = getFuentesByCategory('anime');
+        final items = <Map<String, dynamic>>[];
+        for (final src in animeSources) {
+          if (src.fetch != null) {
+            final res = await src.fetch!();
+            for (final it in res.items) {
+              items.add({
+                'id': it.tmdbId ?? it.titulo.hashCode.abs(),
+                'tmdb_id': it.tmdbId ?? 0,
+                'title': it.titulo,
+                'name': it.titulo,
+                'poster_path': it.poster,
+                'vote_average': it.rating ?? 0.0,
+                'year': it.year != null ? '${it.year}' : '',
+                'media_type': 'tv',
+                'sitio': src.id,
+                'url': it.url,
+              });
+            }
+          }
+        }
+        _categoryCache['Anime'] = items;
+      } catch (_) {}
+      if (mounted) setState(() => _loadingCategory = false);
+    }
+  }
+
+  List<Map<String, dynamic>> get _currentItems {
+    switch (_selectedCategory) {
+      case 'Películas':
+        return widget.items.where((i) {
+          final t = (i['tipo'] ?? i['type'] ?? i['media_type'] ?? '').toString().toLowerCase();
+          return t == 'movie' || t == 'pelicula' || (i['title'] != null && i['name'] == null);
+        }).toList();
+      case 'Series':
+        return widget.items.where((i) {
+          final t = (i['tipo'] ?? i['type'] ?? i['media_type'] ?? '').toString().toLowerCase();
+          return t == 'tv' || t == 'serie' || (i['name'] != null && i['title'] == null);
+        }).toList();
+      case 'Novelas':
+        final fromWidget = widget.items.where((i) {
+          final t = (i['title'] ?? i['name'] ?? '').toString().toLowerCase();
+          final g = (i['genre'] ?? i['genero'] ?? '').toString().toLowerCase();
+          return t.contains('novela') || g.contains('novela') || g.contains('drama');
+        }).toList();
+        if (fromWidget.isNotEmpty) return fromWidget;
+        return _categoryCache['Novelas'] ?? [];
+      case 'Anime':
+        final fromWidget = widget.items.where((i) {
+          final t = (i['title'] ?? i['name'] ?? '').toString().toLowerCase();
+          final g = (i['genre'] ?? i['genero'] ?? '').toString().toLowerCase();
+          return g.contains('anime') || g.contains('animacion');
+        }).toList();
+        if (fromWidget.isNotEmpty) return fromWidget;
+        return _categoryCache['Anime'] ?? [];
+      default:
+        return widget.items;
+    }
   }
 
   FocusNode _getFocusNodeFor(int index) {
@@ -195,7 +315,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                '${widget.items.length} títulos',
+                '${_currentItems.length} títulos',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.7),
                   fontSize: 12.5,
@@ -206,98 +326,201 @@ class _CategoryListPageState extends State<CategoryListPage> {
           ],
         ),
       ),
-      body: widget.items.isEmpty
-          ? Center(
-              child: Text(
-                'No hay contenido disponible en esta sección.',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
-                  fontSize: 15,
-                ),
-              ),
-            )
-          : GridView.builder(
-              controller: _scrollController,
-              padding: EdgeInsets.fromLTRB(
-                isTv ? 28 : 14,
-                14,
-                isTv ? 28 : 14,
-                isTv ? 36 : 28,
-              ),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: cols,
-                childAspectRatio: childRatio,
-                crossAxisSpacing: isTv ? 14 : 10,
-                mainAxisSpacing: isTv ? 18 : 12,
-              ),
-              itemCount: widget.items.length,
-              itemBuilder: (context, index) {
-                final item = widget.items[index];
-                final posterUrl = _getImageUrl(item);
-                final title = _getTitle(item);
-                final rating = _getRating(item);
-                final year = _getYear(item);
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Barra de categorías (Todos, Películas, Series, Novelas, Anime) ──
+          Container(
+            height: 48,
+            padding: EdgeInsets.symmetric(horizontal: isTv ? 28 : 14),
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _kCategories.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, catIdx) {
+                final cat = _kCategories[catIdx];
+                final isSelected = _selectedCategory == cat;
+                final fNode = _categoryFocusNodes[cat];
 
-                if (isTv) {
-                  final node = _getFocusNodeFor(index);
+                if (isTv && fNode != null) {
                   return Focus(
-                    focusNode: node,
-                    autofocus: index == 0,
-                    onFocusChange: (hasFocus) {
-                      if (hasFocus) {
-                        setState(() => _focusedIndex = index);
-                        final ctx = node.context;
-                        if (ctx != null) {
-                          Scrollable.ensureVisible(
-                            ctx,
-                            alignment: 0.3,
-                            duration: const Duration(milliseconds: 200),
-                            curve: Curves.easeInOut,
-                          );
-                        }
-                      }
-                    },
+                    focusNode: fNode,
                     onKeyEvent: (node, event) {
                       if (event is! KeyDownEvent) return KeyEventResult.ignored;
-
-                      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-                        if (index < cols) {
-                          _backFocusNode.requestFocus();
+                      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                        if (_currentItems.isNotEmpty) {
+                          _getFocusNodeFor(0).requestFocus();
                           return KeyEventResult.handled;
                         }
-                        _getFocusNodeFor(index - cols).requestFocus();
+                      }
+                      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                        _backFocusNode.requestFocus();
                         return KeyEventResult.handled;
                       }
-                      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                        final next = index + cols;
-                        if (next < widget.items.length) {
-                          _getFocusNodeFor(next).requestFocus();
-                          return KeyEventResult.handled;
-                        }
-                        return KeyEventResult.ignored;
+                      if (event.logicalKey == LogicalKeyboardKey.arrowLeft && catIdx > 0) {
+                        _categoryFocusNodes[_kCategories[catIdx - 1]]?.requestFocus();
+                        return KeyEventResult.handled;
                       }
-                      if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
-                        if (index % cols > 0) {
-                          _getFocusNodeFor(index - 1).requestFocus();
-                          return KeyEventResult.handled;
-                        }
-                        return KeyEventResult.ignored;
-                      }
-                      if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
-                        if ((index % cols < cols - 1) &&
-                            index + 1 < widget.items.length) {
-                          _getFocusNodeFor(index + 1).requestFocus();
-                          return KeyEventResult.handled;
-                        }
-                        return KeyEventResult.ignored;
+                      if (event.logicalKey == LogicalKeyboardKey.arrowRight && catIdx < _kCategories.length - 1) {
+                        _categoryFocusNodes[_kCategories[catIdx + 1]]?.requestFocus();
+                        return KeyEventResult.handled;
                       }
                       if (event.logicalKey == LogicalKeyboardKey.select ||
                           event.logicalKey == LogicalKeyboardKey.enter) {
-                        _openItem(item);
+                        _selectCategory(cat);
                         return KeyEventResult.handled;
                       }
                       return KeyEventResult.ignored;
                     },
+                    child: Builder(
+                      builder: (bCtx) {
+                        final hasFocus = Focus.of(bCtx).hasFocus;
+                        return ChoiceChip(
+                          label: Text(cat),
+                          selected: isSelected,
+                          onSelected: (_) => _selectCategory(cat),
+                          selectedColor: kAccentColor,
+                          backgroundColor: hasFocus ? Colors.white24 : const Color(0xFF1E1E24),
+                          labelStyle: TextStyle(
+                            color: isSelected || hasFocus ? Colors.white : Colors.white70,
+                            fontWeight: isSelected || hasFocus ? FontWeight.bold : FontWeight.w500,
+                            fontSize: 13,
+                          ),
+                          side: BorderSide(
+                            color: hasFocus
+                                ? Colors.white
+                                : (isSelected ? kAccentColor : Colors.white12),
+                            width: hasFocus ? 2.0 : 1.0,
+                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        );
+                      },
+                    ),
+                  );
+                }
+
+                return ChoiceChip(
+                  label: Text(cat),
+                  selected: isSelected,
+                  onSelected: (_) => _selectCategory(cat),
+                  selectedColor: kAccentColor,
+                  backgroundColor: const Color(0xFF1E1E24),
+                  labelStyle: TextStyle(
+                    color: isSelected ? Colors.white : Colors.white70,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                    fontSize: 13,
+                  ),
+                  side: BorderSide(
+                    color: isSelected ? kAccentColor : Colors.white12,
+                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // ── Cuerpo de la lista / Grid ──
+          Expanded(
+            child: _loadingCategory
+                ? const Center(
+                    child: CircularProgressIndicator(
+                      color: kAccentColor,
+                      strokeWidth: 2.5,
+                    ),
+                  )
+                : _currentItems.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No hay contenido disponible para "$_selectedCategory".',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.5),
+                            fontSize: 15,
+                          ),
+                        ),
+                      )
+                    : GridView.builder(
+                        controller: _scrollController,
+                        padding: EdgeInsets.fromLTRB(
+                          isTv ? 28 : 14,
+                          8,
+                          isTv ? 28 : 14,
+                          isTv ? 36 : 28,
+                        ),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: cols,
+                          childAspectRatio: childRatio,
+                          crossAxisSpacing: isTv ? 14 : 10,
+                          mainAxisSpacing: isTv ? 18 : 12,
+                        ),
+                        itemCount: _currentItems.length,
+                        itemBuilder: (context, index) {
+                          final item = _currentItems[index];
+                          final posterUrl = _getImageUrl(item);
+                          final title = _getTitle(item);
+                          final rating = _getRating(item);
+                          final year = _getYear(item);
+
+                          if (isTv) {
+                            final node = _getFocusNodeFor(index);
+                            return Focus(
+                              focusNode: node,
+                              autofocus: index == 0,
+                              onFocusChange: (hasFocus) {
+                                if (hasFocus) {
+                                  setState(() => _focusedIndex = index);
+                                  final ctx = node.context;
+                                  if (ctx != null) {
+                                    Scrollable.ensureVisible(
+                                      ctx,
+                                      alignment: 0.3,
+                                      duration: const Duration(milliseconds: 200),
+                                      curve: Curves.easeInOut,
+                                    );
+                                  }
+                                }
+                              },
+                              onKeyEvent: (node, event) {
+                                if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+                                if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                                  if (index < cols) {
+                                    _categoryFocusNodes[_selectedCategory]?.requestFocus();
+                                    return KeyEventResult.handled;
+                                  }
+                                  _getFocusNodeFor(index - cols).requestFocus();
+                                  return KeyEventResult.handled;
+                                }
+                                if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                                  final next = index + cols;
+                                  if (next < _currentItems.length) {
+                                    _getFocusNodeFor(next).requestFocus();
+                                    return KeyEventResult.handled;
+                                  }
+                                  return KeyEventResult.ignored;
+                                }
+                                if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                                  if (index % cols > 0) {
+                                    _getFocusNodeFor(index - 1).requestFocus();
+                                    return KeyEventResult.handled;
+                                  }
+                                  return KeyEventResult.ignored;
+                                }
+                                if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+                                  if ((index % cols < cols - 1) &&
+                                      index + 1 < _currentItems.length) {
+                                    _getFocusNodeFor(index + 1).requestFocus();
+                                    return KeyEventResult.handled;
+                                  }
+                                  return KeyEventResult.ignored;
+                                }
+                                if (event.logicalKey == LogicalKeyboardKey.select ||
+                                    event.logicalKey == LogicalKeyboardKey.enter) {
+                                  _openItem(item);
+                                  return KeyEventResult.handled;
+                                }
+                                return KeyEventResult.ignored;
+                              },
                     child: Builder(
                       builder: (fCtx) {
                         final hasFocus = Focus.of(fCtx).hasFocus;
@@ -456,6 +679,9 @@ class _CategoryListPageState extends State<CategoryListPage> {
                 );
               },
             ),
+          ),
+        ],
+      ),
     );
   }
 }

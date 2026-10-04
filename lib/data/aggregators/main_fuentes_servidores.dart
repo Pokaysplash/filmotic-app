@@ -13,8 +13,13 @@ import '../extractors/hls/hls_extractor.dart'; // ExtractorHlsService  ← NUEVO
 import '../extractors/providers/cinecalidad_extractor.dart';
 import '../scrapers/cinecalidad_scraper.dart';
 import '../scrapers/thanhdattoday_scraper.dart';
-import '../scrapers/animeflv_scraper.dart';
 import '../extractors/providers/animeflv_extractor.dart';
+import '../scrapers/canelatv_scraper.dart';
+import '../scrapers/telemundo_scraper.dart';
+import '../scrapers/jkanime_scraper.dart';
+import '../scrapers/tioanime_scraper.dart';
+import '../scrapers/base/registry.dart';
+import '../scrapers/base/detalle_scraper.dart';
 
 class ServerEvent {
   final Map<String, dynamic>? servidor;
@@ -273,8 +278,108 @@ class MainFuentesServidores {
         }
         break;
 
+      case 'canelatv':
+        try {
+          final results = await CanelaTVScraper.search('$tmdbId');
+          if (results.isNotEmpty) {
+            final servers = await CanelaTVScraper.fetchServers(url: results.first.url);
+            for (final s in servers) {
+              yield {
+                'servidor_nombre': s.nombre,
+                'servidor_url': s.url,
+                'calidad': s.calidad ?? '1080p',
+                'idioma': s.idioma ?? 'latino',
+                'estado': 'activo',
+                'es_canela': true,
+              };
+            }
+          }
+        } catch (_) {}
+        break;
+
+      case 'telemundo':
+        try {
+          final results = await TelemundoScraper.search('$tmdbId');
+          if (results.isNotEmpty) {
+            final servers = await TelemundoScraper.fetchServers(url: results.first.url);
+            for (final s in servers) {
+              yield {
+                'servidor_nombre': s.nombre,
+                'servidor_url': s.url,
+                'calidad': s.calidad ?? '1080p',
+                'idioma': s.idioma ?? 'latino',
+                'estado': 'activo',
+                'es_telemundo': true,
+              };
+            }
+          }
+        } catch (_) {}
+        break;
+
+      case 'jkanime':
+        try {
+          final results = await JKAnimeScraper.search('$tmdbId');
+          if (results.isNotEmpty) {
+            final servers = await JKAnimeScraper.fetchServers(url: results.first.url);
+            for (final s in servers) {
+              yield {
+                'servidor_nombre': s.nombre,
+                'servidor_url': s.url,
+                'calidad': s.calidad ?? 'HD',
+                'idioma': s.idioma ?? 'subtitulado',
+                'estado': 'activo',
+                'es_jkanime': true,
+              };
+            }
+          }
+        } catch (_) {}
+        break;
+
+      case 'tioanime':
+        try {
+          final results = await TioAnimeScraper.search('$tmdbId');
+          if (results.isNotEmpty) {
+            final servers = await TioAnimeScraper.fetchServers(url: results.first.url);
+            for (final s in servers) {
+              yield {
+                'servidor_nombre': s.nombre,
+                'servidor_url': s.url,
+                'calidad': s.calidad ?? 'HD',
+                'idioma': s.idioma ?? 'subtitulado',
+                'estado': 'activo',
+                'es_tioanime': true,
+              };
+            }
+          }
+        } catch (_) {}
+        break;
+
       default:
-        throw Exception('Fuente no soportada: $fuente');
+        // Fallback genérico para cualquier fuente registrada en fuentesRegistry
+        final f = fuenteById(fuente);
+        if (f != null && f.search != null) {
+          try {
+            final items = await f.search!('$tmdbId');
+            if (items.isNotEmpty) {
+              final det = await DetalleScraper.fetch(
+                servicio: f.id,
+                url: items.first.url,
+                titulo: items.first.titulo,
+                tipo: isMovie ? 'movie' : 'tv',
+              );
+              for (final s in det.servidores) {
+                yield {
+                  'servidor_nombre': '${f.label} · ${s.nombre}',
+                  'servidor_url': s.url,
+                  'calidad': s.calidad ?? 'HD',
+                  'idioma': s.idioma ?? (f.language == 'sub' ? 'subtitulado' : 'latino'),
+                  'estado': 'activo',
+                };
+              }
+            }
+          } catch (_) {}
+        }
+        break;
     }
   }
 

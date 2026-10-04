@@ -6,6 +6,9 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../content/presentation/tv_content_page.dart';
 import '../../content/presentation/tv_content_options_modal.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_search.dart';
+import '../../../data/scrapers/base/registry.dart';
+import '../../../data/scrapers/base/buscador.dart';
+import '../../../core/services/guardados_bus.dart';
 const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
 const kKeyColor = Color(0xFF2A2A38);
@@ -191,6 +194,13 @@ class BuscarPageState extends State<BuscarPage> {
     });
   }
 
+  String _normTitle(String t) {
+    return t
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]'), '')
+        .trim();
+  }
+
   Future<void> _doSearch() async {
     final q = _query.trim();
     if (q.isEmpty) return;
@@ -204,25 +214,78 @@ class BuscarPageState extends State<BuscarPage> {
     });
 
     try {
-      final json = await _tmdbSearch.search(q, limit: 30);
+      final tmdbFuture = _tmdbSearch.search(q, limit: 30);
+      final federatedFuture = buscarEnFuentes(q: q);
+
+      final searchResults = await Future.wait([
+        tmdbFuture,
+        federatedFuture,
+      ]);
 
       if (currentId != _searchId || !mounted) return;
 
-      if (json['success'] == true) {
+      final tmdbJson = searchResults[0] as Map<String, dynamic>;
+      final fedResult = searchResults[1] as BuscadorResult;
+
+      final mapByTitle = <String, Map<String, dynamic>>{};
+
+      // 1. Agregar resultados TMDB
+      if (tmdbJson['success'] == true) {
         final items = List<Map<String, dynamic>>.from(
-          json['data']?['items'] ?? [],
+          tmdbJson['data']?['items'] ?? [],
         );
-        setState(() {
-          _items = items;
-          _loading = false;
-        });
-      } else {
-        setState(() {
-          _error = 'No se pudo buscar';
-          _items = [];
-          _loading = false;
-        });
+        for (final item in items) {
+          final title = (item['title'] ?? item['name'] ?? item['titulo'] ?? '').toString();
+          final norm = _normTitle(title);
+          final type = canonicalMediaType(item['media_type'] ?? (item['name'] != null ? 'tv' : 'movie'));
+          final key = '${type}_$norm';
+
+          item['fuentes_agrupadas'] = <Map<String, String>>[];
+          mapByTitle[key] = item;
+        }
       }
+
+      // 2. Combinar con resultados federados
+      final fedItems = fedResult.resultados['todas'] ?? [];
+      for (final fItem in fedItems) {
+        final norm = _normTitle(fItem.titulo);
+        final type = fItem.tipo == 'anime' || fItem.tipo == 'tv' ? 'tv' : 'movie';
+        final key = '${type}_$norm';
+
+        if (mapByTitle.containsKey(key)) {
+          final existing = mapByTitle[key]!;
+          final fuentes = List<Map<String, String>>.from(existing['fuentes_agrupadas'] ?? []);
+          if (fItem.fuentesAgrupadas != null) {
+            fuentes.addAll(fItem.fuentesAgrupadas!);
+          } else {
+            fuentes.add({'sitio': fItem.sitio, 'url': fItem.url});
+          }
+          existing['fuentes_agrupadas'] = fuentes;
+        } else {
+          mapByTitle[key] = {
+            'id': fItem.tmdbId ?? 0,
+            'tmdb_id': fItem.tmdbId ?? 0,
+            'title': fItem.titulo,
+            'name': fItem.titulo,
+            'media_type': type,
+            'poster_path': fItem.imagen,
+            'vote_average': fItem.rating ?? 0.0,
+            'year': fItem.anio != null ? '${fItem.anio}' : '',
+            'release_date': fItem.anio != null ? '${fItem.anio}-01-01' : null,
+            'fuentes_agrupadas': fItem.fuentesAgrupadas ?? [{'sitio': fItem.sitio, 'url': fItem.url}],
+            'sitio': fItem.sitio,
+            'url': fItem.url,
+          };
+        }
+      }
+
+      setState(() {
+        _items = mapByTitle.values.toList();
+        _loading = false;
+        if (_items.isEmpty && fedResult.error != null) {
+          _error = fedResult.error;
+        }
+      });
     } catch (e) {
       if (currentId != _searchId || !mounted) return;
       setState(() {
@@ -233,20 +296,35 @@ class BuscarPageState extends State<BuscarPage> {
     }
   }
 
-  void _openContent(Map<String, dynamic> item) {
-    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+  Future<void> _openContent(Map<String, dynamic> item) async {
+    int id = parseCanonicalTmdbId(item['tmdb_id']) ??
         parseCanonicalTmdbId(item['idtmdb']) ??
         parseCanonicalTmdbId(item['idcontenido']) ??
         parseCanonicalTmdbId(item['contenido_id']) ??
         parseCanonicalTmdbId(item['id']) ??
         0;
-    if (id <= 0) return;
+
     final tipo = canonicalMediaType(
         item['media_type'] ?? item['type'] ?? item['tipo'] ?? (item['name'] != null && item['title'] == null ? 'tv' : 'movie'));
     final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '')
         .toString()
         .trim();
 
+    if (id <= 0 && titulo.isNotEmpty) {
+      try {
+        final res = await _tmdbSearch.search(titulo, limit: 1);
+        final first = (res['data']?['items'] as List?)?.firstOrNull;
+        if (first != null) {
+          id = parseCanonicalTmdbId(first['id'] ?? first['tmdb_id']) ?? 0;
+        }
+      } catch (_) {}
+    }
+
+    if (id <= 0) {
+      id = titulo.hashCode.abs();
+    }
+
+    if (!mounted) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -929,12 +1007,16 @@ class _ResultsGrid extends StatelessWidget {
         final typeLabel = mediaType == 'tv' ? 'Serie' : 'Película';
         final memW = (120 * dpr).round();
 
+        final fuentes = item['fuentes_agrupadas'] as List?;
+        final fuentesCount = fuentes?.length ?? 0;
+
         return RepaintBoundary(
           child: _PosterCard(
             title: title,
             posterUrl: poster,
             year: year,
             typeLabel: typeLabel,
+            fuentesCount: fuentesCount,
             memCacheWidth: memW,
             focusNode: index == 0 ? firstItemFocusNode : null,
             onTap: () => onTap(item),
@@ -951,6 +1033,7 @@ class _PosterCard extends StatefulWidget {
   final String posterUrl;
   final String year;
   final String typeLabel;
+  final int fuentesCount;
   final int memCacheWidth;
   final FocusNode? focusNode;
   final VoidCallback onTap;
@@ -961,6 +1044,7 @@ class _PosterCard extends StatefulWidget {
     required this.posterUrl,
     required this.year,
     required this.typeLabel,
+    this.fuentesCount = 0,
     required this.memCacheWidth,
     this.focusNode,
     required this.onTap,
@@ -1070,6 +1154,10 @@ class _PosterCardState extends State<_PosterCard> {
                             if (widget.year.isNotEmpty) ...[
                               const SizedBox(width: 4),
                               _Tag(text: widget.year),
+                            ],
+                            if (widget.fuentesCount > 0) ...[
+                              const Spacer(),
+                              _Tag(text: '${widget.fuentesCount} f'),
                             ],
                           ],
                         ),

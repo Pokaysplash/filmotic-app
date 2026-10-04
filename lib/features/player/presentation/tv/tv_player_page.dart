@@ -23,6 +23,8 @@ import '../widgets/screensaver_overlay.dart';
 import '../../../../data/datasources/remote/tmdb/tmdb_player_api.dart';
 import 'tv_player_controller.dart';
 import '../widgets/because_you_watched_overlay.dart';
+import '../../../../core/services/server_prevalidation_service.dart';
+import '../../../../core/services/remote_config_service.dart';
 import '../../../../core/services/audio_service.dart';
 import '../../../live_tv/data/live_tv_service.dart';
 import '../../../live_tv/domain/channel.dart';
@@ -281,6 +283,124 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _consecutiveServerFailures = 0;
   Timer? _loadingLongTimer;
   bool _showTryAnotherServer = false;
+
+  // ── Bloque D.6: Resiliencia ante cortes de red en TV ──
+  Timer? _reconnectTimer;
+  Timer? _reconnectCountdownTimer;
+  bool _isReconnecting = false;
+  int _reconnectRemainingSec = 60;
+  DateTime? _bufferingStartTime;
+
+  void _startReconnectTolerance() {
+    if (_isReconnecting || !mounted || _isDisposing) return;
+    final timeoutSec = RemoteConfigService.instance.config.player.reconnectTimeoutSeconds;
+    final showOverlay = RemoteConfigService.instance.config.player.showReconnectOverlay;
+
+    setState(() {
+      _isReconnecting = showOverlay;
+      _reconnectRemainingSec = timeoutSec;
+    });
+
+    _reconnectCountdownTimer?.cancel();
+    _reconnectCountdownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted || _isDisposing || !_isReconnecting) {
+        t.cancel();
+        return;
+      }
+      setState(() {
+        if (_reconnectRemainingSec > 0) {
+          _reconnectRemainingSec--;
+        }
+      });
+    });
+
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(Duration(seconds: timeoutSec), () async {
+      if (!mounted || _isDisposing) return;
+      _cancelReconnectTolerance(recovered: false);
+      await _handleReconnectionTimeoutFallback();
+    });
+  }
+
+  void _cancelReconnectTolerance({bool recovered = true}) {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _reconnectCountdownTimer?.cancel();
+    _reconnectCountdownTimer = null;
+    _bufferingStartTime = null;
+
+    if (_isReconnecting && mounted) {
+      setState(() {
+        _isReconnecting = false;
+      });
+      if (recovered) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Row(
+              children: [
+                Icon(Icons.wifi_rounded, color: Colors.greenAccent, size: 20),
+                SizedBox(width: 8),
+                Text('Conexión restaurada'),
+              ],
+            ),
+            backgroundColor: Color(0xFF1E1E24),
+            duration: Duration(seconds: 3),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleReconnectionTimeoutFallback() async {
+    if (!mounted || _isDisposing) return;
+
+    final fallbackLower = RemoteConfigService.instance.config.player.fallbackToLowerQualityFirst;
+    final savedPos = _currentPosition;
+
+    if (fallbackLower && _activeUrl.contains('.m3u8')) {
+      try {
+        final variants = await HlsQualityParser.parse(_activeUrl);
+        final lower = variants.where((q) => !q.isAuto && (q.height == null || q.height! <= 720)).toList();
+        if (lower.isNotEmpty) {
+          final target = lower.first;
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Cambiando a un servidor más estable...'),
+                backgroundColor: Color(0xFF1E1E24),
+                duration: Duration(seconds: 3),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+          await _selectQuality(target);
+          return;
+        }
+      } catch (_) {}
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cambiando a un servidor más estable...'),
+          backgroundColor: Color(0xFF1E1E24),
+          duration: Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+
+    if (_fallbackIndex < _fallbackServers.length) {
+      _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
+    }
+    await _tryNextServer(reason: 'Tiempo de reconexión agotado (60s)');
+    if (_controllerReady && savedPos > const Duration(seconds: 2)) {
+      try {
+        await _controller.seekTo(savedPos);
+      } catch (_) {}
+    }
+  }
 
   void _startLoadingTimer() {
     _loadingLongTimer?.cancel();
@@ -2076,6 +2196,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (newBuffering != _isBuffering) {
       _isBuffering = newBuffering;
       needsSetState = true;
+
+      // ── Bloque D.6: Manejo de corte temporal vs error fatal en TV ──
+      if (newBuffering && !value.hasError && _hasStartedPlaying && !widget.isLive) {
+        _bufferingStartTime ??= DateTime.now();
+        _reconnectTimer ??= Timer(const Duration(seconds: 2), () {
+          if (mounted && !_isDisposing && _isBuffering && !_controller.value.hasError) {
+            _startReconnectTolerance();
+          }
+        });
+      } else if (!newBuffering && _isReconnecting) {
+        _cancelReconnectTolerance(recovered: true);
+      } else if (!newBuffering) {
+        _bufferingStartTime = null;
+      }
+    }
+    if (newPlaying && _isReconnecting) {
+      _cancelReconnectTolerance(recovered: true);
     }
     if (newDuration != _totalDuration) {
       _totalDuration = newDuration;
@@ -2967,12 +3104,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
-    final currentLangLabel = _langLabel(_idioma);
-    String? expandedLang = byLang.containsKey(currentLangLabel)
-        ? currentLangLabel
-        : byLang.keys.firstOrNull;
-
-    // Cargar caché Sembast de servidores validados (TTL 1h)
+    // Cargar caché Sembast de servidores validados (TTL 15m / 1h)
     final invalidKeys = <String>{};
     final noAudioKeys = <String>{};
     for (final srv in _fallbackServers) {
@@ -2982,15 +3114,61 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (cached['is_valid'] == false) invalidKeys.add(key);
         if (cached['has_audio'] == false) noAudioKeys.add(key);
       }
+      final srvUrl = (srv['resolved_m3u8'] ?? srv['servidor_url'] ?? '').toString();
+      if (srvUrl.isNotEmpty) {
+        final preVal = await ServerPreValidationService.instance.getCachedResult(srvUrl);
+        if (preVal != null && !preVal.isValid) {
+          invalidKeys.add(key);
+        }
+      }
+    }
+
+    // Filtrar idiomas donde todos los servidores son inválidos
+    byLang.removeWhere((lang, servers) => servers.every((s) =>
+        _serverLoader.isServerInvalid(s) || invalidKeys.contains(_serverKey(s))));
+
+    if (byLang.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No hay servidores disponibles para este contenido en este momento. Intenta más tarde.'),
+            backgroundColor: Color(0xFF1a1a1a),
+          ),
+        );
+      }
+      return;
     }
 
     if (!mounted) return;
+
+    final currentLangLabel = _langLabel(_idioma);
+    String? expandedLang = byLang.containsKey(currentLangLabel)
+        ? currentLangLabel
+        : byLang.keys.firstOrNull;
+
+    StreamSubscription? valSub;
 
     await showDialog(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (dialogCtx, setDialogState) {
+            valSub ??= ServerPreValidationService.instance.onValidationBatchCompleted.listen((_) async {
+              for (final srv in _fallbackServers) {
+                final key = _serverKey(srv);
+                final srvUrl = (srv['resolved_m3u8'] ?? srv['servidor_url'] ?? '').toString();
+                if (srvUrl.isNotEmpty) {
+                  final preVal = await ServerPreValidationService.instance.getCachedResult(srvUrl);
+                  if (preVal != null && !preVal.isValid) {
+                    invalidKeys.add(key);
+                  }
+                }
+              }
+              if (dialogCtx.mounted) {
+                setDialogState(() {});
+              }
+            });
+
             return Dialog(
               backgroundColor: const Color(0xFF141414),
               shape: RoundedRectangleBorder(
@@ -3009,11 +3187,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         children: [
                           const Icon(Icons.headphones_rounded, color: accentOrange, size: 24),
                           const SizedBox(width: 10),
-                          const Expanded(
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
+                                const Text(
                                   'Idioma de Audio y Servidores',
                                   style: TextStyle(
                                     color: Colors.white,
@@ -3021,16 +3199,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                SizedBox(height: 2),
-                                Text(
+                                const SizedBox(height: 2),
+                                const Text(
                                   'Toca un idioma para desplegar sus opciones',
                                   style: TextStyle(
                                     color: Colors.white54,
                                     fontSize: 12,
                                   ),
                                 ),
-                                SizedBox(height: 4),
-                                Row(
+                                const SizedBox(height: 4),
+                                const Row(
                                   children: [
                                     Icon(Icons.info_outline, size: 13, color: Color(0xFFFF6B00)),
                                     SizedBox(width: 4),
@@ -3042,6 +3220,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       ),
                                     ),
                                   ],
+                                ),
+                                ValueListenableBuilder<bool>(
+                                  valueListenable: ServerPreValidationService.instance.isValidatingNotifier,
+                                  builder: (context, isValidating, _) {
+                                    if (!isValidating) return const SizedBox.shrink();
+                                    return const Padding(
+                                      padding: EdgeInsets.only(top: 4),
+                                      child: Row(
+                                        children: [
+                                          SizedBox(
+                                            width: 10,
+                                            height: 10,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 1.5,
+                                              valueColor: AlwaysStoppedAnimation<Color>(accentOrange),
+                                            ),
+                                          ),
+                                          SizedBox(width: 6),
+                                          Text(
+                                            'Validando el resto...',
+                                            style: TextStyle(
+                                              color: Colors.white60,
+                                              fontSize: 11,
+                                              fontStyle: FontStyle.italic,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                 ),
                               ],
                             ),
@@ -3333,6 +3541,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         );
       },
     );
+    await valSub?.cancel();
     _scheduleHideControls();
   }
 
@@ -3597,6 +3806,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return;
     }
 
+    await _selectQuality(selected);
+  }
+
+  Future<void> _selectQuality(HlsQuality selected) async {
     final savedPos = _controllerReady
         ? _controller.value.position
         : Duration.zero;
@@ -4275,6 +4488,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _loadingLongTimer?.cancel();
     _vodWatchdogTimer?.cancel();
     _audioCheckTimer?.cancel();
+    _reconnectTimer?.cancel();
+    _reconnectCountdownTimer?.cancel();
     _hideControlsTimer?.cancel();
     _hideToolbarOnlyTimer?.cancel();
     _clockTimer?.cancel();
@@ -4578,6 +4793,59 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           Text(
                             'Está tomando más tiempo de lo normal, cambiando servidor...',
                             style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+              // ── Bloque D.6: Overlay discreto de Reconectando con spinner en TV ──
+              if (_isReconnecting)
+                Positioned(
+                  top: 72,
+                  left: 28,
+                  right: 28,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 13,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.92),
+                        borderRadius: BorderRadius.circular(28),
+                        border: Border.all(
+                          color: const Color(0xFFFF6B35).withOpacity(0.9),
+                          width: 1.5,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.7),
+                            blurRadius: 22,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.2,
+                              valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6B35)),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                          Text(
+                            'Reconectando... ($_reconnectRemainingSec s)',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
@@ -5277,11 +5545,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
           iconOnly: true,
         ),
         const SizedBox(width: 10),
-        _buildActionBtn(
-          _serversFocusNode,
-          Icons.headphones_rounded,
-          'Audio',
-          () => _showAudioLanguageSelectorTv(),
+        ValueListenableBuilder<bool>(
+          valueListenable: ServerPreValidationService.instance.isValidatingNotifier,
+          builder: (context, isValidating, _) {
+            return _buildActionBtn(
+              _serversFocusNode,
+              Icons.headphones_rounded,
+              'Audio',
+              () => _showAudioLanguageSelectorTv(),
+              trailingBadge: isValidating
+                  ? const SizedBox(
+                      width: 10,
+                      height: 10,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 1.5,
+                        valueColor: AlwaysStoppedAnimation<Color>(accentOrange),
+                      ),
+                    )
+                  : null,
+            );
+          },
         ),
         const SizedBox(width: 10),
         QualityActionButton(
@@ -5856,6 +6139,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     VoidCallback onTap, {
     bool highlight = false,
     bool iconOnly = false,
+    Widget? trailingBadge,
   }) {
     return Focus(
       focusNode: node,
@@ -5933,6 +6217,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     size: 18,
                     color: hasFocus ? Colors.black : Colors.white,
                   ),
+                  if (trailingBadge != null) ...[
+                    const SizedBox(width: 4),
+                    trailingBadge,
+                  ],
                   if (!iconOnly) ...[
                     const SizedBox(width: 6),
                     Text(

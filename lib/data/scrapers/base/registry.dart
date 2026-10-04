@@ -14,14 +14,21 @@ import '../home/pelisplus_scraper.dart';
 import '../cinecalidad_scraper.dart';
 import '../thanhdattoday_scraper.dart';
 import '../animeflv_scraper.dart';
+import '../canelatv_scraper.dart';
+import '../telemundo_scraper.dart';
+import '../jkanime_scraper.dart';
+import '../tioanime_scraper.dart';
 import 'buscador.dart';
 import '../../../core/services/remote_config_service.dart';
-/// Todas las fuentes disponibles (listado + búsqueda).
+
+/// Todas las fuentes disponibles (listado + búsqueda) agrupadas por categoría.
 final List<Fuente> fuentesRegistry = [
-  // ── Cuevana ────────────────────────────────────────────────────────────
+  // ── Cuevana (Películas y Series) ──────────────────────────────────────
   Fuente(
     id: 'cuevana',
     label: 'Cuevana',
+    category: 'movie',
+    language: 'es',
     tipos: CuevanaScraper.tiposDisponibles(),
     generos: CuevanaScraper.generos,
     supportsPopulares: true,
@@ -37,10 +44,12 @@ final List<Fuente> fuentesRegistry = [
     search: BuscadorScraper.searchCuevana,
   ),
 
-  // ── PelisPlus ──────────────────────────────────────────────────────────
+  // ── PelisPlus (Películas y Series) ───────────────────────────────────
   Fuente(
     id: 'pelisplus',
     label: 'PelisPlus',
+    category: 'movie',
+    language: 'es',
     tipos: PelisPlusScraper.tiposDisponibles(),
     generos: PelisPlusScraper.generos,
     supportsPopulares: true,
@@ -56,10 +65,12 @@ final List<Fuente> fuentesRegistry = [
     search: BuscadorScraper.searchPelisPlus,
   ),
 
-  // ── SeriesKao ──────────────────────────────────────────────────────────
+  // ── SeriesKao (Series) ───────────────────────────────────────────────
   Fuente(
     id: 'serieskao',
     label: 'SeriesKao',
+    category: 'series',
+    language: 'es',
     tipos: SeriesKaoScraper.tiposDisponibles(),
     generos: SeriesKaoScraper.generos,
     supportsPopulares: true,
@@ -76,10 +87,12 @@ final List<Fuente> fuentesRegistry = [
     search: BuscadorScraper.searchSeriesKao,
   ),
 
-  // ── TioPlus ────────────────────────────────────────────────────────────
+  // ── TioPlus (Películas y Series) ─────────────────────────────────────
   Fuente(
     id: 'tioplus',
     label: 'TioPlus',
+    category: 'movie',
+    language: 'es',
     tipos: TioPlusScraper.tiposDisponibles(),
     generos: const [
       'accion',
@@ -106,6 +119,8 @@ final List<Fuente> fuentesRegistry = [
   Fuente(
     id: 'cinehax',
     label: 'CineHax',
+    category: 'movie',
+    language: 'es',
     tipos: const ['movie', 'tv'],
     generos: const [],
     hasListing: false,
@@ -113,10 +128,12 @@ final List<Fuente> fuentesRegistry = [
     search: BuscadorScraper.searchCineHax,
   ),
 
-  // ── Cinecalidad ────────────────────────────────────────────────────────
+  // ── Cinecalidad (Películas Multi-calidad) ──────────────────────────────
   Fuente(
     id: 'cinecalidad',
     label: 'Cinecalidad',
+    category: 'movie',
+    language: 'es',
     tipos: CinecalidadScraper.tiposDisponibles(),
     generos: CinecalidadScraper.generos,
     supportsPopulares: true,
@@ -133,10 +150,12 @@ final List<Fuente> fuentesRegistry = [
     search: CinecalidadScraper.search,
   ),
 
-  // ── ThanhDatToday ──────────────────────────────────────────────────────
+  // ── ThanhDatToday (Películas y Series) ─────────────────────────────────
   Fuente(
     id: 'thanhdattoday',
     label: 'ThanhDatToday',
+    category: 'movie',
+    language: 'sub',
     tipos: ThanhDatTodayScraper.tiposDisponibles(),
     generos: ThanhDatTodayScraper.generos,
     supportsPopulares: true,
@@ -153,10 +172,56 @@ final List<Fuente> fuentesRegistry = [
     search: ThanhDatTodayScraper.search,
   ),
 
-  // ── AnimeFLV ───────────────────────────────────────────────────────────
+  // ── Canela.TV (Novelas y Series Latinas/Turcas) ─────────────────────────
+  Fuente(
+    id: 'canelatv',
+    label: 'Canela.TV',
+    category: 'novel',
+    language: 'es',
+    tipos: CanelaTVScraper.tiposDisponibles(),
+    generos: CanelaTVScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return CanelaTVScraper.fetch(
+        tipo: tipo,
+        genero: genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: CanelaTVScraper.search,
+  ),
+
+  // ── Telemundo (Novelas y Súper Series) ──────────────────────────────────
+  Fuente(
+    id: 'telemundo',
+    label: 'Telemundo',
+    category: 'novel',
+    language: 'es',
+    tipos: TelemundoScraper.tiposDisponibles(),
+    generos: TelemundoScraper.generos,
+    supportsPopulares: false,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return TelemundoScraper.fetch(
+        tipo: tipo,
+        genero: genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: TelemundoScraper.search,
+  ),
+
+  // ── AnimeFLV (Anime Sub & Lat) ──────────────────────────────────────────
   Fuente(
     id: 'animeflv',
     label: 'AnimeFLV',
+    category: 'anime',
+    language: 'sub',
     tipos: AnimeFLVScraper.tiposDisponibles(),
     generos: AnimeFLVScraper.generos,
     supportsPopulares: true,
@@ -172,7 +237,58 @@ final List<Fuente> fuentesRegistry = [
     },
     search: AnimeFLVScraper.search,
   ),
+
+  // ── JKAnime (Anime) ────────────────────────────────────────────────────
+  Fuente(
+    id: 'jkanime',
+    label: 'JKAnime',
+    category: 'anime',
+    language: 'sub',
+    tipos: JKAnimeScraper.tiposDisponibles(),
+    generos: JKAnimeScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return JKAnimeScraper.fetch(
+        tipo: tipo,
+        genero: genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: JKAnimeScraper.search,
+  ),
+
+  // ── TioAnime (Anime) ───────────────────────────────────────────────────
+  Fuente(
+    id: 'tioanime',
+    label: 'TioAnime',
+    category: 'anime',
+    language: 'sub',
+    tipos: TioAnimeScraper.tiposDisponibles(),
+    generos: TioAnimeScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return TioAnimeScraper.fetch(
+        tipo: tipo,
+        genero: genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: TioAnimeScraper.search,
+  ),
 ];
+
+/// Obtiene fuentes filtradas por su categoría ('movie', 'series', 'anime', 'novel').
+List<Fuente> getFuentesByCategory(String category) => fuentesRegistry
+    .where((f) =>
+        f.category == category &&
+        RemoteConfigService.instance.isSourceEnabled(f.id))
+    .toList();
 
 /// Fuentes que tienen listado (aparecen en el selector de servicio).
 List<Fuente> get fuentesConListado => fuentesRegistry
