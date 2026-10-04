@@ -4,8 +4,8 @@ class VersionService {
   // ============================================
   // CONFIGURA AQUÍ LA VERSIÓN ACTUAL DE TU APP
   // ============================================
-  static const String currentVersionName = "1.0.0-beta.4"; // version_aceptada
-  static const int currentVersionCode = 4; // version_code_aceptada
+  static const String currentVersionName = "1.0.0-beta.5"; // version_aceptada
+  static const int currentVersionCode = 5; // version_code_aceptada
 
   /// Obtiene la última versión configurada en RemoteConfig
   static Future<VersionInfo?> getLatestAnimeVersion() async {
@@ -32,6 +32,12 @@ class VersionService {
       code = code * 100 + (int.tryParse(p) ?? 0);
     }
     return code;
+  }
+
+  /// Fuerza la descarga de la configuración remota y verifica si hay actualizaciones
+  static Future<UpdateStatus> forceCheckForUpdate() async {
+    await RemoteConfigService.instance.forceRefresh();
+    return checkForUpdate();
   }
 
   /// Verifica si se requiere actualización contra RemoteConfig

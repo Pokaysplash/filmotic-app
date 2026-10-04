@@ -461,6 +461,11 @@ class RemoteConfigService {
     });
   }
 
+  /// Fuerza la actualización de la configuración desde el servidor ignorando el TTL y la caché.
+  Future<bool> forceRefresh({String? customUrl}) async {
+    return _fetchAndCache(customUrl ?? _kConfigUrl, force: true);
+  }
+
   Future<void> _loadFromCache() async {
     try {
       final db = await AppDatabase.instance.database;
@@ -533,12 +538,14 @@ class RemoteConfigService {
   ///   1 si v1 > v2
   static int compareVersions(String v1, String v2) {
     try {
-      // Limpiar prefijos como 'v' o sufijos como '+1'
-      final clean1 = v1.trim().replaceFirst(RegExp(r'^v'), '').split('+').first.split('-').first.trim();
-      final clean2 = v2.trim().replaceFirst(RegExp(r'^v'), '').split('+').first.split('-').first.trim();
+      final s1 = v1.trim().replaceFirst(RegExp(r'^v'), '').split('+').first.trim();
+      final s2 = v2.trim().replaceFirst(RegExp(r'^v'), '').split('+').first.trim();
 
-      final parts1 = clean1.split('.').map((p) => int.tryParse(p) ?? 0).toList();
-      final parts2 = clean2.split('.').map((p) => int.tryParse(p) ?? 0).toList();
+      final base1 = s1.split('-').first.trim();
+      final base2 = s2.split('-').first.trim();
+
+      final parts1 = base1.split('.').map((p) => int.tryParse(p) ?? 0).toList();
+      final parts2 = base2.split('.').map((p) => int.tryParse(p) ?? 0).toList();
 
       final maxLen = parts1.length > parts2.length ? parts1.length : parts2.length;
       for (int i = 0; i < maxLen; i++) {
@@ -547,7 +554,24 @@ class RemoteConfigService {
         if (p1 < p2) return -1;
         if (p1 > p2) return 1;
       }
-      return 0;
+
+      // Si las partes base son idénticas, evaluar sufijos pre-release (ej. -beta.4 vs -beta.5)
+      final hasSuffix1 = s1.contains('-');
+      final hasSuffix2 = s2.contains('-');
+      if (!hasSuffix1 && !hasSuffix2) return 0;
+      if (!hasSuffix1 && hasSuffix2) return 1; // 1.0.0 > 1.0.0-beta.5
+      if (hasSuffix1 && !hasSuffix2) return -1; // 1.0.0-beta.5 < 1.0.0
+
+      // Ambas tienen sufijo: comparar el número dentro del sufijo
+      final sub1 = s1.substring(s1.indexOf('-') + 1);
+      final sub2 = s2.substring(s2.indexOf('-') + 1);
+
+      final num1 = int.tryParse(sub1.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      final num2 = int.tryParse(sub2.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+      if (num1 < num2) return -1;
+      if (num1 > num2) return 1;
+
+      return sub1.compareTo(sub2);
     } catch (_) {
       return 0;
     }

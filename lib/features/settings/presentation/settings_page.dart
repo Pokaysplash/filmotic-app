@@ -579,7 +579,7 @@ class _ConfigPageState extends State<ConfigPage> {
 
 
   // ==================== VERSIÓN (VersionService) ====================
-  Future<void> _checkVersion() async {
+  Future<void> _checkVersion({bool manual = false}) async {
     setState(() {
       _loading = true;
       _error = null;
@@ -587,7 +587,9 @@ class _ConfigPageState extends State<ConfigPage> {
     });
 
     try {
-      final status = await VersionService.checkForUpdate();
+      final status = manual
+          ? await VersionService.forceCheckForUpdate()
+          : await VersionService.checkForUpdate();
 
       if (!mounted) return;
 
@@ -607,6 +609,26 @@ class _ConfigPageState extends State<ConfigPage> {
           };
           _loading = false;
         });
+
+        if (manual) {
+          if (status.requiresUpdate) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('¡Nueva versión disponible: v${v.versionAceptada}!'),
+                backgroundColor: kAccentColor,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Filmotic está actualizado (v${VersionService.currentVersionName})'),
+                backgroundColor: const Color(0xFF22C55E),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        }
       } else {
         setState(() {
           _versionData = {
@@ -621,6 +643,15 @@ class _ConfigPageState extends State<ConfigPage> {
           _error = status.message.contains('No se pudo') ? 'Sin conexión' : null;
           _loading = false;
         });
+        if (manual) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_error ?? status.message),
+              backgroundColor: const Color(0xFFDC2626),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     } catch (_) {
       if (!mounted) return;
@@ -637,6 +668,15 @@ class _ConfigPageState extends State<ConfigPage> {
           'version_code': VersionService.currentVersionCode,
         };
       });
+      if (manual) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error al comprobar actualizaciones'),
+            backgroundColor: Color(0xFFDC2626),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -972,7 +1012,7 @@ class _ConfigPageState extends State<ConfigPage> {
               ),
             ],
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
               child: SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -1034,19 +1074,64 @@ class _ConfigPageState extends State<ConfigPage> {
                 ),
               ),
             ),
-          ] else if (errorMsg != null) ...[
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              child: Text(
-                errorMsg,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5),
-                  fontSize: 13,
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Center(
+                child: TextButton.icon(
+                  onPressed: _loading ? null : () => _checkVersion(manual: true),
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white70),
+                        )
+                      : const Icon(Icons.sync_rounded, size: 16, color: Colors.white70),
+                  label: Text(
+                    _loading ? 'Comprobando...' : 'Buscar actualizaciones de nuevo',
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
                 ),
               ),
             ),
           ] else ...[
-            const SizedBox(height: 8),
+            if (errorMsg != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Text(
+                  errorMsg,
+                  style: const TextStyle(
+                    color: Color(0xFFFF6B6B),
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              child: SizedBox(
+                width: double.infinity,
+                height: 46,
+                child: OutlinedButton.icon(
+                  onPressed: _loading ? null : () => _checkVersion(manual: true),
+                  icon: _loading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : const Icon(Icons.sync_rounded, size: 20),
+                  label: Text(
+                    _loading ? 'Comprobando servidores...' : 'Buscar actualizaciones',
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14.5),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    backgroundColor: Colors.white.withValues(alpha: 0.04),
+                  ),
+                ),
+              ),
+            ),
           ],
         ],
       ),

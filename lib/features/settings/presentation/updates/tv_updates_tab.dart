@@ -64,7 +64,7 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
   void requestFirstFocus() => _btnVersion.requestFocus();
 
   // ==================== VERSIÓN (VersionService) ====================
-  Future<void> _checkVersion() async {
+  Future<void> _checkVersion({bool manual = false}) async {
     setState(() {
       _loadingVersion = true;
       _error = null;
@@ -72,7 +72,9 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
     });
 
     try {
-      final status = await VersionService.checkForUpdate();
+      final status = manual
+          ? await VersionService.forceCheckForUpdate()
+          : await VersionService.checkForUpdate();
 
       if (!mounted) return;
 
@@ -89,6 +91,26 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
           _downloadUrl = v.urlApk;
           _loadingVersion = false;
         });
+
+        if (manual) {
+          if (status.requiresUpdate) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('¡Nueva versión disponible: v${v.versionAceptada}!'),
+                backgroundColor: kConfigAccent,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Filmotic está actualizado (v${VersionService.currentVersionName})'),
+                backgroundColor: const Color(0xFF22C55E),
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        }
       } else {
         setState(() {
           _hasUpdate = false;
@@ -102,6 +124,15 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
               : null;
           _loadingVersion = false;
         });
+        if (manual) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_error ?? status.message),
+              backgroundColor: const Color(0xFFDC2626),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     } catch (_) {
       if (!mounted) return;
@@ -109,6 +140,15 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
         _error = 'Sin conexión';
         _loadingVersion = false;
       });
+      if (manual) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se pudo comprobar la actualización'),
+            backgroundColor: Color(0xFFDC2626),
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
     }
   }
 
@@ -118,7 +158,7 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
     if (_hasUpdate && (_downloadUrl?.isNotEmpty ?? false)) {
       await _downloadAndInstallApk();
     } else {
-      await _checkVersion();
+      await _checkVersion(manual: true);
     }
   }
 
@@ -438,10 +478,35 @@ class _VersionCard extends StatelessWidget {
                           ),
                         )
                       else
-                        Icon(
-                          Icons.refresh_rounded,
-                          color: Colors.white.withValues(alpha: 0.35),
-                          size: 22,
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.15)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                loading ? Icons.hourglass_top_rounded : Icons.sync_rounded,
+                                color: Colors.white70,
+                                size: 16,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                loading ? 'Buscando...' : 'Buscar actualizaciones',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                     ],
                   ),
