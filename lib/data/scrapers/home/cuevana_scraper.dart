@@ -104,6 +104,7 @@ class CuevanaScraper {
         final s = ep['slug']?['season']?.toString() ?? '';
         final e = ep['slug']?['episode']?.toString() ?? '';
         items.add(ScraperItem(
+          sitio: 'cuevana',
           titulo: ep['title']?.toString() ?? '',
           tipo: 'episode',
           url: '$base/episodio/$slug-temporada-$s-episodio-$e',
@@ -133,6 +134,7 @@ class CuevanaScraper {
         }
 
         items.add(ScraperItem(
+          sitio: 'cuevana',
           titulo: m['titles']?['name']?.toString() ?? '',
           tipo: esTv ? 'tv' : 'movie',
           url: '$base/${esTv ? 'ver-serie' : 'ver-pelicula'}/$slug',

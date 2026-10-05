@@ -94,6 +94,7 @@ class AnimeFLVScraper {
       final rating = double.tryParse(ratingStr ?? '');
 
       items.add(ScraperItem(
+        sitio: 'animeflv',
         titulo: title,
         tipo: 'anime',
         url: link.startsWith('http') ? link : '$base$link',

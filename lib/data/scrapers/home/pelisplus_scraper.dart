@@ -138,6 +138,7 @@ class PelisPlusScraper {
 
       if (titulo.isNotEmpty) {
         items.add(ScraperItem(
+          sitio: 'pelisplus',
           titulo: titulo,
           tipo: tipo,
           url: url,

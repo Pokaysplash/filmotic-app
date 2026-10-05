@@ -74,6 +74,7 @@ class TelemundoScraper {
         seenUrls.add(href);
 
         items.add(ScraperItem(
+          sitio: 'telemundo',
           titulo: title,
           tipo: 'novel',
           url: fullUrl,
@@ -93,6 +94,7 @@ class TelemundoScraper {
         ];
         for (final dn in defaultNovelas) {
           items.add(ScraperItem(
+            sitio: 'telemundo',
             titulo: dn.$1,
             tipo: 'novel',
             url: dn.$2,

@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 
 import '../../content/presentation/content_page.dart' as mobile_content;
 import '../../content/presentation/tv_content_page.dart' as tv_content;
+import '../../discover/domain/mobile/derivar.dart' as mobile_derivar;
+import '../../discover/domain/derivar.dart' as tv_derivar;
 import '../../../core/services/guardados_bus.dart';
 import '../../../data/scrapers/base/registry.dart';
 
@@ -205,19 +207,83 @@ class _CategoryListPageState extends State<CategoryListPage> {
     return '';
   }
 
+  String _detectSitio(Map<String, dynamic> item) {
+    final s = (item['sitio'] ?? item['fuente'] ?? '').toString().trim();
+    if (s.isNotEmpty) return s.toLowerCase();
+    final url = (item['url'] ?? item['link'] ?? '').toString().toLowerCase();
+    if (url.contains('canela.tv') || url.contains('canelatv')) return 'canela';
+    if (url.contains('jkanime')) return 'jkanime';
+    if (url.contains('tioanime')) return 'tioanime';
+    if (url.contains('animeflv')) return 'animeflv';
+    if (url.contains('cuevana')) return 'cuevana';
+    if (url.contains('pelisplus')) return 'pelisplus';
+    if (url.contains('serieskao')) return 'serieskao';
+    if (url.contains('tioplus')) return 'tioplus';
+    if (url.contains('seriesflix')) return 'seriesflix';
+    if (url.contains('cineby')) return 'cineby';
+    if (url.contains('thanhdattoday')) return 'thanhdattoday';
+    if (url.contains('cinecalidad')) return 'cinecalidad';
+    if (url.contains('telemundo')) return 'telemundo';
+    return '';
+  }
+
   void _openItem(Map<String, dynamic> item) {
+    final sitio = _detectSitio(item);
+    final externalUrl = (item['url'] ?? item['link'] ?? '').toString().trim();
+    final rawTipo = (item['tipo'] ?? item['type'] ?? item['media_type'] ?? '').toString().toLowerCase();
+    final bool isSeries = rawTipo == 'tv' || rawTipo == 'serie' || (item['name'] != null && item['title'] == null);
+    final isMovie = widget.isMovie ? !isSeries : (rawTipo == 'movie' || rawTipo == 'pelicula' || !isSeries);
+    final mediaType = isMovie ? 'movie' : 'tv';
+    final titulo = (item['titulo'] ?? item['title'] ?? item['name'] ?? '').toString().trim();
+
+    final esFuenteExterna = sitio.isNotEmpty && externalUrl.isNotEmpty;
+    if (esFuenteExterna) {
+      if (widget.isTv) {
+        Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (_, animation, __) => FadeTransition(
+              opacity: animation,
+              child: tv_derivar.DerivarTvPage(
+                servicio: sitio,
+                url: externalUrl,
+                titulo: titulo,
+                tipo: mediaType,
+              ),
+            ),
+            transitionDuration: const Duration(milliseconds: 250),
+          ),
+        );
+      } else {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => mobile_derivar.DerivarPage(
+              servicio: sitio,
+              url: externalUrl,
+              titulo: titulo,
+              tipo: mediaType,
+            ),
+          ),
+        );
+      }
+      return;
+    }
+
     final id = parseCanonicalTmdbId(item['tmdb_id']) ??
         parseCanonicalTmdbId(item['idtmdb']) ??
         parseCanonicalTmdbId(item['idcontenido']) ??
         parseCanonicalTmdbId(item['contenido_id']) ??
         parseCanonicalTmdbId(item['id']) ??
         0;
-    if (id <= 0) return;
-    final rawTipo = (item['tipo'] ?? item['type'] ?? item['media_type'] ?? '').toString().toLowerCase();
-    final bool isSeries = rawTipo == 'tv' || rawTipo == 'serie' || (item['name'] != null && item['title'] == null);
-    final isMovie = widget.isMovie ? !isSeries : (rawTipo == 'movie' || rawTipo == 'pelicula' || !isSeries);
-    final mediaType = isMovie ? 'movie' : 'tv';
-    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '').toString().trim();
+    if (id <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Este contenido no tiene información disponible'),
+          backgroundColor: Colors.redAccent,
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
 
     if (widget.isTv) {
       Navigator.of(context).push(

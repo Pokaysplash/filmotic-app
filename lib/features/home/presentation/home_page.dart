@@ -9,6 +9,7 @@ import '../../player/presentation/player_page.dart';
 // Ajusta la ruta según tu estructura
 import '../../../data/datasources/remote/tmdb/tmdb_home_mobile_api.dart';
 import '../../content/presentation/content_options_modal.dart'; // ← modal de opciones
+import '../../discover/domain/mobile/derivar.dart';
 import 'category_list_page.dart';
 
 import '../../../core/services/ad_service.dart';
@@ -176,32 +177,89 @@ class _HomePageState extends State<HomePage>
     }
   }
 
+  String _detectSitio(Map<String, dynamic> item) {
+    final s = (item['sitio'] ?? item['fuente'] ?? '').toString().trim();
+    if (s.isNotEmpty) return s.toLowerCase();
+    final url = (item['url'] ?? item['link'] ?? '').toString().toLowerCase();
+    if (url.contains('canela.tv') || url.contains('canelatv')) return 'canela';
+    if (url.contains('jkanime')) return 'jkanime';
+    if (url.contains('tioanime')) return 'tioanime';
+    if (url.contains('animeflv')) return 'animeflv';
+    if (url.contains('cuevana')) return 'cuevana';
+    if (url.contains('pelisplus')) return 'pelisplus';
+    if (url.contains('serieskao')) return 'serieskao';
+    if (url.contains('tioplus')) return 'tioplus';
+    if (url.contains('seriesflix')) return 'seriesflix';
+    if (url.contains('cineby')) return 'cineby';
+    if (url.contains('thanhdattoday')) return 'thanhdattoday';
+    if (url.contains('cinecalidad')) return 'cinecalidad';
+    if (url.contains('telemundo')) return 'telemundo';
+    return '';
+  }
+
   void _openContent(Map<String, dynamic> item) {
-    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
+    final sitio = _detectSitio(item);
+    final externalUrl = (item['url'] ?? item['link'] ?? '').toString().trim();
+    final titulo = (item['titulo'] ?? item['title'] ?? item['name'] ?? '')
+        .toString()
+        .trim();
+    final tipo = canonicalMediaType(
+        item['media_type'] ?? item['type'] ?? item['tipo'] ?? 'movie');
+
+    // 1. Determinar el origen del item
+    final esFuenteExterna = sitio.isNotEmpty && externalUrl.isNotEmpty;
+
+    // 2. Caso A: el item viene de un scraper externo (Canela, JKAnime, TioAnime, etc.)
+    if (esFuenteExterna) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DerivarPage(
+            servicio: sitio,
+            url: externalUrl,
+            titulo: titulo,
+            tipo: tipo,
+          ),
+        ),
+      ).then((_) {
+        _refreshHistorialQuiet();
+      });
+      return;
+    }
+
+    // 3. Caso B: el item tiene tmdb_id válido (TMDB)
+    final tmdbId = parseCanonicalTmdbId(item['tmdb_id']) ??
         parseCanonicalTmdbId(item['idtmdb']) ??
         parseCanonicalTmdbId(item['idcontenido']) ??
         parseCanonicalTmdbId(item['contenido_id']) ??
+        parseCanonicalTmdbId(item['id']) ??
         0;
-    if (id <= 0) return;
-    final tipo = canonicalMediaType(
-        item['media_type'] ?? item['type'] ?? item['tipo']);
-    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '')
-        .toString()
-        .trim();
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PageContenido(
-          idcontenido: id,
-          tmdbId: id,
-          mediaType: tipo,
-          expectedTitle: titulo.isNotEmpty ? titulo : null,
+    if (tmdbId > 0) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PageContenido(
+            idcontenido: tmdbId,
+            tmdbId: tmdbId,
+            mediaType: tipo,
+            expectedTitle: titulo.isNotEmpty ? titulo : null,
+          ),
         ),
+      ).then((_) {
+        _refreshHistorialQuiet();
+      });
+      return;
+    }
+
+    // 4. Caso C: no tiene ni fuente externa ni tmdb_id válido
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Este contenido no tiene información disponible'),
+        backgroundColor: Colors.redAccent,
+        duration: Duration(seconds: 2),
       ),
-    ).then((_) {
-      _refreshHistorialQuiet();
-    });
+    );
   }
 
   // ── Continuar viendo → PLAYER directo ───────────────────────────────────

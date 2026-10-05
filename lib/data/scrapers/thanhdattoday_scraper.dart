@@ -126,6 +126,7 @@ class ThanhDatTodayScraper {
         final fullUrl = link.startsWith('http') ? link : '$base$link';
 
         items.add(ScraperItem(
+          sitio: 'thanhdattoday',
           titulo: title,
           tipo: isTv ? 'tv' : 'movie',
           url: fullUrl,

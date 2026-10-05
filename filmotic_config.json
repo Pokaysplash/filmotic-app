@@ -33,9 +33,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.9",
+    "latest_version": "1.0.0-beta.10",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.9 disponible: Corrección del flujo de actualización in-app, casting DLNA mejorado y ad en pausa con reanudación directa.",
+    "update_message": "Filmotic v1.0.0-beta.10 disponible: Fix del enrutamiento del Home para fuentes externas (Canela, Anime, Novelas y scrapers).",
     "force_update": false,
     "is_beta": true
   },

@@ -90,6 +90,7 @@ class CinecalidadScraper {
           final slug = item['slug']?.toString() ?? '';
 
           items.add(ScraperItem(
+            sitio: 'cinecalidad',
             titulo: title,
             tipo: 'movie',
             url: code.isNotEmpty ? 'https://vimeos.net/embed-$code.html' : '$webBase/pelicula/$tmdbId/$slug',

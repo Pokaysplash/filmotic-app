@@ -81,6 +81,7 @@ class TioAnimeScraper {
         if (poster.startsWith('/')) poster = '$base$poster';
 
         items.add(ScraperItem(
+          sitio: 'tioanime',
           titulo: title,
           tipo: 'anime',
           url: href.startsWith('http') ? href : '$base$href',

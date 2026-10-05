@@ -1068,3 +1068,40 @@ A partir de esta versión, se aplican los siguientes pasos inmutables previos a 
   - Si la versión instalada no coincide con la esperada, se emite una alerta flotante al usuario:  
     *"La actualización no se aplicó correctamente. Descarga el APK manualmente desde el navegador."* con botón directo para abrir el enlace de descarga en el navegador externo.
   - Si coincide, se confirma la actualización y se limpia el estado pendiente.
+
+---
+
+## 28. WAVE 12.12 – Fix del Enrutamiento del Home para Fuentes Externas
+
+Esta fase corrige la incidencia reportada por los usuarios donde al pulsar contenidos provenientes de scrapers externos en la pantalla principal (Home) o listados de categorías (Novelas, Anime, Canela.TV, etc.), la app mostraba el mensaje erróneo:
+*"Este contenido no está disponible. Intenta abrirlo desde el buscador."*
+
+### 28.1 Diagnóstico del Flujo del Home
+1. **Flujo Anterior**:
+   - Tanto `_openContent` en móvil (`HomePage`) como en TV (`TvHomePage`), y `_openItem` en `CategoryListPage`, extraían el identificador numérico TMDB (`tmdb_id`, `idtmdb`, `idcontenido` o `id`).
+   - Para contenidos de TMDB, el `tmdb_id` es un entero positivo válido y se cargaba `PageContenido` exitosamente.
+   - Para contenidos de scrapers externos (Canela.TV, JKAnime, TioAnime, Cineby, PelisPlus, Novelas, etc.), el item no posee un `tmdb_id` válido (o generaba un `hashCode` sintético).
+   - Al abrir `PageContenido` con dicho identificador o intentar consultar la API de TMDB, la búsqueda fallaba y arrojaba el error: *"Este contenido no está disponible. Intenta abrirlo desde el buscador."*
+2. **Comparación con el Buscador Federado (WAVE 12.9)**:
+   - En el buscador federado, los items detectados como fuentes externas son derivados directamente a `DerivarPage` (móvil) o `DerivarTvPage` (TV) sin pasar por TMDB ni intentar resolver un `tmdb_id` inexistente.
+
+### 28.2 Implementación del Fix
+1. **Detección Automática de Fuente Externa (`_detectSitio`)**:
+   - Se añadió la función auxiliar `_detectSitio(Map<String, dynamic> item)` en `home_page.dart`, `tv_home_page.dart` y `category_list_page.dart`.
+   - Evalúa `item['sitio']`, `item['fuente']`, o patrones de dominio en la URL externa (`canela.tv`, `jkanime`, `tioanime`, `animeflv`, `cuevana`, `pelisplus`, `serieskao`, `tioplus`, `seriesflix`, `cineby`, `thanhdattoday`, `cinecalidad`, `telemundo`).
+2. **Enrutamiento Condicional en `_openContent` / `_openItem`**:
+   - **Caso A (Fuente externa)**: Si `esFuenteExterna` (`sitio.isNotEmpty && url.isNotEmpty`), navega de inmediato a `DerivarPage` (móvil) o `DerivarTvPage` (TV) pasando `servicio`, `url`, `titulo` y `tipo`.
+   - **Caso B (TMDB)**: Si posee `tmdb_id > 0`, abre la ficha nativa de TMDB `PageContenido`.
+   - **Caso C (Sin información)**: Muestra una notificación accesible: *"Este contenido no tiene información disponible"*.
+3. **Propagación de Metadatos en Scrapers**:
+   - Se añadió el atributo `sitio` en `ScraperItem` (`base_home_scraper.dart` y `base_detail_scraper.dart`) y se mapeó a JSON en `toMap()`.
+   - Se propagó el identificador de sitio en todos los scrapers: Canela (`'canela'`), JKAnime (`'jkanime'`), TioAnime (`'tioanime'`), AnimeFLV (`'animeflv'`), Cuevana (`'cuevana'`), PelisPlus (`'pelisplus'`), SeriesKao (`'serieskao'`), TioPlus (`'tioplus'`), SeriesFlix (`'seriesflix'`), Cineby (`'cineby'`), ThanhDatToday (`'thanhdattoday'`), Cinecalidad (`'cinecalidad'`) y Telemundo (`'telemundo'`).
+   - Se homologó el alias `'canela'` en `DetalleScraper.fetch` junto a `'canelatv'`.
+4. **Paridad Móvil ↔ Android TV**:
+   - La misma lógica opera en los widgets de la pantalla principal móvil y TV, así como en la vista de categorías ampliada.
+
+### 28.3 Versión y Despliegue
+- **Versión Oficial**: `v1.0.0-beta.10` (código de versión `10`).
+- **Archivos de Versionado Sincronizados**: `pubspec.yaml`, `lib/core/constants/versiones.dart`, `filmotic_config.json`.
+- **Verificación de Binario**: APK validada con `aapt dump badging` confirmando `versionCode='10'` y `versionName='1.0.0-beta.10'`.
+- **Publicación**: Tag y Release en GitHub con el binario `filmotic.apk` verificado vía `curl -I`.

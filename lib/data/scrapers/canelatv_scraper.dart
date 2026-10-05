@@ -98,6 +98,7 @@ class CanelaTVScraper {
           final scraperTipo = itemCty.contains('movie') ? 'movie' : 'novel';
 
           items.add(ScraperItem(
+            sitio: 'canela',
             titulo: title,
             tipo: scraperTipo,
             url: 'https://canela.tv/series/$slug?id=$id',

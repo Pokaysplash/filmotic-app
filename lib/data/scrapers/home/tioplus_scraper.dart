@@ -176,6 +176,7 @@ class TioPlusScraper {
 
       if (titulo.isNotEmpty) {
         items.add(ScraperItem(
+          sitio: 'tioplus',
           titulo: titulo,
           tipo: tipo,
           url: url,

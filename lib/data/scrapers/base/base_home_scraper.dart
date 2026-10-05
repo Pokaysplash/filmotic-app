@@ -2,6 +2,7 @@
 import 'package:http/http.dart' as http;
 
 class ScraperItem {
+  final String? sitio;
   final String titulo;
   final String tipo;       // movie | tv | anime | dorama | episode
   final String url;
@@ -13,6 +14,7 @@ class ScraperItem {
   final List<String> generos;
 
   ScraperItem({
+    this.sitio,
     required this.titulo,
     required this.tipo,
     required this.url,
@@ -25,6 +27,7 @@ class ScraperItem {
   });
 
   Map<String, dynamic> toMap() => {
+        'sitio': sitio,
         'titulo': titulo,
         'tipo': tipo,
         'url': url,

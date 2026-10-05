@@ -71,6 +71,7 @@ class CinebyScraper {
             final desc = item['description']?.toString();
 
             items.add(ScraperItem(
+              sitio: 'cineby',
               titulo: title,
               tipo: typeStr,
               url: 'https://cineby.me/$typeStr/$tmdbId',

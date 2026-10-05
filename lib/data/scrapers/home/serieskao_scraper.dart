@@ -125,6 +125,7 @@ class SeriesKaoScraper {
 
       if (titulo.isNotEmpty) {
         items.add(ScraperItem(
+          sitio: 'serieskao',
           titulo: titulo,
           tipo: tipo,
           url: url,

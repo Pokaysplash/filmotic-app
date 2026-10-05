@@ -168,6 +168,7 @@ class SeriesflixScraper {
       final tipo = isTv ? 'tv' : 'movie';
 
       items.add(ScraperItem(
+        sitio: 'seriesflix',
         titulo: title.trim(),
         tipo: tipo,
         url: href,

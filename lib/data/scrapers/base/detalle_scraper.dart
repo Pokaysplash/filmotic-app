@@ -49,6 +49,7 @@ class DetalleScraper {
         case 'animeflv':
           return await AnimeFLVScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         case 'canelatv':
+        case 'canela':
           return await CanelaTVScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         case 'telemundo':
           return await TelemundoScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);

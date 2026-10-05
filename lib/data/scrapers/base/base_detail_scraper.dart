@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'dart:io';
 
 class ScraperItem {
+  final String? sitio;
   final String titulo;
   final String tipo;
   final String url;
@@ -14,6 +15,7 @@ class ScraperItem {
   final List<String> generos;
 
   ScraperItem({
+    this.sitio,
     required this.titulo,
     required this.tipo,
     required this.url,

@@ -80,6 +80,7 @@ class JKAnimeScraper {
         if (poster.startsWith('//')) poster = 'https:$poster';
 
         items.add(ScraperItem(
+          sitio: 'jkanime',
           titulo: title,
           tipo: 'anime',
           url: href.startsWith('http') ? href : '$base$href',
