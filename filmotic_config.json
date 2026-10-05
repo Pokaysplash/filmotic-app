@@ -33,9 +33,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.8",
+    "latest_version": "1.0.0-beta.9",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.8 disponible: Casting DLNA mejorado con control remoto, diagnóstico de compatibilidad de streams y ad en pausa con reanudación directa.",
+    "update_message": "Filmotic v1.0.0-beta.9 disponible: Corrección del flujo de actualización in-app, casting DLNA mejorado y ad en pausa con reanudación directa.",
     "force_update": false,
     "is_beta": true
   },

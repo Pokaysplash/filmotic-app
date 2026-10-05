@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/services/remote_config_service.dart';
+import '../../../core/services/update_service.dart';
 
 /// Diálogo interactivo para descargar e instalar actualizaciones dentro de Filmotic.
 class FilmoticUpdateDialog extends StatefulWidget {
@@ -127,6 +128,7 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
 
   Future<void> _installApk(String filePath) async {
     try {
+      await UpdateService.instance.markPendingUpdate(widget.appInfo.latestVersion);
       final result = await OpenFilex.open(
         filePath,
         type: 'application/vnd.android.package-archive',

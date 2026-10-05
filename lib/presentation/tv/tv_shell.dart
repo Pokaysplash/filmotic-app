@@ -19,6 +19,7 @@ import '../../features/settings/presentation/tv_settings.dart';
 import '../../features/profile/presentation/profile_page.dart';
 import '../../features/discover/presentation/discover_page.dart';
 import '../../core/services/remote_config_service.dart';
+import '../../core/services/update_service.dart';
 import '../../features/live_tv/presentation/live_tv_page_tv.dart';
 const _kAccentColor = Color(0xFFFF6B35);
 const _kSideAccent = Color(0xFF7B5CFF);
@@ -126,6 +127,7 @@ class _MainHomeState extends State<MainHome> {
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      UpdateService.instance.checkPostInstallStatus(context);
       _checkForUpdate();
       _maybeShowPlaybackSetup();
     });

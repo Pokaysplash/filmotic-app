@@ -1027,3 +1027,44 @@ Esta fase moderniza y robustece la experiencia de transmisión DLNA hacia dispos
 - **Versión Oficial**: `v1.0.0-beta.8` (código de versión `8`).
 - **Análisis de Código**: `flutter analyze` ejecutado con 0 errores.
 - **Artefactos**: APK compilada y publicada en GitHub Releases.
+
+---
+
+## 27. WAVE 12.11 – Sistema de Versionado y Actualización In-App
+
+Esta fase resuelve la incidencia donde los usuarios instalaban la actualización in-app pero la versión no cambiaba (permaneciendo en v1.0.0-beta.7), establece un protocolo estricto de versionado pre-compilación y añade verificación post-instalación reactiva.
+
+### 27.1 Diagnóstico de Causa Raíz
+1. **Divergencia en GitHub Releases vs Git Tags**:
+   - En WAVE 12.10, el tag `v1.0.0-beta.8` fue creado y enviado a Git (`git push origin main --tags`), pero el release correspondiente en GitHub Releases con el binario adjunto no fue creado en la plataforma.
+   - Como consecuencia, el endpoint de descarga global `https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk` continuaba redirigiendo al último release publicado (`v1.0.0-beta.7/filmotic.apk`, tamaño 95,660,587 bytes).
+   - La aplicación descargaba y reinstalaba el binario de beta.7, manteniendo la versión previa visible en Configuración.
+2. **Tamaños de APK Comprobados**:
+   - `v1.0.0-beta.7`: 95,660,587 bytes.
+   - `v1.0.0-beta.8` (local): 95,759,035 bytes.
+   - `v1.0.0-beta.9` (nuevo release): 95,775,419 bytes.
+
+### 27.2 Protocolo Obligatorio de Versionado
+A partir de esta versión, se aplican los siguientes pasos inmutables previos a cualquier compilación de release:
+1. **Actualizar `pubspec.yaml`**:
+   - `version: 1.0.0-beta.9+9`
+   - El `versionName` (antes del `+`) es la etiqueta semántica de usuario.
+   - El `versionCode` (después del `+`) se incrementa rigurosamente en `+1` respecto al release anterior (requerido por el Package Manager de Android para permitir la actualización).
+2. **Actualizar `lib/core/constants/versiones.dart`**:
+   - `currentVersionName = "1.0.0-beta.9";`
+   - `currentVersionCode = 9;`
+3. **Actualizar `filmotic_config.json`**:
+   - `"latest_version": "1.0.0-beta.9"`
+4. **Verificación Pre-compilación**:
+   - Comprobación estricta de que los 3 archivos coinciden exactamente antes de invocar `flutter build apk --release`.
+5. **Inspección de Binario Post-compilación**:
+   - Validación mediante `aapt dump badging build/app/outputs/flutter-apk/app-release.apk` para constatar que el manifest interno contenga exactamente el `versionCode` y `versionName` deseados antes de publicar.
+
+### 27.3 Verificación Post-Instalación (`UpdateService`)
+- Módulo `lib/core/services/update_service.dart` implementado con la librería `package_info_plus: ^10.2.1`.
+- Al iniciar la instalación de un APK, se registra la versión destino (`markPendingUpdate`).
+- Al reabrir la app tras la instalación (`checkPostInstallStatus` en `mobile_shell.dart` y `tv_shell.dart`):
+  - Se consulta dinámicamente la versión real instalada en el sistema con `PackageInfo.fromPlatform()`.
+  - Si la versión instalada no coincide con la esperada, se emite una alerta flotante al usuario:  
+    *"La actualización no se aplicó correctamente. Descarga el APK manualmente desde el navegador."* con botón directo para abrir el enlace de descarga en el navegador externo.
+  - Si coincide, se confirma la actualización y se limpia el estado pendiente.

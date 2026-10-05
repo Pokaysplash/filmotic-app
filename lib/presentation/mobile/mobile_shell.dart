@@ -22,6 +22,7 @@ import '../../features/downloads/presentation/downloads_page.dart';
 import '../../core/constants/versiones.dart'; // ← VersionService
 import '../../core/storage/app_database.dart';
 import '../../core/services/remote_config_service.dart';
+import '../../core/services/update_service.dart';
 import '../../features/live_tv/presentation/live_tv_page.dart';
 import '../shared/modals/playback_setup_modal.dart';
 import '../shared/widgets/filmotic_welcome_dialog.dart';
@@ -100,6 +101,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _bootstrapOfflineOrSetup();
+      UpdateService.instance.checkPostInstallStatus(context);
       _checkForUpdate();
       FilmoticWelcomeDialog.checkAndShow(context);
     });
