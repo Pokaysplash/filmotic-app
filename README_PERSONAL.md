@@ -965,3 +965,65 @@ Esta fase resuelve los tres problemas fundamentales identificados durante la fas
 ### 25.7 Bloque G & H: Paridad Móvil / Android TV y Verificación
 - Todos los cambios fueron implementados con paridad simétrica entre las vistas y controladores móviles y de Android TV.
 - Compilación limpia con `flutter analyze` y generación de APK release v1.0.0-beta.7.
+
+---
+
+## 26. WAVE 12.10 – Casting DLNA Mejorado y Ad en Pausa Sin Cierre
+
+Esta fase moderniza y robustece la experiencia de transmisión DLNA hacia dispositivos receptores (Smart TVs, Xbox, TV Boxes) y perfecciona la monetización y UX del banner publicitario en pausa, manteniendo rigurosa paridad entre móvil y Android TV.
+
+### 26.1 Bloque A: Reproductor Oculto Durante Casting y Modo Control Remoto
+1. **Detección Automática de Estado**:
+   - Tanto `player_page.dart` (móvil) como `tv_player_page.dart` (Android TV) escuchan reactivamente `CastService.instance.stateNotifier`.
+   - Si el estado conmuta a `casting` o `connected`, el reproductor de video local pausa su decodificación y se oculta de la pantalla.
+2. **Panel de Control Remoto (`DlnaCastingOverlay`)**:
+   - Presenta un panel completo con animación sutil de ondas de transmisión:
+     - Icono destacado de TV conectada con halo pulsante naranja.
+     - Título del contenido que se está reproduciendo.
+     - Indicador *"Reproduciendo en [Nombre del Dispositivo]"*.
+     - Carátula o póster del contenido en alta calidad.
+     - Barra de progreso remota (seek bar interactiva) con tiempos transcurridos y restantes sincronizados.
+     - Botonera remota completa: Retroceder 10s, Reproducir / Pausar, Detener, Avanzar 10s.
+     - Botón superior destacado de "Desconectar" con confirmación inmediata.
+3. **Reconexión Automática con Fallback**:
+   - Si la conexión DLNA se interrumpe intempestivamente (dispositivo apagado, fluctuación de red local), se muestra un aviso: *"Conexión perdida con [Dispositivo]. Reintentando (30s)..."*.
+   - El sistema reintenta periódicamente la reconexión durante 30 segundos. Si expira el tiempo sin éxito, regresa al reproductor local de forma transparente: *"No se pudo reconectar. Reproduciendo localmente."*.
+4. **Diálogo de Confirmación al Salir**:
+   - Al pulsar el botón físico o gesto de "Atrás" mientras se realiza casting, se intercepta la navegación mediante un diálogo de confirmación: *"¿Detener la reproducción remota? Se desconectará el dispositivo y se detendrá el casting."*. Solo si el usuario confirma se finaliza la sesión DLNA.
+
+### 26.2 Bloque B: Diagnóstico de Casting y Compatibilidad de Streams
+1. **Causa Raíz Identificada**:
+   - Dispositivos receptores DLNA (como la app Reproductor Multimedia de Xbox o Smart TVs con UPnP AVTransport) reciben únicamente la URL del stream para procesarla en su propio stack nativo de red.
+   - Las transmisiones HLS (`.m3u8`) procedentes de ciertos agregadores exigen cabeceras HTTP específicas (`Referer`, `User-Agent`). Como DLNA no permite el envío de cabeceras HTTP personalizadas, el receptor solicita la URL sin cabeceras y recibe un error `HTTP 403 Forbidden` silencioso, impidiendo el inicio de la reproducción a pesar de que el título sí se visualice.
+2. **Pre-Validación de Compatibilidad (`DlnaHelper`)**:
+   - Módulo `lib/core/services/dlna_helper.dart` que analiza la compatibilidad del stream previo al envío:
+     - Detección de MP4 directo: compatible al 100% de manera nativa.
+     - Sonda HTTP asíncrona (HEAD / Range sin cabeceras referer) con timeout de 3.5 segundos y caché en memoria.
+     - Si la URL devuelve `401`, `403` o `404` sin cabeceras, el casting se previene de forma segura.
+3. **Selector con Priorización y Badges de Compatibilidad**:
+   - En el selector de servidores (`_showAudioLanguageSelector`), al activar el modo casting (`forCasting: true`), los servidores MP4 directos y DLNA-compatibles se ordenan al inicio de la lista.
+   - Cada servidor compatible se marca visualmente con un badge estilizado con el icono `Icons.cast` y la etiqueta "Cast".
+4. **Diálogo de Fallback Inteligente**:
+   - Si el stream seleccionado no es compatible con el receptor DLNA, se muestra el diálogo:
+     *"Este contenido no se puede enviar por DLNA porque su servidor requiere autenticación de cabeceras. Prueba otro servidor o reproduce localmente."*
+   - Opciones:
+     - *"Buscar otro servidor compatible"*: despliega de inmediato el selector con filtros de DLNA.
+     - *"Reproducir localmente"*: descarta el modal de casting y reanuda la reproducción en el dispositivo móvil/TV.
+
+### 26.3 Bloque C: Ad en Pausa Sin Opción de Cierre
+1. **Eliminación del Botón de Cierre**:
+   - En `lib/core/services/ad_pause_overlay.dart`, se eliminó el botón de cierre (icono 'X') y la opción "Ocultar anuncio".
+   - El banner publicitario permanece visible en pantalla durante todo el tiempo que el video permanezca pausado.
+2. **Reanudación Directa como Única Vía de Descarte**:
+   - Se incorporó un botón de ancho completo y gran presencia visual: **"▶ Reproducir"** con gradiente naranja Filmotic, borde sutil y efecto luminoso.
+   - Al pulsar este botón, se invoca de inmediato la reanudación del reproductor (`widget.onResume`), desapareciendo el banner al instante y continuando la reproducción en el punto exacto.
+3. **Soporte D-Pad y TV Nativo**:
+   - En Android TV, el botón "▶ Reproducir" adquiere foco por defecto mediante `FocusNode`.
+   - Responde inmediatamente a las teclas físicas del control remoto: Select, Enter, Play y Play/Pause.
+4. **Respeto a Modales y Navegación Legítima**:
+   - Si el usuario abre el selector de subtítulos, audios o ficha técnica durante la pausa, el banner se oculta temporalmente para permitir una interacción limpia y reaparece automáticamente si el contenido permanece en pausa.
+
+### 26.4 Versión y Despliegue
+- **Versión Oficial**: `v1.0.0-beta.8` (código de versión `8`).
+- **Análisis de Código**: `flutter analyze` ejecutado con 0 errores.
+- **Artefactos**: APK compilada y publicada en GitHub Releases.

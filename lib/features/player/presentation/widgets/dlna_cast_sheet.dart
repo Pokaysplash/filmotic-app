@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:media_cast_dlna/media_cast_dlna.dart';
 import '../../../../core/services/cast_service.dart';
+import '../../../../core/services/dlna_helper.dart';
 
 /// Modal bottom sheet para descubrimiento y selección de dispositivos DLNA
 class DlnaCastSheet extends StatefulWidget {
@@ -9,6 +10,8 @@ class DlnaCastSheet extends StatefulWidget {
   final String title;
   final String? posterUrl;
   final VoidCallback onCastStarted;
+  final VoidCallback? onSelectServerForDlna;
+  final VoidCallback? onResumeLocal;
 
   const DlnaCastSheet({
     super.key,
@@ -16,6 +19,8 @@ class DlnaCastSheet extends StatefulWidget {
     required this.title,
     this.posterUrl,
     required this.onCastStarted,
+    this.onSelectServerForDlna,
+    this.onResumeLocal,
   });
 
   static Future<void> show({
@@ -24,6 +29,8 @@ class DlnaCastSheet extends StatefulWidget {
     required String title,
     String? posterUrl,
     required VoidCallback onCastStarted,
+    VoidCallback? onSelectServerForDlna,
+    VoidCallback? onResumeLocal,
   }) {
     return showModalBottomSheet(
       context: context,
@@ -34,6 +41,8 @@ class DlnaCastSheet extends StatefulWidget {
         title: title,
         posterUrl: posterUrl,
         onCastStarted: onCastStarted,
+        onSelectServerForDlna: onSelectServerForDlna,
+        onResumeLocal: onResumeLocal,
       ),
     );
   }
@@ -104,6 +113,15 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
   Future<void> _selectDevice(DlnaDevice device) async {
     setState(() => _connectingUdn = device.udn.value);
 
+    // 0. Pre-validación de compatibilidad con DLNA (evita que la Xbox abra reproductor y se quede pegada)
+    final isCompatible = await DlnaHelper.isDlnaCompatible(widget.videoUrl);
+    if (!isCompatible) {
+      if (!mounted) return;
+      setState(() => _connectingUdn = null);
+      _showIncompatibleDialog(device);
+      return;
+    }
+
     // 1. Conectar al dispositivo
     final connected = await _castService.connectToDevice(device.udn.value);
     if (!connected || !mounted) {
@@ -156,6 +174,59 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
         _errorMessage = _castService.lastError ??
             'Este dispositivo no puede reproducir este formato. Prueba con otro contenido.';
       });
+    }
+  }
+
+  Future<void> _showIncompatibleDialog(DlnaDevice device) async {
+    final action = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Color(0xFFFF6B35), size: 28),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Servidor no compatible con DLNA',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'Este contenido no se puede enviar a ${device.friendlyName} porque su servidor requiere autenticación o cabeceras protegidas que DLNA no soporta.\n\nPrueba otro servidor (preferiblemente MP4) o reproduce localmente.',
+          style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop('local'),
+            child: const Text('Reproducir localmente', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF6B35),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.of(ctx).pop('servers'),
+            child: const Text(
+              'Buscar otro servidor',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (!mounted) return;
+
+    if (action == 'servers') {
+      Navigator.of(context).pop();
+      widget.onSelectServerForDlna?.call();
+    } else if (action == 'local') {
+      Navigator.of(context).pop();
+      widget.onResumeLocal?.call();
     }
   }
 

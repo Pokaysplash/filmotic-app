@@ -33,9 +33,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.7",
+    "latest_version": "1.0.0-beta.8",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.7 disponible: Fix quirúrgico de novelas (Canela.TV) y anime (JKAnime, TioAnime), paridad móvil y Android TV.",
+    "update_message": "Filmotic v1.0.0-beta.8 disponible: Casting DLNA mejorado con control remoto, diagnóstico de compatibilidad de streams y ad en pausa con reanudación directa.",
     "force_update": false,
     "is_beta": true
   },

@@ -35,22 +35,21 @@ class AdPauseOverlay extends StatefulWidget {
 }
 
 class _AdPauseOverlayState extends State<AdPauseOverlay> {
-  bool _dismissedByUser = false;
   int _adKeyIndex = 0;
   Timer? _rotationTimer;
   Timer? _debounceTimer;
   bool _readyToShow = false;
   DateTime? _lastPauseChange;
 
-  late final FocusNode _closeFocusNode;
-  bool _closeFocused = false;
+  late final FocusNode _playFocusNode;
+  bool _playFocused = false;
 
   @override
   void initState() {
     super.initState();
-    _closeFocusNode = FocusNode(debugLabel: 'ad_pause_close_btn');
-    _closeFocusNode.addListener(() {
-      if (mounted) setState(() => _closeFocused = _closeFocusNode.hasFocus);
+    _playFocusNode = FocusNode(debugLabel: 'ad_pause_play_btn');
+    _playFocusNode.addListener(() {
+      if (mounted) setState(() => _playFocused = _playFocusNode.hasFocus);
     });
     _evalState();
   }
@@ -59,9 +58,7 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
   void didUpdateWidget(covariant AdPauseOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // Si el video reanudó reproducción, restablecer el descarte del usuario para la próxima pausa
     if (!widget.isPaused && oldWidget.isPaused) {
-      _dismissedByUser = false;
       _readyToShow = false;
       _rotationTimer?.cancel();
       _debounceTimer?.cancel();
@@ -83,8 +80,7 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
 
     final shouldShow = widget.isPaused &&
         widget.hasStartedPlaying &&
-        !widget.isControlsOrModalOpen &&
-        !_dismissedByUser;
+        !widget.isControlsOrModalOpen;
 
     if (!shouldShow) {
       _debounceTimer?.cancel();
@@ -103,13 +99,19 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
       if (!mounted) return;
       if (widget.isPaused &&
           widget.hasStartedPlaying &&
-          !widget.isControlsOrModalOpen &&
-          !_dismissedByUser) {
+          !widget.isControlsOrModalOpen) {
         setState(() {
           _readyToShow = true;
           _adKeyIndex++;
         });
         _startRotationTimer();
+        if (widget.isTv) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && _readyToShow) {
+              _playFocusNode.requestFocus();
+            }
+          });
+        }
       }
     });
   }
@@ -127,19 +129,17 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
     });
   }
 
-  void _closeOverlay() {
-    setState(() {
-      _dismissedByUser = true;
-      _readyToShow = false;
-    });
+  void _handleResume() {
+    setState(() => _readyToShow = false);
     _rotationTimer?.cancel();
+    widget.onResume?.call();
   }
 
   @override
   void dispose() {
     _rotationTimer?.cancel();
     _debounceTimer?.cancel();
-    _closeFocusNode.dispose();
+    _playFocusNode.dispose();
     super.dispose();
   }
 
@@ -161,31 +161,31 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
         child: Container(
           width: containerWidth,
           margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
           decoration: BoxDecoration(
-            color: const Color(0xF2151518),
-            borderRadius: BorderRadius.circular(16),
+            color: const Color(0xF5121215),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: const Color(0x33FFFFFF),
               width: 1.2,
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.7),
-                blurRadius: 28,
-                offset: const Offset(0, 10),
+                color: Colors.black.withValues(alpha: 0.8),
+                blurRadius: 32,
+                offset: const Offset(0, 12),
               ),
             ],
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Barra superior: Etiqueta "PUBLICIDAD" y botón cerrar
+              // Barra superior: Etiqueta "PUBLICIDAD · PAUSA" (SIN botón cerrar)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
                       color: const Color(0x26FFFFFF),
                       borderRadius: BorderRadius.circular(6),
@@ -200,21 +200,23 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
                       ),
                     ),
                   ),
-                  InkWell(
-                    onTap: _closeOverlay,
-                    borderRadius: BorderRadius.circular(20),
-                    child: const Padding(
-                      padding: EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.close_rounded,
-                        color: Colors.white70,
-                        size: 20,
+                  const Row(
+                    children: [
+                      Icon(Icons.pause_circle_outline_rounded, color: Colors.white38, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Pausado',
+                        style: TextStyle(
+                          color: Colors.white38,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ],
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
 
               // Contenedor del anuncio rotativo
               ClipRRect(
@@ -233,79 +235,65 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
 
-              // Botones inferiores: Reanudar y Ocultar anuncio
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  // Botón Cerrar anuncio con soporte D-Pad
-                  Focus(
-                    focusNode: _closeFocusNode,
-                    onKeyEvent: (node, event) {
-                      if (event is KeyDownEvent &&
-                          (event.logicalKey == LogicalKeyboardKey.select ||
-                              event.logicalKey == LogicalKeyboardKey.enter)) {
-                        _closeOverlay();
-                        return KeyEventResult.handled;
-                      }
-                      return KeyEventResult.ignored;
-                    },
-                    child: GestureDetector(
-                      onTap: _closeOverlay,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: _closeFocused
-                              ? const Color(0xFFFF6B35)
-                              : const Color(0x1AFFFFFF),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: _closeFocused
-                                ? const Color(0xFFFF6B35)
-                                : Colors.white12,
-                          ),
-                        ),
-                        child: Text(
-                          'Ocultar anuncio',
-                          style: TextStyle(
-                            color: _closeFocused ? Colors.white : Colors.white70,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+              // Botón Único y Prominente: "▶ Reproducir"
+              Focus(
+                focusNode: _playFocusNode,
+                onKeyEvent: (node, event) {
+                  if (event is KeyDownEvent &&
+                      (event.logicalKey == LogicalKeyboardKey.select ||
+                          event.logicalKey == LogicalKeyboardKey.enter ||
+                          event.logicalKey == LogicalKeyboardKey.mediaPlay ||
+                          event.logicalKey == LogicalKeyboardKey.mediaPlayPause)) {
+                    _handleResume();
+                    return KeyEventResult.handled;
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: GestureDetector(
+                  onTap: _handleResume,
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 180),
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B35),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: _playFocused ? Colors.white : Colors.transparent,
+                        width: _playFocused ? 2.5 : 0,
                       ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFFF6B35).withValues(alpha: _playFocused ? 0.6 : 0.3),
+                          blurRadius: _playFocused ? 16 : 8,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                        SizedBox(width: 8),
+                        Text(
+                          'Reproducir',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  if (widget.onResume != null) ...[
-                    const SizedBox(width: 8),
-                    GestureDetector(
-                      onTap: widget.onResume,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFF6B35),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.play_arrow_rounded, color: Colors.white, size: 16),
-                            SizedBox(width: 4),
-                            Text(
-                              'Reanudar',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                ),
               ),
             ],
           ),

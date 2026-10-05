@@ -29,6 +29,9 @@ import '../../../../core/services/audio_service.dart';
 import '../../../../data/scrapers/base/registry.dart';
 import '../../../live_tv/data/live_tv_service.dart';
 import '../../../live_tv/domain/channel.dart';
+import '../../../../core/services/cast_service.dart';
+import '../../../../core/services/dlna_helper.dart';
+import '../widgets/dlna_casting_overlay.dart';
 class _SubtitleCue {
   final Duration start;
   final Duration end;
@@ -806,9 +809,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _loadRecommendationsFromGuardados();
     }
     FocusManager.instance.addListener(_onGlobalFocusChanged);
+    CastService.instance.stateNotifier.addListener(_onTvCastStateChanged);
     _startCacheTimer();
     _resetScreensaverTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) => _claimPlayerFocus());
+  }
+
+  void _onTvCastStateChanged() {
+    if (!mounted || _isDisposing) return;
+    final state = CastService.instance.state;
+    if (state == CastState.casting || state == CastState.connected) {
+      if (_controllerReady && _controller.value.isPlaying) {
+        _controller.pause();
+      }
+    }
+    setState(() {});
   }
 
   void _claimPlayerFocus() {
@@ -2743,8 +2758,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _scheduleHideControls();
   }
 
-  void _handleBackPressed() {
+  void _handleBackPressed() async {
     if (_isReplacingPlayer) return;
+    final castState = CastService.instance.state;
+    if (castState == CastState.casting || castState == CastState.connected) {
+      await _showDlnaExitDialog();
+      return;
+    }
     if (_showScreensaver) {
       setState(() => _showScreensaver = false);
       _resetScreensaverTimer();
@@ -4296,6 +4316,52 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
+  Future<void> _showDlnaExitDialog() async {
+    final shouldStop = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.cast_connected, color: Color(0xFFE50914), size: 24),
+            SizedBox(width: 10),
+            Text(
+              '¿Detener la reproducción remota?',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Se desconectará el dispositivo y se detendrá el casting.',
+          style: TextStyle(color: Colors.white70, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFE50914),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Sí, detener'),
+          ),
+        ],
+      ),
+    );
+    if (shouldStop == true) {
+      await CastService.instance.stop();
+      await CastService.instance.disconnect();
+      if (mounted) {
+        _goBackToContent();
+      }
+    }
+  }
+
   Future<void> _goBackToContent() async {
     if (_isReplacingPlayer) return;
     _isReplacingPlayer = false;
@@ -4611,6 +4677,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _nextPromptHideTimer?.cancel();
     _skipIntroHideTimer?.cancel();
     FocusManager.instance.removeListener(_onGlobalFocusChanged);
+    CastService.instance.stateNotifier.removeListener(_onTvCastStateChanged);
 
     // Si ya se liberó el controller en _navigateToPlayer, no volver a dispose.
     try {
@@ -4686,10 +4753,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
       },
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: Focus(
-          focusNode: _videoFocusNode,
-          autofocus: true,
-          onKeyEvent: (node, event) {
+        body: ValueListenableBuilder<CastState>(
+          valueListenable: CastService.instance.stateNotifier,
+          builder: (context, castState, _) {
+            final isCasting = castState == CastState.casting ||
+                castState == CastState.connected;
+            if (isCasting) {
+              return DlnaCastingOverlay(
+                title: _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
+                posterUrl: _backdropUrl,
+                currentPosition: _controllerReady ? _controller.value.position : Duration.zero,
+                totalDuration: _controllerReady ? _controller.value.duration : Duration.zero,
+                onSeek: (pos) {
+                  if (_controllerReady) _controller.seekTo(pos);
+                },
+                isTv: true,
+                onDisconnect: () async {
+                  await CastService.instance.stop();
+                  await CastService.instance.disconnect();
+                  if (mounted) setState(() {});
+                },
+                onBackPressed: _handleBackPressed,
+              );
+            }
+            return Focus(
+              focusNode: _videoFocusNode,
+              autofocus: true,
+              onKeyEvent: (node, event) {
             if (event is KeyDownEvent) {
               if (_errorMessage.isNotEmpty) {
                 if (_isBackKey(event)) {
@@ -5167,6 +5257,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
             ],
           ),
+        );
+          },
         ),
       ),
     ),

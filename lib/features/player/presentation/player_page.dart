@@ -17,6 +17,8 @@ import 'subtitles/subtitle_selector.dart'; // ← NUEVO
 import '../../../core/services/cast_service.dart';
 import 'widgets/dlna_cast_sheet.dart';
 import 'widgets/dlna_remote_control_bar.dart';
+import 'widgets/dlna_casting_overlay.dart';
+import '../../../core/services/dlna_helper.dart';
 import 'widgets/mobile_skip_next_overlay.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_player_api.dart';
 import '../../../core/services/audio_service.dart';
@@ -1279,7 +1281,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return s[0].toUpperCase() + s.substring(1);
   }
 
-  Future<void> _showAudioLanguageSelector() async {
+  Future<void> _showAudioLanguageSelector({bool forCasting = false}) async {
     _hideControlsTimer?.cancel();
 
     if (_fallbackServers.isEmpty ||
@@ -1399,9 +1401,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
               }
             });
 
-            // Ordenar: verificados primero, sin verificar al final (NUNCA descartar)
+            // Ordenar: si forCasting es true, priorizar servidores MP4/DLNA
             final allForLang = (byLang[selectedLang] ?? []).toList();
             allForLang.sort((a, b) {
+              if (forCasting) {
+                final aUrl = (a['resolved_m3u8'] ?? a['servidor_url'] ?? '').toString();
+                final bUrl = (b['resolved_m3u8'] ?? b['servidor_url'] ?? '').toString();
+                final aDlna = DlnaHelper.isLikelyMp4(aUrl, serverName: a['servidor_nombre']?.toString());
+                final bDlna = DlnaHelper.isLikelyMp4(bUrl, serverName: b['servidor_nombre']?.toString());
+                if (aDlna && !bDlna) return -1;
+                if (!aDlna && bDlna) return 1;
+              }
               final aVer = verifiedKeys.contains(_serverKey(a));
               final bVer = verifiedKeys.contains(_serverKey(b));
               if (aVer && !bVer) return -1;
@@ -1666,6 +1676,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                         trailing: Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
+                                            if (DlnaHelper.isLikelyMp4((srv['resolved_m3u8'] ?? srv['servidor_url'] ?? '').toString(), serverName: srvName)) ...[
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                                                decoration: BoxDecoration(
+                                                  color: const Color(0xFFFF6B35).withValues(alpha: 0.18),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                  border: Border.all(
+                                                    color: const Color(0xFFFF6B35),
+                                                    width: 0.8,
+                                                  ),
+                                                ),
+                                                child: const Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(Icons.cast_rounded, size: 10, color: Color(0xFFFF6B35)),
+                                                    SizedBox(width: 3),
+                                                    Text(
+                                                      'Cast',
+                                                      style: TextStyle(
+                                                        color: Color(0xFFFF6B35),
+                                                        fontSize: 10,
+                                                        fontWeight: FontWeight.bold,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                            ],
                                             Container(
                                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
                                               decoration: BoxDecoration(
@@ -2651,6 +2690,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _showExitConfirmation() async {
+    final castService = CastService.instance;
+    if (castService.state == CastState.casting ||
+        castService.state == CastState.connected) {
+      final shouldStop = await _handleBackPress();
+      if (shouldStop && mounted) {
+        _restoreSystemUi();
+        WakelockPlus.disable();
+        Navigator.pop(context);
+      }
+      return;
+    }
+
     final wasPlaying = _isPlaying;
     if (_isPlaying) _controller.pause();
     await _saveCache();
@@ -2737,6 +2788,55 @@ class _PlayerScreenState extends State<PlayerScreen> {
     super.dispose();
   }
 
+  Future<bool> _handleBackPress() async {
+    final castService = CastService.instance;
+    if (castService.state == CastState.casting ||
+        castService.state == CastState.connected) {
+      final shouldStop = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Row(
+            children: [
+              Icon(Icons.cast_connected_rounded, color: Color(0xFFFF6B35)),
+              SizedBox(width: 10),
+              Text(
+                'Reproducción remota',
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          content: const Text(
+            '¿Detener la reproducción remota?',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Cancelar', style: TextStyle(color: Colors.white60)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFFF6B35),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('Sí, detener', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+      );
+
+      if (shouldStop == true) {
+        await castService.disconnect();
+        return true;
+      }
+      return false;
+    }
+    return true;
+  }
+
   Future<void> _handleDlnaCastPressed() async {
     if (widget.isLive) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2795,6 +2895,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       if (action == 'disconnect') {
         await castService.disconnect();
+        if (_controllerReady && !_isPlaying) {
+          _controller.play();
+        }
         if (mounted) setState(() {});
         return;
       } else if (action != 'change') {
@@ -2833,6 +2936,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _controller.pause();
         }
         if (mounted) setState(() {});
+      },
+      onSelectServerForDlna: () => _showAudioLanguageSelector(forCasting: true),
+      onResumeLocal: () {
+        if (_controllerReady && !_isPlaying) {
+          _controller.play();
+        }
       },
     );
   }
@@ -2933,13 +3042,71 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        onTap: _toggleControls,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final canLeave = await _handleBackPress();
+        if (canLeave && mounted) {
+          Navigator.of(context).pop();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: ValueListenableBuilder<CastState>(
+          valueListenable: CastService.instance.stateNotifier,
+          builder: (context, castState, _) {
+            final isCasting = castState == CastState.connected || castState == CastState.casting;
+
+            if (isCasting) {
+              if (_controllerReady && _isPlaying) {
+                _controller.pause();
+              }
+              return DlnaCastingOverlay(
+                title: _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
+                posterUrl: _backdropUrl,
+                currentPosition: _controllerReady ? _controller.value.position : Duration.zero,
+                totalDuration: _controllerReady ? _controller.value.duration : Duration.zero,
+                onSeek: (pos) {
+                  if (_controllerReady) _controller.seekTo(pos);
+                },
+                onDisconnect: () async {
+                  await CastService.instance.disconnect();
+                  if (_controllerReady && !_isPlaying) {
+                    _controller.play();
+                  }
+                  if (mounted) setState(() {});
+                },
+                onBackPressed: () async {
+                  final canLeave = await _handleBackPress();
+                  if (canLeave && mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+                onReconnectTimeout: () {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('No se pudo reconectar. Reproduciendo localmente.'),
+                        backgroundColor: Color(0xFF1E1E1E),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                  }
+                  if (_controllerReady && !_isPlaying) {
+                    _controller.play();
+                  }
+                  if (mounted) setState(() {});
+                },
+                isTv: false,
+              );
+            }
+
+            return GestureDetector(
+              onTap: _toggleControls,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
             if (_isLoading)
               _buildLoadingScreen()
             else if (_errorMessage.isNotEmpty)
@@ -3234,11 +3401,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 );
               },
             ),
-          ],
-        ),
-      ),
-    );
-  }
+            ],
+          ),
+        );
+      },
+    ),
+  ),
+);
+}
 
   Widget _buildLoadingScreen() {
     return Stack(
