@@ -81,4 +81,35 @@ class DetalleScraper {
       );
     }
   }
+
+  static Future<List<DetalleServidor>> fetchServers({
+    required String servicio,
+    required String url,
+  }) async {
+    final s = servicio.toLowerCase().trim();
+    try {
+      switch (s) {
+        case 'jkanime':
+          return await JKAnimeScraper.fetchServers(url: url);
+        case 'tioanime':
+          return await TioAnimeScraper.fetchServers(url: url);
+        case 'canelatv':
+        case 'canela':
+          return await CanelaTVScraper.fetchServers(url: url);
+        case 'animeflv':
+          return await AnimeFLVScraper.fetchServers(url: url);
+        case 'thanhdattoday':
+          return await ThanhDatTodayScraper.fetchServers(url: url);
+        case 'cineby':
+          return await CinebyScraper.fetchServers(url: url);
+        case 'seriesflix':
+          return await SeriesflixScraper.fetchServers(url: url);
+        default:
+          return [];
+      }
+    } catch (e) {
+      print('ERROR DetalleScraper.fetchServers: $e');
+      return [];
+    }
+  }
 }

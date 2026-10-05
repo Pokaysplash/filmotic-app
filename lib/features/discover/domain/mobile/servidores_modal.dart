@@ -230,6 +230,7 @@ class _ServidoresModalState extends State<ServidoresModal> {
       servicio: _fuente,
       tmdbId: _resolvedId,
       isMovie: _isMovie,
+      titulo: widget.tituloContenido,
       season: widget.temporada ?? 1,
       episode: widget.capitulo ?? 1,
       context: context,

@@ -30,8 +30,8 @@ class JKAnimeScraper {
 
   static String _detectIdioma(String text) {
     final lower = text.toLowerCase();
-    if (lower.contains('latino') || lower.contains('lat')) return 'latino';
-    if (lower.contains('castellano') || lower.contains('esp')) return 'castellano';
+    if (lower.contains('latino') || RegExp(r'\b(lat|audio latino)\b').hasMatch(lower)) return 'latino';
+    if (lower.contains('castellano') || RegExp(r'\b(esp|cast)\b').hasMatch(lower)) return 'castellano';
     return 'subtitulado';
   }
 
@@ -118,13 +118,15 @@ class JKAnimeScraper {
       final doc = parser.parse(res.body);
       final results = <BuscadorItem>[];
 
-      final cards = doc.querySelectorAll('.anime__item, .custom_div');
+      final cards = doc.querySelectorAll('.anime__item');
       for (final card in cards) {
-        final a = card.querySelector('h5 a, a');
+        final a = card.querySelector('.anime__item__text h5 a') ??
+            card.querySelector('h5 a') ??
+            card.querySelector('a');
         final href = a?.attributes['href'] ?? '';
         if (href.isEmpty) continue;
 
-        final title = card.querySelector('h5 a, .title')?.text.trim() ?? '';
+        final title = a?.text.trim() ?? card.querySelector('h5 a, .title')?.text.trim() ?? '';
         if (title.isEmpty) continue;
 
         final img = card.querySelector('div[data-setbg], img');
@@ -184,46 +186,61 @@ class JKAnimeScraper {
           .where((e) => e.isNotEmpty)
           .toList();
 
-      // Episodios
+      // Episodios: JKAnime maneja paginación ajax /ajax/episodes/{anime_id}/1
       final capitulos = <DetalleCapitulo>[];
       final slug = url.replaceAll(RegExp(r'/+$'), '').split('/').last;
 
-      // Buscar rango de episodios en HTML o scripts
-      final epLinks = doc.querySelectorAll('.anime__item__text a, .episodes a');
-      if (epLinks.isNotEmpty) {
-        int idx = 1;
-        for (final a in epLinks) {
-          final href = a.attributes['href'] ?? '';
-          if (href.isEmpty) continue;
-          final epTitle = a.text.trim().isNotEmpty ? a.text.trim() : 'Episodio $idx';
-          capitulos.add(DetalleCapitulo(
-            temporada: 1,
-            numero: idx,
-            titulo: epTitle,
-            url: href.startsWith('http') ? href : '$base$href',
-            imagen: poster,
-          ));
-          idx++;
-        }
-      } else {
-        // En JKAnime los episodios siguen el patrón $base/$slug/$ep/
-        // Intentar parsear el último episodio disponible
+      int totalEps = 0;
+      final matchId = RegExp(r'/ajax/episodes/(\d+)/').firstMatch(res.body);
+      if (matchId != null) {
+        final animeId = matchId.group(1);
+        final matchMeta = RegExp(r'<meta name="csrf-token" content="([^"]+)"').firstMatch(res.body);
+        final token = matchMeta?.group(1) ?? '';
+        final rawCookie = res.headers['set-cookie'] ?? '';
+        final cookies = rawCookie.split(',').map((c) => c.split(';')[0].trim()).join('; ');
+
+        try {
+          final epRes = await http.post(
+            Uri.parse('$base/ajax/episodes/$animeId/1'),
+            headers: {
+              'User-Agent': userAgent,
+              'X-Requested-With': 'XMLHttpRequest',
+              'X-CSRF-TOKEN': token,
+              'Referer': url,
+              if (cookies.isNotEmpty) 'Cookie': cookies,
+            },
+            body: {'_token': token},
+          ).timeout(const Duration(seconds: 4));
+
+          if (epRes.statusCode == 200) {
+            final json = jsonDecode(epRes.body);
+            totalEps = int.tryParse(json['total']?.toString() ?? '0') ?? 0;
+          }
+        } catch (_) {}
+      }
+
+      if (totalEps <= 0) {
+        // Fallback: buscar número máximo en HTML
         final matchMaxEp = RegExp(r'/(?:[a-zA-Z0-9_-]+)/(\d+)/').allMatches(res.body);
-        int maxEp = 12;
         for (final m in matchMaxEp) {
           final n = int.tryParse(m.group(1) ?? '') ?? 0;
-          if (n > maxEp && n < 2000) maxEp = n;
+          if (n > totalEps && n < 2000) totalEps = n;
         }
+      }
 
-        for (int i = 1; i <= maxEp; i++) {
-          capitulos.add(DetalleCapitulo(
-            temporada: 1,
-            numero: i,
-            titulo: 'Episodio $i',
-            url: '$base/$slug/$i/',
-            imagen: poster,
-          ));
-        }
+      if (totalEps <= 0) {
+        // Contenido de 1 episodio o película
+        totalEps = 1;
+      }
+
+      for (int i = 1; i <= totalEps; i++) {
+        capitulos.add(DetalleCapitulo(
+          temporada: 1,
+          numero: i,
+          titulo: totalEps == 1 ? (titulo.isNotEmpty ? titulo : 'Película') : 'Episodio $i',
+          url: '$base/$slug/$i/',
+          imagen: poster,
+        ));
       }
 
       final temporadas = capitulos.isNotEmpty
@@ -267,6 +284,33 @@ class JKAnimeScraper {
     final servers = <DetalleServidor>[];
     final seen = <String>{};
 
+    // Extraer servidores del array servers = [{remote: "base64", server: "Name"}]
+    final serversMatch = RegExp(r'servers\s*=\s*(\[\{[\s\S]*?\}\]);').firstMatch(pageHtml);
+    if (serversMatch != null) {
+      try {
+        final list = jsonDecode(serversMatch.group(1)!) as List;
+        for (final item in list) {
+          if (item is Map) {
+            final sName = item['server']?.toString() ?? 'Server';
+            final remoteB64 = item['remote']?.toString() ?? '';
+            if (remoteB64.isEmpty) continue;
+            try {
+              final decodedUrl = utf8.decode(base64Decode(remoteB64)).trim();
+              if (decodedUrl.isNotEmpty && !seen.contains(decodedUrl)) {
+                seen.add(decodedUrl);
+                servers.add(DetalleServidor(
+                  nombre: 'JKAnime · $sName',
+                  url: decodedUrl,
+                  idioma: _detectIdioma(sName),
+                  calidad: 'HD',
+                ));
+              }
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
+
     // Extraer iframes del array video[N]
     // Ejemplo: video[0] = '<iframe ... src="https://jkanime.net/jkplayer/um?e=..." ...></iframe>';
     final videoMatches = RegExp(r'''video\[(\d+)\]\s*=\s*['"]<iframe[^>]*src=['"]([^'"]+)['"]''').allMatches(pageHtml);
@@ -278,7 +322,7 @@ class JKAnimeScraper {
       servers.add(DetalleServidor(
         nombre: 'JKAnime · Player ${m.group(1)}',
         url: sUrl,
-        idioma: _detectIdioma('$sUrl $pageHtml'),
+        idioma: 'subtitulado',
         calidad: 'HD',
       ));
     }

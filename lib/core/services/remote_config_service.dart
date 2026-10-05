@@ -408,7 +408,9 @@ class FilmoticRemoteConfig {
           'seriesflix',
           'cineby',
         ],
-        disabledSources: [],
+        disabledSources: [
+          'telemundo',
+        ],
         messages: {
           'maintenance': null,
           'welcome_banner': null,

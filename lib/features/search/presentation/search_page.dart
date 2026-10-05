@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../content/presentation/content_page.dart';
-// Ajusta rutas si hace falta
+import '../../discover/domain/mobile/derivar.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_search_api.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_discover_api.dart';
 import '../../../data/scrapers/base/registry.dart';
@@ -245,6 +245,28 @@ class BuscarPageState extends State<BuscarPage>
     final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '')
         .toString()
         .trim();
+
+    final esFuenteExterna = (item['sitio'] != null && item['sitio'].toString().isNotEmpty) ||
+        (item['fuente'] != null && item['fuente'].toString().isNotEmpty);
+    final externalUrl = (item['url'] ?? item['link'] ?? '').toString();
+
+    if (esFuenteExterna && id <= 0) {
+      final sitio = (item['sitio'] ?? item['fuente'] ?? '').toString();
+      if (!mounted) return;
+      FocusScope.of(context).unfocus();
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DerivarPage(
+            servicio: sitio,
+            url: externalUrl,
+            titulo: titulo,
+            tipo: tipo,
+          ),
+        ),
+      );
+      return;
+    }
 
     if (id <= 0 && titulo.isNotEmpty) {
       try {

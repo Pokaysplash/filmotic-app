@@ -423,6 +423,17 @@ class CanelaService {
     }
   }
 
+  /// Obtiene directamente la URL HLS autorizada para un episodio o película de Canela.
+  static Future<String?> getStreamUrl({
+    required String contentId,
+    String catalogType = 'tvepisode',
+  }) async {
+    return await _authorizePlayback(
+      contentId: contentId,
+      catalogType: catalogType,
+    );
+  }
+
   static Future<String?> _authorizePlayback({
     required String contentId,
     required String catalogType,

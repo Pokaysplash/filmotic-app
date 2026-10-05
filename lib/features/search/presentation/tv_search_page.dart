@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../content/presentation/tv_content_page.dart';
 import '../../content/presentation/tv_content_options_modal.dart';
+import '../../discover/domain/derivar.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_search.dart';
 import '../../../data/scrapers/base/registry.dart';
 import '../../../data/scrapers/base/buscador.dart';
@@ -309,6 +310,27 @@ class BuscarPageState extends State<BuscarPage> {
     final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '')
         .toString()
         .trim();
+
+    final esFuenteExterna = (item['sitio'] != null && item['sitio'].toString().isNotEmpty) ||
+        (item['fuente'] != null && item['fuente'].toString().isNotEmpty);
+    final externalUrl = (item['url'] ?? item['link'] ?? '').toString();
+
+    if (esFuenteExterna && id <= 0) {
+      final sitio = (item['sitio'] ?? item['fuente'] ?? '').toString();
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DerivarTvPage(
+            servicio: sitio,
+            url: externalUrl,
+            titulo: titulo,
+            tipo: tipo,
+          ),
+        ),
+      );
+      return;
+    }
 
     if (id <= 0 && titulo.isNotEmpty) {
       try {

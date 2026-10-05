@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'core/services/remote_config_service.dart';
+import 'core/constants/versiones.dart';
 import 'features/live_tv/data/live_tv_service.dart';
 import 'features/live_tv/data/epg_service.dart';
 import 'presentation/mobile/mobile_shell.dart' as mobile;
@@ -131,7 +132,7 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(seconds: 2));
 
     // Verificar si se requiere actualización forzada u opcional
-    const currentVersion = '1.0.0-beta.4';
+    final currentVersion = VersionService.currentVersionName;
     final appConfig = RemoteConfigService.instance.config.app;
 
     if (RemoteConfigService.instance.isMandatoryUpdateRequired(currentVersion)) {

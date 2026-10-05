@@ -68,6 +68,7 @@ class MainFuentesServidores {
     required String servicio,
     required int tmdbId,
     required bool isMovie,
+    String? titulo,
     int season = 1,
     int episode = 1,
     BuildContext? context,
@@ -76,8 +77,8 @@ class MainFuentesServidores {
   }) {
     final controller = StreamController<ServerEvent>();
 
-    if (tmdbId <= 0) {
-      controller.add(ServerEvent(isDone: true, error: 'tmdb_id inválido'));
+    if (tmdbId <= 0 && (titulo == null || titulo.trim().isEmpty)) {
+      controller.add(ServerEvent(isDone: true, error: 'tmdb_id o título inválido'));
       controller.close();
       return controller.stream;
     }
@@ -93,6 +94,7 @@ class MainFuentesServidores {
           fuente: fuente,
           tmdbId: tmdbId,
           isMovie: isMovie,
+          titulo: titulo,
           season: season,
           episode: episode,
         )) {
@@ -178,6 +180,7 @@ class MainFuentesServidores {
     required String fuente,
     required int tmdbId,
     required bool isMovie,
+    String? titulo,
     required int season,
     required int episode,
   }) async* {
@@ -324,9 +327,12 @@ class MainFuentesServidores {
 
       case 'jkanime':
         try {
-          final results = await JKAnimeScraper.search('$tmdbId');
+          final query = (titulo != null && titulo.trim().isNotEmpty) ? titulo.trim() : '$tmdbId';
+          final results = await JKAnimeScraper.search(query);
           if (results.isNotEmpty) {
-            final servers = await JKAnimeScraper.fetchServers(url: results.first.url);
+            final animeUrl = results.first.url.replaceAll(RegExp(r'/+$'), '');
+            final epUrl = isMovie ? '$animeUrl/1/' : '$animeUrl/$episode/';
+            final servers = await JKAnimeScraper.fetchServers(url: epUrl);
             for (final s in servers) {
               yield {
                 'servidor_nombre': s.nombre,
@@ -343,9 +349,12 @@ class MainFuentesServidores {
 
       case 'tioanime':
         try {
-          final results = await TioAnimeScraper.search('$tmdbId');
+          final query = (titulo != null && titulo.trim().isNotEmpty) ? titulo.trim() : '$tmdbId';
+          final results = await TioAnimeScraper.search(query);
           if (results.isNotEmpty) {
-            final servers = await TioAnimeScraper.fetchServers(url: results.first.url);
+            final animeSlug = results.first.url.replaceAll(RegExp(r'/+$'), '').split('/').last;
+            final epUrl = isMovie ? 'https://tioanime.com/ver/$animeSlug-1' : 'https://tioanime.com/ver/$animeSlug-$episode';
+            final servers = await TioAnimeScraper.fetchServers(url: epUrl);
             for (final s in servers) {
               yield {
                 'servidor_nombre': s.nombre,

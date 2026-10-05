@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:collection/collection.dart';
 import 'package:http/http.dart' as http;
 import '../models/scraper/detalle_model.dart';
 import 'base/base_home_scraper.dart';
@@ -41,16 +42,16 @@ class CanelaTVScraper {
   }
 
   static String _extractPoster(Map<String, dynamic> item) {
-    final ia = item['ia'];
     final id = item['id']?.toString() ?? '';
     if (id.isEmpty) return '';
-
-    if (ia is List && ia.contains('0-2x3')) {
-      return '$baseDataStore/$id/0-2x3.jpg';
-    } else if (ia is List && ia.contains('0-16x9')) {
-      return '$baseDataStore/$id/0-16x9.jpg';
+    final ia = item['ia'];
+    if (ia is List && ia.contains('0-7x10')) {
+      return 'https://image-resizer-cloud-cdn.cms.api.canela.tv/image/$id/0-7x10.jpg';
     }
-    return '$baseDataStore/$id/0-2x3.jpg';
+    if (ia is List && ia.contains('0-2x3')) {
+      return 'https://image-resizer-cloud-cdn.cms.api.canela.tv/image/$id/0-2x3.jpg';
+    }
+    return 'https://image-resizer-cloud-cdn.cms.api.canela.tv/image/$id/0-16x9.jpg';
   }
 
   // ─── LISTADO (FETCH) ──────────────────────────────────────────
@@ -60,12 +61,10 @@ class CanelaTVScraper {
     bool populares = false,
     int page = 1,
   }) async {
-    final start = (page - 1) * 24 + 1;
-    final term = (genero != null && genero.isNotEmpty)
-        ? genero
-        : (populares ? 'novelas' : 'novelas');
-
-    final url = '$baseSearchApi?term=${Uri.encodeComponent(term)}&rows=24&start=$start';
+    final term = (genero != null && genero.isNotEmpty) ? genero : 'novela';
+    final cty = (tipo == 'peliculas' || tipo == 'movie') ? 'movie' : 'tvseries';
+    final url =
+        '$baseSearchApi?mode=detail&st=published&term=${Uri.encodeComponent(term)}&cty=$cty&pageNumber=$page&pageSize=24&reg=co&dt=web&client=canela-canela-web';
 
     try {
       final res = await http.get(Uri.parse(url), headers: {
@@ -83,19 +82,20 @@ class CanelaTVScraper {
 
       final data = jsonDecode(res.body);
       final items = <ScraperItem>[];
+      final list = data is Map ? (data['data'] as List?) : null;
 
-      if (data is Map && data['results'] is List) {
-        for (final r in data['results']) {
+      if (list != null) {
+        for (final r in list) {
           if (r is! Map) continue;
           final map = Map<String, dynamic>.from(r);
           final id = map['id']?.toString() ?? '';
           final slug = map['nu']?.toString() ?? map['slug']?.toString() ?? id;
-          final title = _cleanTitle(map['title'] ?? map['lon'] ?? map['n']);
+          final title = _cleanTitle(map['lon'] ?? map['title'] ?? map['n']);
           if (title.isEmpty || id.isEmpty) continue;
 
           final poster = _extractPoster(map);
-          final cty = map['cty']?.toString() ?? map['type']?.toString() ?? 'series';
-          final scraperTipo = cty.contains('movie') ? 'movie' : 'novel';
+          final itemCty = map['cty']?.toString() ?? 'tvseries';
+          final scraperTipo = itemCty.contains('movie') ? 'movie' : 'novel';
 
           items.add(ScraperItem(
             titulo: title,
@@ -126,7 +126,8 @@ class CanelaTVScraper {
   // ─── BÚSQUEDA ─────────────────────────────────────────────────
   static Future<List<BuscadorItem>> search(String q) async {
     final query = Uri.encodeComponent(q.trim());
-    final url = '$baseSearchApi?term=$query&rows=20';
+    final url =
+        '$baseSearchApi?mode=detail&st=published&term=$query&cty=tvseries&pageNumber=1&pageSize=20&reg=co&dt=web&client=canela-canela-web';
 
     try {
       final res = await http.get(Uri.parse(url), headers: {
@@ -137,19 +138,20 @@ class CanelaTVScraper {
       if (res.statusCode != 200) return [];
       final data = jsonDecode(res.body);
       final results = <BuscadorItem>[];
+      final list = data is Map ? (data['data'] as List?) : null;
 
-      if (data is Map && data['results'] is List) {
-        for (final r in data['results']) {
+      if (list != null) {
+        for (final r in list) {
           if (r is! Map) continue;
           final map = Map<String, dynamic>.from(r);
           final id = map['id']?.toString() ?? '';
           final slug = map['nu']?.toString() ?? map['slug']?.toString() ?? id;
-          final title = _cleanTitle(map['title'] ?? map['lon'] ?? map['n']);
+          final title = _cleanTitle(map['lon'] ?? map['title'] ?? map['n']);
           if (title.isEmpty || id.isEmpty) continue;
 
           final poster = _extractPoster(map);
-          final cty = map['cty']?.toString() ?? map['type']?.toString() ?? 'series';
-          final tipo = cty.contains('movie') ? 'movie' : 'novel';
+          final itemCty = map['cty']?.toString() ?? 'tvseries';
+          final tipo = itemCty.contains('movie') ? 'movie' : 'novel';
 
           results.add(BuscadorItem(
             sitio: 'canelatv',
@@ -174,7 +176,7 @@ class CanelaTVScraper {
     String tipo = 'novel',
   }) async {
     final uri = Uri.parse(url);
-    final id = uri.queryParameters['id'] ?? (url.split('/').last.split('?').first);
+    var id = uri.queryParameters['id'] ?? (url.split('/').last.split('?').first);
 
     if (id.isEmpty) {
       return DetalleContenido(
@@ -187,107 +189,111 @@ class CanelaTVScraper {
     }
 
     try {
-      final metaUrl = '$baseDataStore/$id.json';
-      final res = await http.get(Uri.parse(metaUrl), headers: {
+      // Si el id es un slug sin UUID y no vino parámetro id, resolverlo vía búsqueda
+      if (!id.contains('-') && uri.queryParameters['id'] == null) {
+        final searchItems = await search(titulo.isNotEmpty ? titulo : id);
+        final found = searchItems.firstWhereOrNull((e) => e.url.contains(id));
+        if (found != null) {
+          final fUri = Uri.parse(found.url);
+          id = fUri.queryParameters['id'] ?? id;
+        }
+      }
+
+      // 1. Obtener temporadas
+      final seasonsUrl =
+          '$baseDataStore/content/series/$id/seasons?pageNumber=1&pageSize=30&reg=co&dt=web&client=canela-canela-web';
+      final sRes = await http.get(Uri.parse(seasonsUrl), headers: {
         'Accept': 'application/json',
         'User-Agent': userAgent,
       }).timeout(timeout);
 
-      if (res.statusCode != 200) {
-        return DetalleContenido(
-          ok: false,
-          error: 'Error al obtener detalle de Canela.TV (${res.statusCode})',
-          servicio: 'canelatv',
-          titulo: titulo,
-          tipo: tipo,
-        );
-      }
-
-      final data = jsonDecode(res.body) as Map<String, dynamic>;
-      final title = _cleanTitle(data['lon'] ?? data['title']) ?? titulo;
-
-      // Sinopsis
-      var sinopsis = '';
-      if (data['lod'] is List && (data['lod'] as List).isNotEmpty) {
-        for (final d in data['lod']) {
-          if (d is Map && d['lang'] == 'es-MX') {
-            sinopsis = d['d']?.toString() ?? '';
-            break;
-          }
-        }
-        if (sinopsis.isEmpty && data['lod'][0] is Map) {
-          sinopsis = data['lod'][0]['d']?.toString() ?? '';
-        }
-      }
-
-      // Póster y backdrop
-      final poster = _extractPoster(data);
-      final backdrop = '$baseDataStore/$id/0-16x9.jpg';
-
-      // Géneros
-      final genres = <String>['Telenovela', 'Drama', 'Latino'];
-
-      // Episodios / Temporadas
       final temporadas = <DetalleTemporada>[];
       final capitulos = <DetalleCapitulo>[];
+      final poster =
+          'https://image-resizer-cloud-cdn.cms.api.canela.tv/image/$id/0-7x10.jpg';
+      final backdrop =
+          'https://image-resizer-cloud-cdn.cms.api.canela.tv/image/$id/0-16x9.jpg';
+      String sinopsis = '';
 
-      final seasonsData = data['seasons'] ?? data['s'];
-      if (seasonsData is List && seasonsData.isNotEmpty) {
-        for (int sIdx = 0; sIdx < seasonsData.length; sIdx++) {
-          final s = seasonsData[sIdx];
-          if (s is! Map) continue;
-          final epList = s['episodes'] ?? s['e'];
-          final tempCaps = <DetalleCapitulo>[];
+      if (sRes.statusCode == 200) {
+        final sData = jsonDecode(sRes.body);
+        final sList = sData is Map ? (sData['data'] as List?) : null;
 
-          if (epList is List) {
-            for (int eIdx = 0; eIdx < epList.length; eIdx++) {
-              final ep = epList[eIdx];
-              if (ep is! Map) continue;
-              final epTitle = _cleanTitle(ep['lon'] ?? ep['title']) ?? 'Episodio ${eIdx + 1}';
-              final epId = ep['id']?.toString() ?? '${sIdx + 1}_${eIdx + 1}';
+        if (sList != null && sList.isNotEmpty) {
+          for (int sIdx = 0; sIdx < sList.length; sIdx++) {
+            final sItem = sList[sIdx];
+            if (sItem is! Map) continue;
+            final seasonId = sItem['id']?.toString() ?? '';
+            final snum = sItem['snum'] ?? (sIdx + 1);
+            final sName = sItem['title']?.toString() ?? 'Temporada $snum';
 
-              final cap = DetalleCapitulo(
-                temporada: sIdx + 1,
-                numero: eIdx + 1,
-                titulo: epTitle,
-                url: 'https://canela.tv/play/$epId?series=$id',
-                imagen: '$baseDataStore/$epId/0-16x9.jpg',
-              );
-              tempCaps.add(cap);
-              capitulos.add(cap);
+            // Obtener episodios de esta temporada
+            final epUrl =
+                '$baseDataStore/content/series/$id/episodes?seasonId=$seasonId&pageNumber=1&pageSize=100&sortBy=epz&sortOrder=asc&reg=co&dt=web&client=canela-canela-web';
+            final epRes = await http.get(Uri.parse(epUrl), headers: {
+              'Accept': 'application/json',
+              'User-Agent': userAgent,
+            }).timeout(timeout);
+
+            final tempCaps = <DetalleCapitulo>[];
+            if (epRes.statusCode == 200) {
+              final epData = jsonDecode(epRes.body);
+              final epList = epData is Map ? (epData['data'] as List?) : null;
+              if (epList != null) {
+                for (int eIdx = 0; eIdx < epList.length; eIdx++) {
+                  final ep = epList[eIdx];
+                  if (ep is! Map) continue;
+                  final epId = ep['id']?.toString() ?? '';
+                  final epSlug =
+                      (ep['nu'] ?? ep['cnu'])?.toString() ?? epId;
+                  final epTitle = _cleanTitle(ep['lon'] ?? ep['title']);
+                  final epNum = ep['epnum'] is int
+                      ? ep['epnum'] as int
+                      : (int.tryParse('${ep['epnum'] ?? ep['epz']}') ??
+                          (eIdx + 1));
+                  final epPoster =
+                      'https://image-resizer-cloud-cdn.cms.api.canela.tv/image/$epId/0-16x9.jpg';
+
+                  final cap = DetalleCapitulo(
+                    temporada: snum is int
+                        ? snum
+                        : (int.tryParse('$snum') ?? (sIdx + 1)),
+                    numero: epNum,
+                    titulo: epTitle.isNotEmpty ? epTitle : 'Capítulo $epNum',
+                    url: 'https://canela.tv/play/$epSlug?id=$epId&series=$id',
+                    imagen: epPoster,
+                  );
+                  tempCaps.add(cap);
+                  capitulos.add(cap);
+                }
+              }
             }
-          }
 
-          if (tempCaps.isNotEmpty) {
-            temporadas.add(DetalleTemporada(
-              numero: sIdx + 1,
-              nombre: 'Temporada ${sIdx + 1}',
-              episodios: tempCaps,
-            ));
+            if (tempCaps.isNotEmpty) {
+              temporadas.add(DetalleTemporada(
+                numero: snum is int
+                    ? snum
+                    : (int.tryParse('$snum') ?? (sIdx + 1)),
+                nombre: sName,
+                episodios: tempCaps,
+              ));
+            }
           }
         }
       }
 
-      if (temporadas.isEmpty && capitulos.isNotEmpty) {
-        temporadas.add(DetalleTemporada(
-          numero: 1,
-          nombre: 'Temporada 1',
-          episodios: capitulos,
-        ));
-      }
-
-      // Servidores
-      final servidores = await fetchServers(url: url);
+      final firstEpUrl = capitulos.isNotEmpty ? capitulos.first.url : url;
+      final servidores = await fetchServers(url: firstEpUrl);
 
       return DetalleContenido(
         ok: true,
         servicio: 'canelatv',
-        titulo: title.isNotEmpty ? title : titulo,
+        titulo: titulo,
         tipo: tipo,
         sinopsis: sinopsis,
         poster: poster,
         backdrop: backdrop,
-        generos: genres,
+        generos: const ['Telenovela', 'Drama', 'Latino'],
         servidores: servidores,
         temporadas: temporadas,
       );
@@ -308,6 +314,30 @@ class CanelaTVScraper {
     String? html,
   }) async {
     final servers = <DetalleServidor>[];
+    try {
+      final uri = Uri.parse(url);
+      final slug = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '';
+      final id = uri.queryParameters['id'] ?? slug;
+      final targetContentId = slug.isNotEmpty ? slug : id;
+
+      if (targetContentId.isNotEmpty) {
+        final streamUrl = await CanelaService.getStreamUrl(
+          contentId: targetContentId,
+          catalogType: 'tvepisode',
+        );
+        if (streamUrl != null && streamUrl.isNotEmpty) {
+          servers.add(DetalleServidor(
+            nombre: 'Canela.TV · Stream HD Oficial',
+            url: streamUrl,
+            idioma: 'latino',
+            calidad: '1080p',
+          ));
+          return servers;
+        }
+      }
+    } catch (_) {}
+
+    // Fallback
     servers.add(DetalleServidor(
       nombre: 'Canela.TV · Stream HD 1080p',
       url: url,

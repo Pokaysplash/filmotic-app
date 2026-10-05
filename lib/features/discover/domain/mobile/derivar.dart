@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../data/models/scraper/detalle_model.dart';
 import '../../../../data/scrapers/base/detalle_scraper.dart';
 import '../../../player/presentation/player_page.dart';
+import '../../../player/data/native_resolvers.dart';
 import '../../../content/presentation/content_page.dart'; // ← PageContenido
 
 const kAccentColor = Color(0xFFE50914);
@@ -98,6 +99,9 @@ class _DerivarPageState extends State<DerivarPage> {
     return s == 'animejk' ||
         s == 'jkanime' ||
         s == 'jk' ||
+        s == 'tioanime' ||
+        s == 'canelatv' ||
+        s == 'canela' ||
         (_data?.servicio.toLowerCase() == 'animejk');
   }
 
@@ -137,7 +141,9 @@ class _DerivarPageState extends State<DerivarPage> {
     );
   }
 
-  void _openServersModal({DetalleCapitulo? cap}) {
+  Future<void> _openServersModal({DetalleCapitulo? cap}) async {
+    final tmdbId = _data?.tmdbId ?? 0;
+
     if (_usaUrlCapitulo) {
       final episodeUrl =
           (cap?.url.isNotEmpty == true) ? cap!.url : widget.url;
@@ -150,20 +156,102 @@ class _DerivarPageState extends State<DerivarPage> {
         );
         return;
       }
-    } else {
-      final tmdbId = _data?.tmdbId ?? 0;
-      if (tmdbId <= 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No hay TMDB ID para buscar servidores'),
-            backgroundColor: kCardBg,
+
+      // Loader
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const Center(
+          child: CircularProgressIndicator(color: kAccentColor),
+        ),
+      );
+
+      try {
+        final servers = await DetalleScraper.fetchServers(
+          servicio: widget.servicio,
+          url: episodeUrl,
+        );
+
+        if (!mounted) return;
+        Navigator.of(context, rootNavigator: true).pop();
+
+        if (servers.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No se pudo obtener el stream del episodio.'),
+              backgroundColor: kCardBg,
+            ),
+          );
+          return;
+        }
+
+        String streamUrl = '';
+        Map<String, String> streamHeaders = const {};
+
+        for (final s in servers) {
+          final u = s.url.trim();
+          if (u.isEmpty) continue;
+          if (u.contains('.m3u8') || u.contains('.mp4') || u.contains('boltdns.net')) {
+            streamUrl = u;
+            break;
+          }
+          final res = await NativeResolvers.resolve(u);
+          if (res != null && res.url.isNotEmpty) {
+            streamUrl = res.url;
+            streamHeaders = res.headers;
+            break;
+          }
+        }
+
+        if (streamUrl.isEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No se pudo obtener el stream del episodio.'),
+              backgroundColor: kCardBg,
+            ),
+          );
+          return;
+        }
+
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => PlayerScreen(
+              videoUrl: streamUrl,
+              headers: streamHeaders.isNotEmpty ? streamHeaders : null,
+              idcontenido: tmdbId > 0 ? tmdbId : 0,
+              tmdbId: tmdbId,
+              temporada: _isMovie ? null : (cap?.temporada ?? 1),
+              capitulo: _isMovie ? null : (cap?.numero ?? 1),
+              tipo: _data?.tipo ?? widget.tipo,
+              titulo: '${_data?.titulo ?? widget.titulo}${cap != null ? " · ${cap.titulo}" : ""}',
+            ),
           ),
         );
-        return;
+      } catch (_) {
+        if (mounted) {
+          Navigator.of(context, rootNavigator: true).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No se pudo obtener el stream del episodio.'),
+              backgroundColor: kCardBg,
+            ),
+          );
+        }
       }
+      return;
     }
 
-    final tmdbId = _data?.tmdbId ?? 0;
+    if (tmdbId <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No hay TMDB ID para buscar servidores'),
+          backgroundColor: kCardBg,
+        ),
+      );
+      return;
+    }
 
     Navigator.push(
       context,

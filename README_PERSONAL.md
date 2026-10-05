@@ -919,3 +919,49 @@ Esta fase introduce una arquitectura de scraping modular y exhaustiva, ampliaci�
    - `pre_validation_timeout_seconds`: 5
    - `pre_validation_concurrency`: 5
    - `pre_validation_cache_ttl_minutes`: 15
+
+---
+
+## 25. WAVE 12.9 – Fix Quirúrgico de Novelas y Anime
+
+Esta fase resuelve los tres problemas fundamentales identificados durante la fase diagnóstica WAVE 12.8, restaurando la reproducción de telenovelas y anime, y protegiendo el sistema contra colisiones de metadatos TMDB tanto en móvil como en Android TV.
+
+### 25.1 Bloque A: Corrección Integral de Canela.TV (Novelas)
+1. **Query de búsqueda y listados**:
+   - Se actualizó el parámetro `cty=series` a `cty=tvseries` y se garantizó la inclusión de `client=canela-canela-web&dt=web&mode=detail&st=published`.
+2. **Parseo de datos**:
+   - Extracción directa desde `data['data']` en lugar de `data['results']`.
+3. **Endpoints de Ficha y Estructura de Capítulos**:
+   - Temporadas: `https://data-store-cdn.cms.api.canela.tv/content/series/{seriesId}/seasons?pageNumber=1&pageSize=30&reg=co&dt=web&client=canela-canela-web`
+   - Episodios: `https://data-store-cdn.cms.api.canela.tv/content/series/{seriesId}/episodes?seasonId={seasonId}&pageNumber=1&pageSize=100&sortBy=epz&sortOrder=asc&reg=co&dt=web&client=canela-canela-web`
+   - Se eliminó la llamada obsoleta a `/content/vod/{id}.json` (que arrojaba HTTP 404).
+4. **Integración con Extractor Brightcove**:
+   - `CanelaService.getStreamUrl` resuelve los streams firmados HLS (`.m3u8` desde Boltdns) mediante autenticación de edge playback tokens de Canela, proveyendo video 1080p directo sin transcodificación.
+
+### 25.2 Bloque B: Flujo de Reproducción de Anime (JKAnime y TioAnime)
+1. **Identificación de Fuentes de URL por Capítulo (`_usaUrlCapitulo`)**:
+   - Ampliado en `derivar.dart` (móvil) y `derivar.dart` (TV) para incluir: `animejk`, `jkanime`, `jk`, `tioanime`, `canelatv`, `canela`.
+2. **Resolución Asíncrona de Servidores y Stream Real**:
+   - En lugar de invocar `PlayerScreen` o `TvPlayerPage` con `videoUrl: ''`, `_openServersModal` ejecuta `DetalleScraper.fetchServers(servicio: ..., url: cap.url)`.
+   - Se resuelve el stream reproducible mediante `NativeResolvers.resolve` (con soporte añadido para Vidhide, Streamwish, VOE, Mega y YourUpload).
+   - Si no se encuentra stream funcional, se presenta retroalimentación clara: *"No se pudo obtener el stream del episodio."* en lugar de pantalla negra.
+
+### 25.3 Bloque C: Fix de Búsqueda por Título en `MainFuentesServidores`
+1. En `lib/data/aggregators/main_fuentes_servidores.dart`, las consultas para `jkanime` y `tioanime` ahora se ejecutan por **título** (`titulo`) en lugar del identificador numérico de TMDB (`$tmdbId`).
+2. Se propagó el parámetro `titulo` desde `servidores_modal.dart` y flujos de detalle.
+
+### 25.4 Bloque D: Prevención de Colisión de IDs en Búsqueda Federada
+1. **Problema Solucionado**: Al pulsar un resultado de scraper externo sin `tmdb_id`, la app realizaba una búsqueda ciega en TMDB con `limit: 1`, asignando el ID de una película no relacionada (haciendo que novelas abrieran películas).
+2. **Corrección**: En `search_page.dart` (móvil) y `tv_search_page.dart` (TV), se evalúa si `esFuenteExterna && id <= 0`. De ser así, se omiten las consultas a TMDB y se navega directamente a `DerivarPage` / `DerivarTvPage` con el servicio, título y URL originales de la fuente.
+
+### 25.5 Bloque E: Detección de Idioma en TioAnime
+1. En `tioanime_scraper.dart`, `_detectIdioma` ahora evalúa exclusivamente el nombre del servidor (`sName`) con patrones delimitados por palabras (`\b(lat|latino)\b`), eliminando el falso positivo generado por la presencia de subcadenas como "relacionados" en el HTML completo.
+
+### 25.6 Bloque F: Estado y Decisión sobre Telemundo
+1. **Deshabilitado por Defecto**: Telemundo fue añadido a la lista `"disabled"` en `filmotic_config.json` y a los valores predeterminados en `RemoteConfigService`.
+2. **Causa**: Las transmisiones y endpoints de API de NBC/Telemundo aplican DRM Widevine activo y bloqueo geográfico estricto (HTTP 403) fuera de Estados Unidos.
+3. El código del scraper se mantiene intacto en el repositorio para reactivación inmediata si el proveedor relaja sus políticas o se implementan proxies regionales.
+
+### 25.7 Bloque G & H: Paridad Móvil / Android TV y Verificación
+- Todos los cambios fueron implementados con paridad simétrica entre las vistas y controladores móviles y de Android TV.
+- Compilación limpia con `flutter analyze` y generación de APK release v1.0.0-beta.7.

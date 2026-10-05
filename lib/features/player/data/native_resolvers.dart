@@ -87,6 +87,7 @@ class NativeResolvers {
     if (s.contains('pixeldrain')) return 'pixeldrain';
     if (s.contains('buzzheavier') || s.contains('bzh.sh')) return 'buzzheavier';
     if (s.contains('ok.ru') || s.contains('okru')) return 'okru';
+    if (s.contains('yourupload')) return 'yourupload';
     if (s.contains('vidsrc') || s.contains('moviesapi')) return 'vidsrc';
     return 'unknown';
   }
@@ -227,12 +228,36 @@ class NativeResolvers {
           return await _resolveBuzzheavier(url).timeout(timeout);
         case 'dropcdn':
           return await _resolveDropcdn(url).timeout(timeout);
+        case 'yourupload':
+          return await _resolveYourUpload(url).timeout(timeout);
         default:
           return null;
       }
     } catch (_) {
       return null;
     }
+  }
+
+  // ---------- YOURUPLOAD ----------
+  static Future<StreamResult?> _resolveYourUpload(String url) async {
+    try {
+      final res = await http.get(
+        Uri.parse(url),
+        headers: {'User-Agent': _ua, 'Referer': 'https://tioanime.com/'},
+      );
+      if (res.statusCode != 200) return null;
+      final m = RegExp(r'''file\s*:\s*['"]([^'"]+\.mp4[^'"]*)['"]''').firstMatch(res.body) ??
+                RegExp(r'''(https?://[^\s"'<>]+\.mp4[^\s"'<>]*)''').firstMatch(res.body);
+      if (m != null) {
+        return StreamResult(
+          url: m.group(1)!,
+          headers: {'Referer': 'https://www.yourupload.com/', 'User-Agent': _ua},
+          serverName: 'YourUpload',
+          quality: 'HD',
+        );
+      }
+    } catch (_) {}
+    return null;
   }
 
   // ---------- VOE ----------

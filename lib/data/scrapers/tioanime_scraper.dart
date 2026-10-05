@@ -31,8 +31,8 @@ class TioAnimeScraper {
 
   static String _detectIdioma(String text) {
     final lower = text.toLowerCase();
-    if (lower.contains('latino') || lower.contains('lat')) return 'latino';
-    if (lower.contains('castellano') || lower.contains('esp')) return 'castellano';
+    if (lower.contains('latino') || RegExp(r'\b(lat|audio latino)\b').hasMatch(lower)) return 'latino';
+    if (lower.contains('castellano') || RegExp(r'\b(esp|cast)\b').hasMatch(lower)) return 'castellano';
     return 'subtitulado';
   }
 
@@ -282,7 +282,7 @@ class TioAnimeScraper {
               servers.add(DetalleServidor(
                 nombre: 'TioAnime · $sName',
                 url: sUrl,
-                idioma: _detectIdioma('$sName $pageHtml'),
+                idioma: _detectIdioma(sName),
                 calidad: 'HD',
               ));
             }
