@@ -407,8 +407,13 @@ class _DerivarTvPageState extends State<DerivarTvPage> {
         s == 'jkanime' ||
         s == 'jk' ||
         s == 'tioanime' ||
+        s == 'animeflv' ||
         s == 'canelatv' ||
         s == 'canela' ||
+        s == 'telemundo' ||
+        s == 'animepahe' ||
+        s == 'gogoanime' ||
+        s == 'animeav1' ||
         (_data?.servicio.toLowerCase() == 'animejk');
   }
 

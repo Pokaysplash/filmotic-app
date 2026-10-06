@@ -176,9 +176,10 @@ class BuscarPageState extends State<BuscarPage>
       for (final fItem in fedItems) {
         final norm = _normTitle(fItem.titulo);
         final type = fItem.tipo == 'anime' || fItem.tipo == 'tv' ? 'tv' : 'movie';
-        final key = '${type}_$norm';
+        final isExternalScraper = fItem.sitio.isNotEmpty && (fItem.tmdbId == null || fItem.tmdbId == 0);
+        final key = isExternalScraper ? '${fItem.sitio}_${type}_$norm' : '${type}_$norm';
 
-        if (mapByTitle.containsKey(key)) {
+        if (!isExternalScraper && mapByTitle.containsKey(key)) {
           final existing = mapByTitle[key]!;
           final fuentes = List<Map<String, String>>.from(existing['fuentes_agrupadas'] ?? []);
           if (fItem.fuentesAgrupadas != null) {
@@ -191,7 +192,7 @@ class BuscarPageState extends State<BuscarPage>
           // Agregar elemento web-originado no presente en TMDB
           mapByTitle[key] = {
             'id': fItem.tmdbId ?? 0,
-            'tmdb_id': fItem.tmdbId ?? 0,
+            'tmdb_id': fItem.tmdbId,
             'title': fItem.titulo,
             'name': fItem.titulo,
             'media_type': type,
@@ -233,25 +234,18 @@ class BuscarPageState extends State<BuscarPage>
   }
 
   Future<void> _openContent(Map<String, dynamic> item) async {
-    int id = parseCanonicalTmdbId(item['tmdb_id']) ??
-        parseCanonicalTmdbId(item['idtmdb']) ??
-        parseCanonicalTmdbId(item['idcontenido']) ??
-        parseCanonicalTmdbId(item['contenido_id']) ??
-        parseCanonicalTmdbId(item['id']) ??
-        0;
-
+    final sitio = (item['sitio'] ?? item['fuente'] ?? '').toString().trim();
+    final url = (item['url'] ?? item['link'] ?? '').toString().trim();
+    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '').toString().trim();
     final tipo = canonicalMediaType(
         item['media_type'] ?? item['type'] ?? item['tipo'] ?? (item['name'] != null && item['title'] == null ? 'tv' : 'movie'));
-    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '')
-        .toString()
-        .trim();
 
-    final esFuenteExterna = (item['sitio'] != null && item['sitio'].toString().isNotEmpty) ||
-        (item['fuente'] != null && item['fuente'].toString().isNotEmpty);
-    final externalUrl = (item['url'] ?? item['link'] ?? '').toString();
+    final tmdbRaw = item['tmdb_id'] ?? item['idtmdb'] ?? item['idcontenido'];
+    debugPrint('[Navigation] Abriendo contenido: "$titulo" | sitio: ${sitio.isEmpty ? "null" : sitio} | tmdb_id: $tmdbRaw');
 
-    if (esFuenteExterna && id <= 0) {
-      final sitio = (item['sitio'] ?? item['fuente'] ?? '').toString();
+    // Regla estricta 1: Si tiene sitio (novelas, anime, scrapers) -> DerivarPage directamente
+    if (sitio.isNotEmpty) {
+      debugPrint('[Navigation] Enrutando a: DerivarPage');
       if (!mounted) return;
       FocusScope.of(context).unfocus();
       Navigator.push(
@@ -259,7 +253,7 @@ class BuscarPageState extends State<BuscarPage>
         MaterialPageRoute(
           builder: (_) => DerivarPage(
             servicio: sitio,
-            url: externalUrl,
+            url: url,
             titulo: titulo,
             tipo: tipo,
           ),
@@ -268,32 +262,52 @@ class BuscarPageState extends State<BuscarPage>
       return;
     }
 
-    if (id <= 0 && titulo.isNotEmpty) {
-      try {
-        final res = await _searchService.search(titulo, limit: 1);
-        final first = (res['data']?['items'] as List?)?.firstOrNull;
-        if (first != null) {
-          id = parseCanonicalTmdbId(first['id'] ?? first['tmdb_id']) ?? 0;
-        }
-      } catch (_) {}
-    }
-
-    if (id <= 0) {
-      id = titulo.hashCode.abs();
-    }
-
-    if (!mounted) return;
-    FocusScope.of(context).unfocus();
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => PageContenido(
-          idcontenido: id,
-          tmdbId: id,
-          mediaType: tipo,
-          expectedTitle: titulo.isNotEmpty ? titulo : null,
+    // Si tiene url externa evidente de scrapers
+    if (url.contains('canela') || url.contains('telemundo') || url.contains('jkanime') || url.contains('tioanime') || url.contains('animeflv')) {
+      final detected = url.contains('canela') ? 'canelatv' : (url.contains('telemundo') ? 'telemundo' : 'scraper');
+      debugPrint('[Navigation] Enrutando a: DerivarPage (detectado: $detected)');
+      if (!mounted) return;
+      FocusScope.of(context).unfocus();
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DerivarPage(
+            servicio: detected,
+            url: url,
+            titulo: titulo,
+            tipo: tipo,
+          ),
         ),
-      ),
+      );
+      return;
+    }
+
+    // Regla estricta 2: TMDB con ID válido (SOLO de campos TMDB reales, nunca hashes)
+    final tmdbId = parseCanonicalTmdbId(item['tmdb_id'] ?? item['idtmdb'] ?? item['idcontenido'] ?? item['contenido_id']);
+    if (tmdbId != null && tmdbId > 0 && tmdbId < 2000000) {
+      debugPrint('[Navigation] Enrutando a: PageContenido (tmdbId: $tmdbId)');
+      if (!mounted) return;
+      FocusScope.of(context).unfocus();
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PageContenido(
+            idcontenido: tmdbId,
+            tmdbId: tmdbId,
+            mediaType: tipo,
+            expectedTitle: titulo.isNotEmpty ? titulo : null,
+          ),
+        ),
+      );
+      return;
+    }
+
+    // Regla estricta 3: Ni fuente externa ni TMDB válido -> Error honesto
+    // NUNCA hacer búsqueda ciega en TMDB que sobreescriba con contenidos ajenos
+    debugPrint('[Navigation] Error: sin fuente externa ni tmdbId válido para "$titulo"');
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Este contenido no tiene información disponible')),
     );
   }
 

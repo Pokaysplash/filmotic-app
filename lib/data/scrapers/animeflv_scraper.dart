@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:html/parser.dart' as parser;
 import 'package:http/http.dart' as http;
 import '../models/scraper/detalle_model.dart';
@@ -243,9 +244,65 @@ class AnimeFLVScraper {
     // Servidores del primer episodio o película si aplica
     final servidores = await fetchServers(url: url, html: html);
 
-    final temporadas = capitulos.isNotEmpty
-        ? [DetalleTemporada(numero: 1, nombre: 'Temporada 1', episodios: capitulos)]
-        : <DetalleTemporada>[];
+    final temporadas = <DetalleTemporada>[];
+    if (capitulos.isNotEmpty) {
+      temporadas.add(DetalleTemporada(numero: 1, nombre: 'Temporada 1', episodios: capitulos));
+    }
+
+    // BLOQUE H: Extraer secuelas / temporadas adicionales desde ListAnimeRel
+    final relItems = doc.querySelectorAll('ul.ListAnimeRel li, .ListAnimeRel li, .Related li');
+    int seasonIndex = 2;
+    for (final rel in relItems) {
+      final text = rel.text.toLowerCase();
+      if (text.contains('secuela') ||
+          text.contains('temporada') ||
+          text.contains('season') ||
+          text.contains('2nd') ||
+          text.contains('3rd') ||
+          text.contains('parte')) {
+        final aTag = rel.querySelector('a');
+        final relHref = aTag?.attributes['href'] ?? '';
+        final relTitle = aTag?.text.trim() ?? 'Temporada $seasonIndex';
+        if (relHref.isNotEmpty) {
+          final fullRelUrl = relHref.startsWith('http') ? relHref : '$base$relHref';
+          try {
+            final relHtml = await fetchHtml(fullRelUrl);
+            if (relHtml != null) {
+              final relEps = <DetalleCapitulo>[];
+              final relMatch = RegExp(r'var episodes\s*=\s*(\[\[[\s\S]*?\]\]);').firstMatch(relHtml);
+              if (relMatch != null) {
+                final relList = jsonDecode(relMatch.group(1)!) as List;
+                final relSorted = relList.reversed.toList();
+                final relSlug = fullRelUrl.split('/').last;
+                for (int i = 0; i < relSorted.length; i++) {
+                  final epItem = relSorted[i];
+                  final epNum = epItem[0] is int ? epItem[0] as int : (i + 1);
+                  relEps.add(DetalleCapitulo(
+                    temporada: seasonIndex,
+                    numero: epNum,
+                    titulo: 'Episodio $epNum',
+                    url: '$base/ver/$relSlug-$epNum',
+                    imagen: poster,
+                  ));
+                }
+              }
+              if (relEps.isNotEmpty) {
+                temporadas.add(DetalleTemporada(
+                  numero: seasonIndex,
+                  nombre: relTitle.isNotEmpty ? relTitle : 'Temporada $seasonIndex',
+                  episodios: relEps,
+                ));
+                seasonIndex++;
+              }
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    final totalEpisodes = temporadas.fold<int>(0, (sum, t) => sum + t.episodios.length);
+    debugPrint('[AnimeFLV] Temporadas encontradas: ${temporadas.length}');
+    debugPrint('[AnimeFLV] Episodios encontrados: $totalEpisodes');
 
     return DetalleContenido(
       ok: true,
@@ -349,6 +406,10 @@ class AnimeFLVScraper {
         }
       }
     }
+
+    final subCount = servers.where((s) => s.idioma?.toLowerCase().contains('sub') == true).length;
+    final latCount = servers.where((s) => s.idioma?.toLowerCase().contains('lat') == true).length;
+    debugPrint('[AnimeFLV] Servidores encontrados: ${servers.length} (SUB: $subCount, LAT: $latCount)');
 
     return servers;
   }

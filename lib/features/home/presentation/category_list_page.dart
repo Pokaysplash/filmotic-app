@@ -52,13 +52,21 @@ class _CategoryListPageState extends State<CategoryListPage> {
 
   int _focusedIndex = -1;
 
-  static const List<String> _kCategories = [
-    'Todos',
-    'Películas',
-    'Series',
-    'Novelas',
-    'Anime',
-  ];
+  List<String> get _visibleCategories {
+    final catKey = (widget.categoryKey ?? '').toLowerCase().trim();
+    final titleLower = widget.title.toLowerCase().trim();
+
+    if (catKey == 'anime' || titleLower.contains('anime')) {
+      return const ['Anime'];
+    }
+    if (catKey == 'novelas' || catKey == 'novela' || titleLower.contains('novela')) {
+      return const ['Novelas'];
+    }
+    if (catKey == 'all' || catKey == 'todos' || titleLower.contains('todo') || titleLower.contains('catálogo')) {
+      return const ['Todos', 'Películas', 'Series', 'Novelas', 'Anime'];
+    }
+    return const ['Películas', 'Series'];
+  }
 
   @override
   void initState() {
@@ -72,12 +80,14 @@ class _CategoryListPageState extends State<CategoryListPage> {
     } else if (catKey == 'anime' || titleLower.contains('anime')) {
       _selectedCategory = 'Anime';
       _fetchCategory('Anime');
+    } else if (catKey == 'all' || catKey == 'todos') {
+      _selectedCategory = 'Todos';
     } else if (widget.isMovie) {
       _selectedCategory = 'Películas';
     } else if (catKey == 'series' || titleLower.contains('serie')) {
       _selectedCategory = 'Series';
     } else {
-      _selectedCategory = 'Todos';
+      _selectedCategory = _visibleCategories.first;
     }
   }
 
@@ -107,14 +117,17 @@ class _CategoryListPageState extends State<CategoryListPage> {
             final res = await src.fetch!();
             for (final it in res.items) {
               items.add({
-                'id': it.tmdbId ?? it.titulo.hashCode.abs(),
-                'tmdb_id': it.tmdbId ?? 0,
+                'id': it.tmdbId ?? 0,
+                'tmdb_id': it.tmdbId,
+                'titulo': it.titulo,
                 'title': it.titulo,
                 'name': it.titulo,
                 'poster_path': it.poster,
+                'poster': it.poster,
                 'vote_average': it.rating ?? 0.0,
                 'year': it.year != null ? '${it.year}' : '',
-                'media_type': 'tv',
+                'media_type': it.tipo == 'movie' ? 'movie' : 'tv',
+                'tipo': it.tipo,
                 'sitio': src.id,
                 'url': it.url,
               });
@@ -130,14 +143,17 @@ class _CategoryListPageState extends State<CategoryListPage> {
             final res = await src.fetch!();
             for (final it in res.items) {
               items.add({
-                'id': it.tmdbId ?? it.titulo.hashCode.abs(),
-                'tmdb_id': it.tmdbId ?? 0,
+                'id': it.tmdbId ?? 0,
+                'tmdb_id': it.tmdbId,
+                'titulo': it.titulo,
                 'title': it.titulo,
                 'name': it.titulo,
                 'poster_path': it.poster,
+                'poster': it.poster,
                 'vote_average': it.rating ?? 0.0,
                 'year': it.year != null ? '${it.year}' : '',
-                'media_type': 'tv',
+                'media_type': it.tipo == 'movie' ? 'movie' : 'tv',
+                'tipo': it.tipo,
                 'sitio': src.id,
                 'url': it.url,
               });
@@ -272,8 +288,12 @@ class _CategoryListPageState extends State<CategoryListPage> {
     final mediaType = isMovie ? 'movie' : 'tv';
     final titulo = (item['titulo'] ?? item['title'] ?? item['name'] ?? '').toString().trim();
 
-    final esFuenteExterna = sitio.isNotEmpty && externalUrl.isNotEmpty;
-    if (esFuenteExterna) {
+    final tmdbRaw = item['tmdb_id'] ?? item['idtmdb'] ?? item['idcontenido'];
+    debugPrint('[Navigation] Abriendo contenido: "$titulo" | sitio: ${sitio.isEmpty ? "null" : sitio} | tmdb_id: $tmdbRaw');
+
+    // Regla estricta 1: Fuente externa (novelas, anime, scrapers) -> Derivar directamente
+    if (sitio.isNotEmpty) {
+      debugPrint('[Navigation] Enrutando a: ${widget.isTv ? "DerivarTvPage" : "DerivarPage"}');
       if (widget.isTv) {
         Navigator.of(context).push(
           PageRouteBuilder(
@@ -304,50 +324,49 @@ class _CategoryListPageState extends State<CategoryListPage> {
       return;
     }
 
-    final id = parseCanonicalTmdbId(item['tmdb_id']) ??
-        parseCanonicalTmdbId(item['idtmdb']) ??
-        parseCanonicalTmdbId(item['idcontenido']) ??
-        parseCanonicalTmdbId(item['contenido_id']) ??
-        parseCanonicalTmdbId(item['id']) ??
-        0;
-    if (id <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Este contenido no tiene información disponible'),
-          backgroundColor: Colors.redAccent,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
-
-    if (widget.isTv) {
-      Navigator.of(context).push(
-        PageRouteBuilder(
-          pageBuilder: (_, animation, __) => FadeTransition(
-            opacity: animation,
-            child: tv_content.PageContenido(
-              idcontenido: id,
-              tmdbId: id,
+    // Regla estricta 2: TMDB con ID válido (solo si no es fuente externa)
+    final tmdbId = parseCanonicalTmdbId(item['tmdb_id'] ?? item['idtmdb'] ?? item['idcontenido'] ?? item['contenido_id']);
+    if (tmdbId != null && tmdbId > 0 && tmdbId < 2000000) {
+      debugPrint('[Navigation] Enrutando a: PageContenido (tmdbId: $tmdbId)');
+      if (widget.isTv) {
+        Navigator.of(context).push(
+          PageRouteBuilder(
+            pageBuilder: (_, animation, __) => FadeTransition(
+              opacity: animation,
+              child: tv_content.PageContenido(
+                idcontenido: tmdbId,
+                tmdbId: tmdbId,
+                mediaType: mediaType,
+                expectedTitle: titulo.isNotEmpty ? titulo : null,
+              ),
+            ),
+            transitionDuration: const Duration(milliseconds: 250),
+          ),
+        );
+      } else {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => mobile_content.PageContenido(
+              idcontenido: tmdbId,
+              tmdbId: tmdbId,
               mediaType: mediaType,
               expectedTitle: titulo.isNotEmpty ? titulo : null,
             ),
           ),
-          transitionDuration: const Duration(milliseconds: 250),
-        ),
-      );
-    } else {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => mobile_content.PageContenido(
-            idcontenido: id,
-            tmdbId: id,
-            mediaType: mediaType,
-            expectedTitle: titulo.isNotEmpty ? titulo : null,
-          ),
-        ),
-      );
+        );
+      }
+      return;
     }
+
+    // Regla estricta 3: Ni fuente externa ni TMDB válido -> Error honesto
+    debugPrint('[Navigation] Error: sin fuente externa ni tmdbId válido para "$titulo"');
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Este contenido no tiene información disponible'),
+        backgroundColor: Colors.redAccent,
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -431,96 +450,98 @@ class _CategoryListPageState extends State<CategoryListPage> {
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Barra de categorías (Todos, Películas, Series, Novelas, Anime) ──
-          Container(
-            height: 48,
-            padding: EdgeInsets.symmetric(horizontal: isTv ? 28 : 14),
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: _kCategories.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 8),
-              itemBuilder: (context, catIdx) {
-                final cat = _kCategories[catIdx];
-                final isSelected = _selectedCategory == cat;
-                final fNode = _categoryFocusNodes[cat];
+          // ── Barra de categorías filtradas ──
+          if (_visibleCategories.length > 1) ...[
+            Container(
+              height: 48,
+              padding: EdgeInsets.symmetric(horizontal: isTv ? 28 : 14),
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _visibleCategories.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, catIdx) {
+                  final cat = _visibleCategories[catIdx];
+                  final isSelected = _selectedCategory == cat;
+                  final fNode = _categoryFocusNodes[cat];
 
-                if (isTv && fNode != null) {
-                  return Focus(
-                    focusNode: fNode,
-                    onKeyEvent: (node, event) {
-                      if (event is! KeyDownEvent) return KeyEventResult.ignored;
-                      if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
-                        if (_currentItems.isNotEmpty) {
-                          _getFocusNodeFor(0).requestFocus();
+                  if (isTv && fNode != null) {
+                    return Focus(
+                      focusNode: fNode,
+                      onKeyEvent: (node, event) {
+                        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+                        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+                          if (_currentItems.isNotEmpty) {
+                            _getFocusNodeFor(0).requestFocus();
+                            return KeyEventResult.handled;
+                          }
+                        }
+                        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+                          _backFocusNode.requestFocus();
                           return KeyEventResult.handled;
                         }
-                      }
-                      if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-                        _backFocusNode.requestFocus();
-                        return KeyEventResult.handled;
-                      }
-                      if (event.logicalKey == LogicalKeyboardKey.arrowLeft && catIdx > 0) {
-                        _categoryFocusNodes[_kCategories[catIdx - 1]]?.requestFocus();
-                        return KeyEventResult.handled;
-                      }
-                      if (event.logicalKey == LogicalKeyboardKey.arrowRight && catIdx < _kCategories.length - 1) {
-                        _categoryFocusNodes[_kCategories[catIdx + 1]]?.requestFocus();
-                        return KeyEventResult.handled;
-                      }
-                      if (event.logicalKey == LogicalKeyboardKey.select ||
-                          event.logicalKey == LogicalKeyboardKey.enter) {
-                        _selectCategory(cat);
-                        return KeyEventResult.handled;
-                      }
-                      return KeyEventResult.ignored;
-                    },
-                    child: Builder(
-                      builder: (bCtx) {
-                        final hasFocus = Focus.of(bCtx).hasFocus;
-                        return ChoiceChip(
-                          label: Text(cat),
-                          selected: isSelected,
-                          onSelected: (_) => _selectCategory(cat),
-                          selectedColor: kAccentColor,
-                          backgroundColor: hasFocus ? Colors.white24 : const Color(0xFF1E1E24),
-                          labelStyle: TextStyle(
-                            color: isSelected || hasFocus ? Colors.white : Colors.white70,
-                            fontWeight: isSelected || hasFocus ? FontWeight.bold : FontWeight.w500,
-                            fontSize: 13,
-                          ),
-                          side: BorderSide(
-                            color: hasFocus
-                                ? Colors.white
-                                : (isSelected ? kAccentColor : Colors.white12),
-                            width: hasFocus ? 2.0 : 1.0,
-                          ),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        );
+                        if (event.logicalKey == LogicalKeyboardKey.arrowLeft && catIdx > 0) {
+                          _categoryFocusNodes[_visibleCategories[catIdx - 1]]?.requestFocus();
+                          return KeyEventResult.handled;
+                        }
+                        if (event.logicalKey == LogicalKeyboardKey.arrowRight && catIdx < _visibleCategories.length - 1) {
+                          _categoryFocusNodes[_visibleCategories[catIdx + 1]]?.requestFocus();
+                          return KeyEventResult.handled;
+                        }
+                        if (event.logicalKey == LogicalKeyboardKey.select ||
+                            event.logicalKey == LogicalKeyboardKey.enter) {
+                          _selectCategory(cat);
+                          return KeyEventResult.handled;
+                        }
+                        return KeyEventResult.ignored;
                       },
-                    ),
-                  );
-                }
+                      child: Builder(
+                        builder: (bCtx) {
+                          final hasFocus = Focus.of(bCtx).hasFocus;
+                          return ChoiceChip(
+                            label: Text(cat),
+                            selected: isSelected,
+                            onSelected: (_) => _selectCategory(cat),
+                            selectedColor: kAccentColor,
+                            backgroundColor: hasFocus ? Colors.white24 : const Color(0xFF1E1E24),
+                            labelStyle: TextStyle(
+                              color: isSelected || hasFocus ? Colors.white : Colors.white70,
+                              fontWeight: isSelected || hasFocus ? FontWeight.bold : FontWeight.w500,
+                              fontSize: 13,
+                            ),
+                            side: BorderSide(
+                              color: hasFocus
+                                  ? Colors.white
+                                  : (isSelected ? kAccentColor : Colors.white12),
+                              width: hasFocus ? 2.0 : 1.0,
+                            ),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          );
+                        },
+                      ),
+                    );
+                  }
 
-                return ChoiceChip(
-                  label: Text(cat),
-                  selected: isSelected,
-                  onSelected: (_) => _selectCategory(cat),
-                  selectedColor: kAccentColor,
-                  backgroundColor: const Color(0xFF1E1E24),
-                  labelStyle: TextStyle(
-                    color: isSelected ? Colors.white : Colors.white70,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                    fontSize: 13,
-                  ),
-                  side: BorderSide(
-                    color: isSelected ? kAccentColor : Colors.white12,
-                  ),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                );
-              },
+                  return ChoiceChip(
+                    label: Text(cat),
+                    selected: isSelected,
+                    onSelected: (_) => _selectCategory(cat),
+                    selectedColor: kAccentColor,
+                    backgroundColor: const Color(0xFF1E1E24),
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.white : Colors.white70,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                      fontSize: 13,
+                    ),
+                    side: BorderSide(
+                      color: isSelected ? kAccentColor : Colors.white12,
+                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  );
+                },
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
+            const SizedBox(height: 6),
+          ],
 
           // ── Cuerpo de la lista / Grid ──
           Expanded(

@@ -20,6 +20,9 @@ import '../jkanime_scraper.dart';
 import '../tioanime_scraper.dart';
 import '../seriesflix_scraper.dart';
 import '../cineby_scraper.dart';
+import '../animepahe_scraper.dart';
+import '../gogoanime_scraper.dart';
+import '../animeav1_scraper.dart';
 import 'buscador.dart';
 import '../../../core/services/remote_config_service.dart';
 
@@ -282,6 +285,72 @@ final List<Fuente> fuentesRegistry = [
       );
     },
     search: TioAnimeScraper.search,
+  ),
+
+  // ── AnimePahe (Anime Global HD) ────────────────────────────────────────
+  Fuente(
+    id: 'animepahe',
+    label: 'AnimePahe',
+    category: 'anime',
+    language: 'sub',
+    tipos: AnimePaheScraper.tiposDisponibles(),
+    generos: AnimePaheScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return AnimePaheScraper.fetch(
+        tipo: tipo,
+        genero: genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: AnimePaheScraper.search,
+  ),
+
+  // ── GogoAnime (Anime Sub & Dub) ────────────────────────────────────────
+  Fuente(
+    id: 'gogoanime',
+    label: 'GogoAnime',
+    category: 'anime',
+    language: 'sub',
+    tipos: GogoAnimeScraper.tiposDisponibles(),
+    generos: GogoAnimeScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return GogoAnimeScraper.fetch(
+        tipo: tipo,
+        genero: genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: GogoAnimeScraper.search,
+  ),
+
+  // ── AnimeAV1 (Anime HD 1080p) ──────────────────────────────────────────
+  Fuente(
+    id: 'animeav1',
+    label: 'AnimeAV1',
+    category: 'anime',
+    language: 'sub',
+    tipos: AnimeAV1Scraper.tiposDisponibles(),
+    generos: AnimeAV1Scraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return AnimeAV1Scraper.fetch(
+        tipo: tipo,
+        genero: genero,
+        populares: populares,
+        page: page,
+      );
+    },
+    search: AnimeAV1Scraper.search,
   ),
 
   // ── Seriesflix (Series y Películas - Latino, Castellano, VOS) ──────────

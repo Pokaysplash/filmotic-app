@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../../core/storage/app_database.dart';
 import '../../../../core/services/ad_pause_overlay.dart';
+import '../../../../core/services/periodic_ad_overlay.dart';
 import '../../../content/presentation/tv_content_page.dart';
 import '../../../servers/presentation/tv_server_preloader.dart';
 import 'tv_subtitle_widget.dart';
@@ -3506,11 +3507,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                   ],
                                                 ),
                                               ),
-                                            ...serverOptions.map((srv) {
-                                            final srvName = srv['fuente_label']?.toString() ??
-                                                srv['servidor_nombre']?.toString() ??
-                                                srv['server']?.toString() ??
-                                                'Servidor';
+                                            ...serverOptions.asMap().entries.map((srvEntry) {
+                                            final idx = srvEntry.key;
+                                            final srv = srvEntry.value;
+                                            final srvDisplayName = 'Opción ${idx + 1}';
                                             final quality = srv['quality']?.toString() ??
                                                 srv['calidad']?.toString() ??
                                                 'Auto';
@@ -3588,7 +3588,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                             const SizedBox(width: 8),
                                                             Expanded(
                                                               child: Text(
-                                                                srvName,
+                                                                srvDisplayName,
                                                                 style: TextStyle(
                                                                   color: isCurrentServer
                                                                       ? accentOrange
@@ -5235,6 +5235,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       _controller.play();
                     }
                   },
+                ),
+
+              // ── Bloque C: Banner publicitario periódico (cada 40 min durante 5s) ──
+              if (!_isLoading && _errorMessage.isEmpty)
+                PeriodicAdOverlay(
+                  isPaused: !_isPlaying,
+                  isTv: true,
                 ),
 
               if (_showScreensaver &&

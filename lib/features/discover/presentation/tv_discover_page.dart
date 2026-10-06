@@ -273,6 +273,8 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
   }
 
   void _openDerivar(ScraperItem item) {
+    debugPrint('[Navigation] Abriendo contenido: "${item.titulo}" | sitio: ${_servicio.id} | tmdb_id: null');
+    debugPrint('[Navigation] Enrutando a: DerivarTvPage');
     Navigator.push(
       context,
       MaterialPageRoute(

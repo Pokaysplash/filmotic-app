@@ -100,8 +100,13 @@ class _DerivarPageState extends State<DerivarPage> {
         s == 'jkanime' ||
         s == 'jk' ||
         s == 'tioanime' ||
+        s == 'animeflv' ||
         s == 'canelatv' ||
         s == 'canela' ||
+        s == 'telemundo' ||
+        s == 'animepahe' ||
+        s == 'gogoanime' ||
+        s == 'animeav1' ||
         (_data?.servicio.toLowerCase() == 'animejk');
   }
 

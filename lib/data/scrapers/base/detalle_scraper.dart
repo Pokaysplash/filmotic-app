@@ -14,6 +14,9 @@ import '../jkanime_scraper.dart';
 import '../tioanime_scraper.dart';
 import '../seriesflix_scraper.dart';
 import '../cineby_scraper.dart';
+import '../animepahe_scraper.dart';
+import '../gogoanime_scraper.dart';
+import '../animeav1_scraper.dart';
 
 class DetalleScraper {
   static Future<DetalleContenido> fetch({
@@ -61,6 +64,12 @@ class DetalleScraper {
           return await SeriesflixScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         case 'cineby':
           return await CinebyScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'animepahe':
+          return await AnimePaheScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'gogoanime':
+          return await GogoAnimeScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'animeav1':
+          return await AnimeAV1Scraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         default:
           return DetalleContenido(
             ok: false,
@@ -105,6 +114,12 @@ class DetalleScraper {
           return await CinebyScraper.fetchServers(url: url);
         case 'seriesflix':
           return await SeriesflixScraper.fetchServers(url: url);
+        case 'animepahe':
+          return await AnimePaheScraper.fetchServers(url: url);
+        case 'gogoanime':
+          return await GogoAnimeScraper.fetchServers(url: url);
+        case 'animeav1':
+          return await AnimeAV1Scraper.fetchServers(url: url);
         default:
           return [];
       }

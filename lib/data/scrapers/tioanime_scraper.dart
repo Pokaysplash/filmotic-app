@@ -228,9 +228,54 @@ class TioAnimeScraper {
         }
       }
 
-      final temporadas = capitulos.isNotEmpty
-          ? [DetalleTemporada(numero: 1, nombre: 'Temporada 1', episodios: capitulos)]
-          : <DetalleTemporada>[];
+      final temporadas = <DetalleTemporada>[];
+      if (capitulos.isNotEmpty) {
+        temporadas.add(DetalleTemporada(numero: 1, nombre: 'Temporada 1', episodios: capitulos));
+      }
+
+      // Extraer secuelas / temporadas relacionadas en TioAnime
+      final relLinks = doc.querySelectorAll('.related a, .relations a, ul.list-unstyled li a');
+      int seasonIndex = 2;
+      for (final a in relLinks) {
+        final relText = a.text.toLowerCase();
+        final href = a.attributes['href'] ?? '';
+        if (href.isNotEmpty &&
+            (relText.contains('secuela') ||
+             relText.contains('temporada') ||
+             relText.contains('season') ||
+             relText.contains('2') ||
+             relText.contains('parte'))) {
+          final fullUrl = href.startsWith('http') ? href : '$base$href';
+          try {
+            final relRes = await http.get(Uri.parse(fullUrl), headers: {'User-Agent': userAgent}).timeout(const Duration(seconds: 4));
+            if (relRes.statusCode == 200) {
+              final relEpsMatch = RegExp(r'var episodes\s*=\s*(\[[\s\S]*?\]);').firstMatch(relRes.body);
+              if (relEpsMatch != null) {
+                final relList = jsonDecode(relEpsMatch.group(1)!) as List;
+                final numbers = relList.map((e) => int.tryParse('$e') ?? 0).where((n) => n > 0).toList();
+                numbers.sort();
+                final relSlug = fullUrl.replaceAll(RegExp(r'/+$'), '').split('/').last;
+                final relEps = numbers.map((epNum) => DetalleCapitulo(
+                  temporada: seasonIndex,
+                  numero: epNum,
+                  titulo: 'Episodio $epNum',
+                  url: '$base/ver/$relSlug-$epNum',
+                  imagen: poster,
+                )).toList();
+                if (relEps.isNotEmpty) {
+                  final relTitle = a.text.trim();
+                  temporadas.add(DetalleTemporada(
+                    numero: seasonIndex,
+                    nombre: relTitle.isNotEmpty ? relTitle : 'Temporada $seasonIndex',
+                    episodios: relEps,
+                  ));
+                  seasonIndex++;
+                }
+              }
+            }
+          } catch (_) {}
+        }
+      }
 
       final firstEpUrl = capitulos.isNotEmpty ? capitulos.first.url : url;
       final servidores = await fetchServers(url: firstEpUrl);

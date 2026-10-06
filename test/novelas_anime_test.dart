@@ -2,8 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:lol/data/scrapers/canelatv_scraper.dart';
 import 'package:lol/data/scrapers/jkanime_scraper.dart';
 import 'package:lol/data/scrapers/tioanime_scraper.dart';
-import 'package:lol/data/extractors/providers/canela_extractor.dart';
-import 'package:lol/features/player/data/native_resolvers.dart';
 
 void main() {
   test('Bloque A: Canela.TV fetch, detail y Brightcove stream', () async {

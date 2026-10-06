@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../core/services/ad_pause_overlay.dart';
+import '../../../core/services/periodic_ad_overlay.dart';
 
 import '../../content/presentation/content_page.dart';
 import 'subtitles/subtitle_widget.dart';
@@ -150,6 +151,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _isDisposing = false;
   bool _controllerReady = false;
   int _currentLiveIndex = 0;
+
+  // ── Gestos táctiles móviles ──
+  int? _doubleTapSeekSeconds;
+  Timer? _doubleTapFeedbackTimer;
+  double _volumeLevel = 1.0;
+  bool _showVolumeIndicator = false;
+  Timer? _volumeIndicatorTimer;
+  double _brightnessLevel = 0.5;
+  bool _showBrightnessIndicator = false;
+  Timer? _brightnessIndicatorTimer;
+  bool _isDraggingSeek = false;
+  Duration _dragSeekTarget = Duration.zero;
 
   List<_SubtitleCue> _subtitleCues = const [];
   String _currentSubtitleText = '';
@@ -788,6 +801,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final h = <String, String>{
       'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Referer': 'https://google.com',
       'Accept': '*/*',
       if (widget.headers != null) ...widget.headers!,
       ..._activeHeaders,
@@ -1028,6 +1042,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
               _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
             }
             _tryNextServer(reason: 'El servidor tardó más de 8s en iniciar reproducción');
+          }
+        });
+      } else {
+        // ── Watchdog de 8 segundos para Live TV ──────────────────────────────
+        _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
+          if (!mounted || _isDisposing || !widget.isLive) return;
+          final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
+          final isBlackScreen = _controllerReady && (_controller.value.size == Size.zero || _controller.value.size.width == 0);
+          final hasNoProgress = pos == 0 && !_controller.value.isBuffering;
+          final hasError = _controllerReady && _controller.value.hasError;
+          if (isBlackScreen || hasNoProgress || hasError || !_controllerReady) {
+            debugPrint('[Live Watchdog] Canal sin avance o pantalla negra. Probando señal alternativa...');
+            if ((widget.liveStreams?.length ?? 0) > 1) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Canal no disponible, cambiando a la siguiente señal...'),
+                    duration: Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+              _changeLiveStream((_currentLiveIndex + 1) % widget.liveStreams!.length);
+            }
           }
         });
       }
@@ -1370,6 +1408,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         : byLang.keys.first;
 
     StreamSubscription? valSub;
+    Map<String, dynamic>? selectedOptionServer;
 
     await showModalBottomSheet(
       context: context,
@@ -1443,17 +1482,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           ),
                         ),
                       ),
-                      const Row(
+                      Row(
                         children: [
-                          Icon(Icons.headphones_rounded, color: Color(0xFFFF6B35), size: 22),
-                          SizedBox(width: 8),
-                          Text(
-                            'Seleccionar Idioma y Servidor',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
+                          const Icon(Icons.language_rounded, color: Color(0xFFFF6B35), size: 24),
+                          const SizedBox(width: 10),
+                          const Expanded(
+                            child: Text(
+                              '🌐 Elegir idioma y calidad',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 22),
+                            onPressed: () => Navigator.pop(ctx),
                           ),
                         ],
                       ),
@@ -1462,7 +1507,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         builder: (context, isValidating, _) {
                           if (!isValidating) return const SizedBox.shrink();
                           return const Padding(
-                            padding: EdgeInsets.only(top: 6),
+                            padding: EdgeInsets.only(top: 4, bottom: 6),
                             child: Row(
                               children: [
                                 SizedBox(
@@ -1475,7 +1520,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 ),
                                 SizedBox(width: 8),
                                 Text(
-                                  'Validando el resto de servidores...',
+                                  'Verificando señales...',
                                   style: TextStyle(
                                     color: Colors.white60,
                                     fontSize: 12,
@@ -1487,19 +1532,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           );
                         },
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 12),
 
-                      // 1. Selector de Idiomas Disponibles
-                      const Text(
-                        'IDIOMA DISPONIBLE',
-                        style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.8,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
+                      // 1. Selector de Idiomas con Banderas
                       SingleChildScrollView(
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
@@ -1507,46 +1542,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           children: byLang.entries.map((entry) {
                             final isCur = entry.key == selectedLang;
                             final count = entry.value.length;
+                            final l = entry.key.toLowerCase();
+                            String langLabel = '🌐 ${entry.key}';
+                            if (l.contains('latino') || l == 'lat' || l == 'es_mx') {
+                              langLabel = '🇲🇽 Español Latino';
+                            } else if (l.contains('castellano') || l == 'es_es' || l == 'esp') {
+                              langLabel = '🇪🇸 Castellano';
+                            } else if (l.contains('sub') || l.contains('vos') || l.contains('ingles') || l.contains('inglés') || l == 'en_us') {
+                              langLabel = '🇺🇸 Inglés Subtitulado';
+                            }
 
                             return Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: ChoiceChip(
-                                label: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      Icons.language_rounded,
-                                      size: 16,
-                                      color: isCur ? Colors.white : Colors.white70,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      entry.key,
-                                      style: TextStyle(
-                                        color: isCur ? Colors.white : Colors.white70,
-                                        fontWeight: isCur ? FontWeight.bold : FontWeight.w500,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                                      decoration: BoxDecoration(
-                                        color: isCur ? Colors.black26 : Colors.white12,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        '$count',
-                                        style: TextStyle(
-                                          color: isCur ? Colors.white : Colors.white70,
-                                          fontSize: 10,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
+                                label: Text(
+                                  '$langLabel ($count)',
+                                  style: TextStyle(
+                                    color: isCur ? Colors.white : Colors.white70,
+                                    fontWeight: isCur ? FontWeight.bold : FontWeight.w500,
+                                    fontSize: 13,
+                                  ),
                                 ),
                                 selected: isCur,
                                 selectedColor: const Color(0xFFFF6B35),
-                                backgroundColor: const Color(0xFF222222),
+                                backgroundColor: const Color(0xFF22222B),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(10),
                                   side: BorderSide(
@@ -1565,11 +1584,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       ),
 
                       const SizedBox(height: 16),
-                      // 2. Servidores filtrados para el idioma seleccionado
+                      // 2. Opciones numeradas para el idioma seleccionado
                       Row(
                         children: [
                           Text(
-                            'SERVIDORES EN $selectedLang'.toUpperCase(),
+                            'OPCIONES EN $selectedLang'.toUpperCase(),
                             style: const TextStyle(
                               color: Colors.white54,
                               fontSize: 11,
@@ -1601,7 +1620,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                               SizedBox(width: 7),
                               Expanded(
                                 child: Text(
-                                  'No pudimos verificar los servidores automáticamente. Prueba uno por uno.',
+                                  'Si una opción no reproduce de inmediato, prueba la siguiente.',
                                   style: TextStyle(color: Colors.amberAccent, fontSize: 11),
                                 ),
                               ),
@@ -1615,7 +1634,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 padding: const EdgeInsets.all(24),
                                 alignment: Alignment.center,
                                 child: Text(
-                                  'No hay servidores activos para $selectedLang',
+                                  'No hay opciones activas para $selectedLang',
                                   style: const TextStyle(color: Colors.white38),
                                 ),
                               )
@@ -1624,142 +1643,111 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 itemCount: activeLangServers.length,
                                 itemBuilder: (ctx, idx) {
                                   final srv = activeLangServers[idx];
-                                  final srvName = srv['fuente_label']?.toString() ??
-                                      srv['servidor_nombre']?.toString() ??
-                                      srv['server']?.toString() ??
-                                      'Servidor ${idx + 1}';
                                   final quality = srv['quality']?.toString() ??
                                       srv['calidad']?.toString() ??
-                                      'HD';
+                                      'Auto';
                                   final isCurrentServer = _activeUrl == srv['servidor_url'] ||
                                       _activeUrl == srv['resolved_m3u8'];
                                   final isVerified = verifiedKeys.contains(_serverKey(srv));
+                                  final isSelected = selectedOptionServer == srv ||
+                                      (selectedOptionServer == null && isCurrentServer);
 
                                   return Padding(
-                                    padding: const EdgeInsets.only(bottom: 6),
+                                    padding: const EdgeInsets.only(bottom: 8),
                                     child: Material(
-                                      color: isCurrentServer
+                                      color: isSelected
                                           ? const Color(0xFFFF6B35).withValues(alpha: 0.15)
                                           : const Color(0xFF202020),
-                                      borderRadius: BorderRadius.circular(10),
+                                      borderRadius: BorderRadius.circular(12),
                                       child: ListTile(
                                         shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(10),
+                                          borderRadius: BorderRadius.circular(12),
                                           side: BorderSide(
-                                            color: isCurrentServer
+                                            color: isSelected
                                                 ? const Color(0xFFFF6B35)
-                                                : Colors.white.withValues(alpha: 0.06),
+                                                : Colors.white.withValues(alpha: 0.08),
+                                            width: isSelected ? 1.5 : 1.0,
                                           ),
                                         ),
-                                        leading: Icon(
-                                          isCurrentServer
-                                              ? Icons.play_circle_filled_rounded
-                                              : Icons.play_circle_outline_rounded,
-                                          color: isCurrentServer
-                                              ? const Color(0xFFFF6B35)
-                                              : Colors.white54,
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                                        leading: Container(
+                                          width: 40,
+                                          height: 40,
+                                          decoration: BoxDecoration(
+                                            color: isSelected
+                                                ? const Color(0xFFFF6B35).withValues(alpha: 0.25)
+                                                : Colors.white.withValues(alpha: 0.05),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          child: Icon(
+                                            isSelected ? Icons.play_arrow_rounded : Icons.hd_rounded,
+                                            color: isSelected ? const Color(0xFFFF6B35) : Colors.white70,
+                                            size: 22,
+                                          ),
                                         ),
                                         title: Text(
-                                          srvName,
+                                          'Opción ${idx + 1}',
                                           style: TextStyle(
-                                            color: isCurrentServer ? const Color(0xFFFF6B35) : Colors.white,
-                                            fontWeight: isCurrentServer ? FontWeight.bold : FontWeight.w500,
-                                            fontSize: 14,
+                                            color: isSelected ? const Color(0xFFFF6B35) : Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
                                           ),
                                         ),
-                                        subtitle: isCurrentServer
-                                            ? const Text(
-                                                'Reproduciendo actualmente',
-                                                style: TextStyle(color: Color(0xFFFF6B35), fontSize: 11),
-                                              )
-                                            : null,
-                                        trailing: Row(
-                                          mainAxisSize: MainAxisSize.min,
+                                        subtitle: Row(
                                           children: [
-                                            if (DlnaHelper.isLikelyMp4((srv['resolved_m3u8'] ?? srv['servidor_url'] ?? '').toString(), serverName: srvName)) ...[
+                                            Text(
+                                              quality,
+                                              style: TextStyle(
+                                                color: isSelected ? Colors.white70 : Colors.white54,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w600,
+                                              ),
+                                            ),
+                                            if (isVerified) ...[
+                                              const SizedBox(width: 8),
                                               Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                                 decoration: BoxDecoration(
-                                                  color: const Color(0xFFFF6B35).withValues(alpha: 0.18),
+                                                  color: Colors.green.withValues(alpha: 0.2),
                                                   borderRadius: BorderRadius.circular(4),
-                                                  border: Border.all(
-                                                    color: const Color(0xFFFF6B35),
-                                                    width: 0.8,
-                                                  ),
+                                                  border: Border.all(color: Colors.greenAccent, width: 0.8),
                                                 ),
                                                 child: const Row(
                                                   mainAxisSize: MainAxisSize.min,
                                                   children: [
-                                                    Icon(Icons.cast_rounded, size: 10, color: Color(0xFFFF6B35)),
+                                                    Icon(Icons.check_circle_rounded, size: 10, color: Colors.greenAccent),
                                                     SizedBox(width: 3),
                                                     Text(
-                                                      'Cast',
-                                                      style: TextStyle(
-                                                        color: Color(0xFFFF6B35),
-                                                        fontSize: 10,
-                                                        fontWeight: FontWeight.bold,
-                                                      ),
+                                                      'Verificado',
+                                                      style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
                                                     ),
                                                   ],
                                                 ),
                                               ),
-                                              const SizedBox(width: 6),
                                             ],
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2.5),
-                                              decoration: BoxDecoration(
-                                                color: isVerified
-                                                    ? Colors.green.withValues(alpha: 0.18)
-                                                    : Colors.white.withValues(alpha: 0.06),
-                                                borderRadius: BorderRadius.circular(4),
-                                                border: Border.all(
-                                                  color: isVerified ? Colors.greenAccent : Colors.white24,
-                                                  width: 0.8,
-                                                ),
+                                            if (isCurrentServer) ...[
+                                              const SizedBox(width: 8),
+                                              const Text(
+                                                '• En reproducción',
+                                                style: TextStyle(color: Color(0xFFFF6B35), fontSize: 11, fontWeight: FontWeight.bold),
                                               ),
-                                              child: Row(
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Icon(
-                                                    isVerified ? Icons.check_circle_rounded : Icons.help_outline_rounded,
-                                                    size: 11,
-                                                    color: isVerified ? Colors.greenAccent : Colors.white60,
-                                                  ),
-                                                  const SizedBox(width: 3),
-                                                  Text(
-                                                    isVerified ? 'Verificado' : 'Sin verificar',
-                                                    style: TextStyle(
-                                                      color: isVerified ? Colors.greenAccent : Colors.white60,
-                                                      fontSize: 10,
-                                                      fontWeight: FontWeight.w500,
-                                                    ),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            const SizedBox(width: 6),
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                                              decoration: BoxDecoration(
-                                                color: Colors.white12,
-                                                borderRadius: BorderRadius.circular(4),
-                                              ),
-                                              child: Text(
-                                                quality,
-                                                style: const TextStyle(
-                                                  color: Colors.white70,
-                                                  fontSize: 11,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ),
+                                            ],
                                           ],
                                         ),
+                                        trailing: Radio<Map<String, dynamic>>(
+                                          value: srv,
+                                          groupValue: selectedOptionServer ?? (isCurrentServer ? srv : (activeLangServers.isNotEmpty ? activeLangServers.first : null)),
+                                          activeColor: const Color(0xFFFF6B35),
+                                          onChanged: (val) {
+                                            setModalState(() {
+                                              selectedOptionServer = val;
+                                            });
+                                          },
+                                        ),
                                         onTap: () {
-                                          Navigator.pop(ctx);
-                                          if (!isCurrentServer) {
-                                            _switchToServerLanguage([srv]);
-                                          }
+                                          setModalState(() {
+                                            selectedOptionServer = srv;
+                                          });
                                         },
                                       ),
                                     ),
@@ -1767,6 +1755,39 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                 },
                               ),
                       ),
+                      if (activeLangServers.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFFF6B35),
+                              foregroundColor: Colors.white,
+                              elevation: 4,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            icon: const Icon(Icons.play_arrow_rounded, size: 24),
+                            label: const Text(
+                              'Reproducir opción seleccionada',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: () {
+                              final chosen = selectedOptionServer ??
+                                  (activeLangServers.any((s) => _activeUrl == s['servidor_url'] || _activeUrl == s['resolved_m3u8'])
+                                      ? activeLangServers.firstWhere((s) => _activeUrl == s['servidor_url'] || _activeUrl == s['resolved_m3u8'])
+                                      : activeLangServers.first);
+                              Navigator.pop(ctx);
+                              final isCurrent = _activeUrl == chosen['servidor_url'] || _activeUrl == chosen['resolved_m3u8'];
+                              if (!isCurrent) {
+                                _switchToServerLanguage([chosen]);
+                              }
+                            },
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -3040,6 +3061,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  void _changeLiveStream(int newIdx) {
+    final streams = widget.liveStreams ?? [widget.videoUrl];
+    if (streams.isEmpty) return;
+    final validIdx = newIdx % streams.length;
+    setState(() {
+      _currentLiveIndex = validIdx;
+      _isLoading = true;
+      _errorMessage = '';
+      _allServersFailed = false;
+    });
+    _startControllerWithUrl(streams[validIdx], _activeHeaders);
+  }
+
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -3103,7 +3137,58 @@ class _PlayerScreenState extends State<PlayerScreen> {
             }
 
             return GestureDetector(
+              behavior: HitTestBehavior.opaque,
               onTap: _toggleControls,
+              onDoubleTapDown: (details) {
+                final screenWidth = MediaQuery.of(context).size.width;
+                if (details.globalPosition.dx < screenWidth * 0.45) {
+                  _seekBy(-10);
+                  setState(() {
+                    _doubleTapSeekSeconds = -10;
+                  });
+                  _doubleTapFeedbackTimer?.cancel();
+                  _doubleTapFeedbackTimer = Timer(const Duration(milliseconds: 900), () {
+                    if (mounted) setState(() => _doubleTapSeekSeconds = null);
+                  });
+                } else if (details.globalPosition.dx > screenWidth * 0.55) {
+                  _seekBy(10);
+                  setState(() {
+                    _doubleTapSeekSeconds = 10;
+                  });
+                  _doubleTapFeedbackTimer?.cancel();
+                  _doubleTapFeedbackTimer = Timer(const Duration(milliseconds: 900), () {
+                    if (mounted) setState(() => _doubleTapSeekSeconds = null);
+                  });
+                }
+              },
+              onVerticalDragUpdate: (details) {
+                final screenWidth = MediaQuery.of(context).size.width;
+                final delta = -(details.primaryDelta ?? 0) / 120.0;
+                if (details.globalPosition.dx > screenWidth * 0.5) {
+                  final newVol = (_volumeLevel + delta).clamp(0.0, 1.0);
+                  _volumeLevel = newVol;
+                  if (_controllerReady) {
+                    _controller.setVolume(newVol);
+                  }
+                  setState(() {
+                    _showVolumeIndicator = true;
+                  });
+                  _volumeIndicatorTimer?.cancel();
+                  _volumeIndicatorTimer = Timer(const Duration(milliseconds: 1500), () {
+                    if (mounted) setState(() => _showVolumeIndicator = false);
+                  });
+                } else {
+                  final newBri = (_brightnessLevel + delta).clamp(0.1, 1.0);
+                  _brightnessLevel = newBri;
+                  setState(() {
+                    _showBrightnessIndicator = true;
+                  });
+                  _brightnessIndicatorTimer?.cancel();
+                  _brightnessIndicatorTimer = Timer(const Duration(milliseconds: 1500), () {
+                    if (mounted) setState(() => _showBrightnessIndicator = false);
+                  });
+                }
+              },
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -3401,6 +3486,139 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 );
               },
             ),
+
+            // ── Feedback visual de Doble Tap (±10s) ──
+            if (_doubleTapSeekSeconds != null)
+              Positioned.fill(
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: _doubleTapSeekSeconds! < 0
+                        ? MainAxisAlignment.start
+                        : MainAxisAlignment.end,
+                    children: [
+                      Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 48),
+                        padding: const EdgeInsets.all(18),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.75),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: accentOrange.withOpacity(0.85), width: 1.5),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _doubleTapSeekSeconds! < 0
+                                  ? Icons.replay_10_rounded
+                                  : Icons.forward_10_rounded,
+                              color: Colors.white,
+                              size: 32,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${_doubleTapSeekSeconds! > 0 ? "+" : ""}${_doubleTapSeekSeconds}s',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+            // ── Indicador visual de Volumen ──
+            if (_showVolumeIndicator)
+              Positioned.fill(
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _volumeLevel == 0 ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                          color: accentOrange,
+                          size: 26,
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 100,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: _volumeLevel,
+                              backgroundColor: Colors.white24,
+                              valueColor: const AlwaysStoppedAnimation<Color>(accentOrange),
+                              minHeight: 6,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${(_volumeLevel * 100).round()}%',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // ── Indicador visual de Brillo ──
+            if (_showBrightnessIndicator)
+              Positioned.fill(
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.85),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.brightness_6_rounded,
+                          color: accentOrange,
+                          size: 26,
+                        ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 100,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: _brightnessLevel,
+                              backgroundColor: Colors.white24,
+                              valueColor: const AlwaysStoppedAnimation<Color>(accentOrange),
+                              minHeight: 6,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '${(_brightnessLevel * 100).round()}%',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+            // ── Bloque C: Banner publicitario periódico (cada 40 min durante 5s) ──
+            if (!_isLoading && _errorMessage.isEmpty)
+              PeriodicAdOverlay(
+                isPaused: !_isPlaying,
+                isTv: false,
+              ),
             ],
           ),
         );
@@ -4161,20 +4379,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, color: Colors.white, size: 22),
-            const SizedBox(height: 2),
-            Text(
-              label,
-              style: const TextStyle(color: Colors.white70, fontSize: 10),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ],
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(minWidth: 52, minHeight: 48),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: Colors.white, size: 24),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w500),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
         ),
       ),
     );

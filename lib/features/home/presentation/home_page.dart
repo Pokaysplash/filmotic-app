@@ -181,7 +181,7 @@ class _HomePageState extends State<HomePage>
     final s = (item['sitio'] ?? item['fuente'] ?? '').toString().trim();
     if (s.isNotEmpty) return s.toLowerCase();
     final url = (item['url'] ?? item['link'] ?? '').toString().toLowerCase();
-    if (url.contains('canela.tv') || url.contains('canelatv')) return 'canela';
+    if (url.contains('canela.tv') || url.contains('canelatv')) return 'canelatv';
     if (url.contains('jkanime')) return 'jkanime';
     if (url.contains('tioanime')) return 'tioanime';
     if (url.contains('animeflv')) return 'animeflv';
@@ -206,11 +206,12 @@ class _HomePageState extends State<HomePage>
     final tipo = canonicalMediaType(
         item['media_type'] ?? item['type'] ?? item['tipo'] ?? 'movie');
 
-    // 1. Determinar el origen del item
-    final esFuenteExterna = sitio.isNotEmpty && externalUrl.isNotEmpty;
+    final tmdbRaw = item['tmdb_id'] ?? item['idtmdb'] ?? item['idcontenido'];
+    debugPrint('[Navigation] Abriendo contenido: "$titulo" | sitio: ${sitio.isEmpty ? "null" : sitio} | tmdb_id: $tmdbRaw');
 
-    // 2. Caso A: el item viene de un scraper externo (Canela, JKAnime, TioAnime, etc.)
-    if (esFuenteExterna) {
+    // Regla estricta 1: Si el item tiene sitio o es fuente externa (novelas, scrapers) -> DerivarPage directamente
+    if (sitio.isNotEmpty) {
+      debugPrint('[Navigation] Enrutando a: DerivarPage');
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -227,15 +228,10 @@ class _HomePageState extends State<HomePage>
       return;
     }
 
-    // 3. Caso B: el item tiene tmdb_id válido (TMDB)
-    final tmdbId = parseCanonicalTmdbId(item['tmdb_id']) ??
-        parseCanonicalTmdbId(item['idtmdb']) ??
-        parseCanonicalTmdbId(item['idcontenido']) ??
-        parseCanonicalTmdbId(item['contenido_id']) ??
-        parseCanonicalTmdbId(item['id']) ??
-        0;
-
-    if (tmdbId > 0) {
+    // Regla estricta 2: TMDB con ID válido (NUNCA si el item tiene sitio)
+    final tmdbId = parseCanonicalTmdbId(item['tmdb_id'] ?? item['idtmdb'] ?? item['idcontenido'] ?? item['contenido_id'] ?? item['id']);
+    if (tmdbId != null && tmdbId > 0 && tmdbId < 2000000) {
+      debugPrint('[Navigation] Enrutando a: PageContenido (tmdbId: $tmdbId)');
       Navigator.push(
         context,
         MaterialPageRoute(
@@ -252,7 +248,8 @@ class _HomePageState extends State<HomePage>
       return;
     }
 
-    // 4. Caso C: no tiene ni fuente externa ni tmdb_id válido
+    // Regla estricta 3: Ni fuente externa ni TMDB válido -> error honesto
+    debugPrint('[Navigation] Error: sin fuente externa ni tmdbId válido para "$titulo"');
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Este contenido no tiene información disponible'),

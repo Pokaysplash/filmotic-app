@@ -9,6 +9,7 @@ import '../data/live_tv_service.dart';
 import '../domain/channel.dart';
 import '../domain/epg_program.dart';
 import 'epg_page_tv.dart';
+import '../../../core/services/periodic_ad_overlay.dart';
 
 class LiveTvPageTv extends StatefulWidget {
   final VoidCallback? onRequestMenuFocus;
@@ -45,6 +46,9 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
   bool _isPreviewLoading = false;
   String? _previewError;
   Timer? _previewDebounceTimer;
+  Timer? _blackScreenWatchdogTimer;
+  int _pauseCounter = 0;
+  DateTime? _lastPauseTime;
   bool _isFullScreen = false;
   bool _showOsd = false;
   Timer? _osdTimer;
@@ -121,6 +125,8 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
   }
 
   void _disposePreview() {
+    _blackScreenWatchdogTimer?.cancel();
+    _blackScreenWatchdogTimer = null;
     try {
       _previewController?.pause();
       _previewController?.dispose();
@@ -235,6 +241,7 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
           Uri.parse(streamUrl),
           httpHeaders: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://google.com',
           },
         );
 
@@ -253,6 +260,58 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
         await controller.setVolume(1.0);
         await controller.play();
         await controller.setLooping(true);
+
+        // ── Watchdog de pantalla negra (8 segundos) ──
+        _blackScreenWatchdogTimer?.cancel();
+        _blackScreenWatchdogTimer = Timer(const Duration(seconds: 8), () {
+          if (!mounted || _selectedChannel?.id != channel.id) return;
+          final ctrl = _previewController;
+          if (ctrl == null || !ctrl.value.isInitialized) return;
+          final isBlackScreen = ctrl.value.size == Size.zero || ctrl.value.size.width == 0;
+          final hasNoProgress = ctrl.value.position == Duration.zero && !ctrl.value.isBuffering;
+          if (isBlackScreen || hasNoProgress || ctrl.value.hasError) {
+            debugPrint('[LiveTvTv Watchdog] Pantalla negra detectada en ${channel.name} señal $targetIdx. Cambiando señal...');
+            if (targetIdx + 1 < streams.length) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Canal no disponible, cambiando a la siguiente señal...'),
+                    duration: Duration(seconds: 2),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+              _initPreviewChannel(channel, streamIndex: targetIdx + 1);
+            }
+          }
+        });
+
+        // ── Detección de micro-cortes y pausas frecuentes (ej. Win Sports) ──
+        controller.addListener(() {
+          if (!controller.value.isPlaying && controller.value.isBuffering) {
+            final now = DateTime.now();
+            if (_lastPauseTime == null || now.difference(_lastPauseTime!).inSeconds > 10) {
+              _pauseCounter = 1;
+              _lastPauseTime = now;
+            } else {
+              _pauseCounter++;
+              if (_pauseCounter >= 4 && targetIdx + 1 < streams.length) {
+                _pauseCounter = 0;
+                debugPrint('[LiveTvTv] Micro-cortes repetidos en ${channel.name}. Auto-switch señal...');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Señal con cortes frecuentes, probando señal alternativa...'),
+                      duration: Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+                _initPreviewChannel(channel, streamIndex: targetIdx + 1);
+              }
+            }
+          }
+        });
 
         setState(() {
           _previewController = controller;
@@ -531,6 +590,15 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
                     ),
                   ),
                 ),
+              ),
+
+              // Banner publicitario periódico (5 segundos cada 40 minutos)
+              PeriodicAdOverlay(
+                isTv: true,
+                isPaused: _previewController != null && !_previewController!.value.isPlaying,
+                enabled: RemoteConfigService.instance.config.player.periodicAdEnabled,
+                interval: Duration(minutes: RemoteConfigService.instance.config.player.periodicAdIntervalMinutes),
+                displayDuration: Duration(seconds: RemoteConfigService.instance.config.player.periodicAdDisplaySeconds),
               ),
             ],
           ),

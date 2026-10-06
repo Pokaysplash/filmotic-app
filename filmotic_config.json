@@ -7,6 +7,10 @@
     "adsterra_pause_banner_id": "PENDIENTE",
     "pause_ad_rotation_seconds": 15,
     "pause_ad_enabled": true,
+    "periodic_ad_enabled": true,
+    "periodic_ad_interval_minutes": 40,
+    "periodic_ad_display_seconds": 5,
+    "periodic_ad_placement_id": "PENDIENTE",
     "hilltopads_vast_url": "PENDIENTE"
   },
   "sources": {
@@ -20,7 +24,12 @@
       "canela",
       "canelatv",
       "seriesflix",
-      "cineby"
+      "cineby",
+      "jkanime",
+      "tioanime",
+      "animepahe",
+      "gogoanime",
+      "animeav1"
     ],
     "disabled": [
       "cinecalidad",
@@ -34,9 +43,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.12",
+    "latest_version": "1.0.0-beta.14",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.12 disponible: Corrección integral de enrutamiento, categorías Novelas/Anime, buscador TV, pantalla completa en vivo y nuevos canales deportivos.",
+    "update_message": "Filmotic v1.0.0-beta.14: Fix definitivo de novelas (Canela.TV/Telemundo) que reproducían contenido incorrecto, filtros limpios en Anime/Novelas, scraping intensivo AnimeFLV y 3 nuevas fuentes (AnimePahe, GogoAnime, AnimeAV1).",
     "force_update": false,
     "is_beta": true
   },
@@ -101,9 +110,11 @@
         "group": "General",
         "country": "CO",
         "streams": [
-          "http://138.121.15.230:9002/CARACOL/index.m3u8",
-          "http://181.79.86.130:8000/play/a077/index.m3u8",
-          "http://181.78.17.228:8081/CARACOL-HD/index.m3u8"
+          "http://38.190.100.202:8000/play/a09v/index.m3u8",
+          "http://167.249.23.102:8000/play/a0i1/index.m3u8",
+          "https://jmp2.uk/rok-c5c6a54fbd0328b108453e2537b7eee1.m3u8",
+          "http://190.61.42.218:9000/play/a09n/index.m3u8",
+          "http://138.121.15.230:9002/CARACOL/index.m3u8"
         ]
       },
       {
@@ -311,16 +322,6 @@
         "country": "ES",
         "streams": [
           "https://service-stitcher.clusters.pluto.tv/stitch/hls/channel/5d8a65acf2ee1a7192cb5c03/master.m3u8"
-        ]
-      },
-      {
-        "name": "Win Sports",
-        "aliases": ["win sports", "winsports", "win sports (720p)", "win sports online"],
-        "logo": "https://i.imgur.com/Lv53nh4.png",
-        "group": "Sports",
-        "country": "CO",
-        "streams": [
-          "https://liveingesta318.cdnmedia.tv/101weblive/smil:antequera.smil/playlist.m3u8"
         ]
       },
       {

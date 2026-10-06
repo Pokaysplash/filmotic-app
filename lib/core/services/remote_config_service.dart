@@ -205,9 +205,10 @@ class FilmoticLiveTvConfig {
             'group': 'General',
             'country': 'CO',
             'streams': [
-              'http://181.78.211.244:8005/play/a020/index.m3u8',
-              'http://181.79.86.130:8000/play/a077/index.m3u8',
-              'http://181.78.17.228:8081/CARACOL-HD/index.m3u8',
+              'http://38.190.100.202:8000/play/a09v/index.m3u8',
+              'http://167.249.23.102:8000/play/a0i1/index.m3u8',
+              'https://jmp2.uk/rok-c5c6a54fbd0328b108453e2537b7eee1.m3u8',
+              'http://190.61.42.218:9000/play/a09n/index.m3u8',
               'http://138.121.15.230:9002/CARACOL/index.m3u8',
             ],
           },
@@ -275,6 +276,10 @@ class FilmoticPlayerConfig {
   final int preValidationTimeoutSeconds;
   final int preValidationConcurrency;
   final int preValidationCacheTtlMinutes;
+  final bool periodicAdEnabled;
+  final int periodicAdIntervalMinutes;
+  final int periodicAdDisplaySeconds;
+  final String periodicAdPlacementId;
 
   const FilmoticPlayerConfig({
     this.reconnectTimeoutSeconds = 60,
@@ -284,6 +289,10 @@ class FilmoticPlayerConfig {
     this.preValidationTimeoutSeconds = 15,
     this.preValidationConcurrency = 5,
     this.preValidationCacheTtlMinutes = 15,
+    this.periodicAdEnabled = true,
+    this.periodicAdIntervalMinutes = 40,
+    this.periodicAdDisplaySeconds = 5,
+    this.periodicAdPlacementId = 'PENDIENTE',
   });
 
   factory FilmoticPlayerConfig.fromMap(Map<String, dynamic>? map) {
@@ -296,6 +305,10 @@ class FilmoticPlayerConfig {
       preValidationTimeoutSeconds: (map['pre_validation_timeout_seconds'] as num?)?.toInt() ?? 15,
       preValidationConcurrency: (map['pre_validation_concurrency'] as num?)?.toInt() ?? 5,
       preValidationCacheTtlMinutes: (map['pre_validation_cache_ttl_minutes'] as num?)?.toInt() ?? 15,
+      periodicAdEnabled: map['periodic_ad_enabled'] != false,
+      periodicAdIntervalMinutes: (map['periodic_ad_interval_minutes'] as num?)?.toInt() ?? 40,
+      periodicAdDisplaySeconds: (map['periodic_ad_display_seconds'] as num?)?.toInt() ?? 5,
+      periodicAdPlacementId: (map['periodic_ad_placement_id'] ?? 'PENDIENTE').toString(),
     );
   }
 
@@ -303,6 +316,10 @@ class FilmoticPlayerConfig {
     'reconnect_timeout_seconds': reconnectTimeoutSeconds,
     'fallback_to_lower_quality_first': fallbackToLowerQualityFirst,
     'show_reconnect_overlay': showReconnectOverlay,
+    'periodic_ad_enabled': periodicAdEnabled,
+    'periodic_ad_interval_minutes': periodicAdIntervalMinutes,
+    'periodic_ad_display_seconds': periodicAdDisplaySeconds,
+    'periodic_ad_placement_id': periodicAdPlacementId,
     'pre_validate_servers_on_content_open': preValidateServersOnContentOpen,
     'pre_validation_timeout_seconds': preValidationTimeoutSeconds,
     'pre_validation_concurrency': preValidationConcurrency,
