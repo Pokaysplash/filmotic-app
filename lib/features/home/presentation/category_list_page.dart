@@ -61,6 +61,27 @@ class _CategoryListPageState extends State<CategoryListPage> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    final catKey = (widget.categoryKey ?? '').toLowerCase().trim();
+    final titleLower = widget.title.toLowerCase().trim();
+
+    if (catKey == 'novelas' || titleLower.contains('novela')) {
+      _selectedCategory = 'Novelas';
+      _fetchCategory('Novelas');
+    } else if (catKey == 'anime' || titleLower.contains('anime')) {
+      _selectedCategory = 'Anime';
+      _fetchCategory('Anime');
+    } else if (widget.isMovie) {
+      _selectedCategory = 'Películas';
+    } else if (catKey == 'series' || titleLower.contains('serie')) {
+      _selectedCategory = 'Series';
+    } else {
+      _selectedCategory = 'Todos';
+    }
+  }
+
+  @override
   void dispose() {
     _scrollController.dispose();
     _backFocusNode.dispose();
@@ -73,16 +94,12 @@ class _CategoryListPageState extends State<CategoryListPage> {
     super.dispose();
   }
 
-  Future<void> _selectCategory(String cat) async {
-    if (_selectedCategory == cat) return;
-    setState(() {
-      _selectedCategory = cat;
-      _focusedIndex = -1;
-    });
+  Future<void> _fetchCategory(String cat) async {
+    if (_categoryCache.containsKey(cat)) return;
+    setState(() => _loadingCategory = true);
 
-    if (cat == 'Novelas' && !_categoryCache.containsKey('Novelas')) {
-      setState(() => _loadingCategory = true);
-      try {
+    try {
+      if (cat == 'Novelas') {
         final novelSources = getFuentesByCategory('novel');
         final items = <Map<String, dynamic>>[];
         for (final src in novelSources) {
@@ -105,11 +122,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
           }
         }
         _categoryCache['Novelas'] = items;
-      } catch (_) {}
-      if (mounted) setState(() => _loadingCategory = false);
-    } else if (cat == 'Anime' && !_categoryCache.containsKey('Anime')) {
-      setState(() => _loadingCategory = true);
-      try {
+      } else if (cat == 'Anime') {
         final animeSources = getFuentesByCategory('anime');
         final items = <Map<String, dynamic>>[];
         for (final src in animeSources) {
@@ -132,8 +145,21 @@ class _CategoryListPageState extends State<CategoryListPage> {
           }
         }
         _categoryCache['Anime'] = items;
-      } catch (_) {}
-      if (mounted) setState(() => _loadingCategory = false);
+      }
+    } catch (_) {}
+
+    if (mounted) setState(() => _loadingCategory = false);
+  }
+
+  Future<void> _selectCategory(String cat) async {
+    if (_selectedCategory == cat) return;
+    setState(() {
+      _selectedCategory = cat;
+      _focusedIndex = -1;
+    });
+
+    if (cat == 'Novelas' || cat == 'Anime') {
+      await _fetchCategory(cat);
     }
   }
 
@@ -150,18 +176,28 @@ class _CategoryListPageState extends State<CategoryListPage> {
           return t == 'tv' || t == 'serie' || (i['name'] != null && i['title'] == null);
         }).toList();
       case 'Novelas':
+        if (_categoryCache.containsKey('Novelas') && _categoryCache['Novelas']!.isNotEmpty) {
+          return _categoryCache['Novelas']!;
+        }
         final fromWidget = widget.items.where((i) {
+          final s = (i['sitio'] ?? i['fuente'] ?? '').toString().toLowerCase();
+          if (s == 'canela' || s == 'canelatv' || s == 'telemundo') return true;
           final t = (i['title'] ?? i['name'] ?? '').toString().toLowerCase();
           final g = (i['genre'] ?? i['genero'] ?? '').toString().toLowerCase();
-          return t.contains('novela') || g.contains('novela') || g.contains('drama');
+          return t.contains('novela') || g.contains('novela') || g.contains('soap');
         }).toList();
         if (fromWidget.isNotEmpty) return fromWidget;
         return _categoryCache['Novelas'] ?? [];
       case 'Anime':
+        if (_categoryCache.containsKey('Anime') && _categoryCache['Anime']!.isNotEmpty) {
+          return _categoryCache['Anime']!;
+        }
         final fromWidget = widget.items.where((i) {
+          final s = (i['sitio'] ?? i['fuente'] ?? '').toString().toLowerCase();
+          if (s == 'jkanime' || s == 'tioanime' || s == 'animeflv') return true;
           final t = (i['title'] ?? i['name'] ?? '').toString().toLowerCase();
           final g = (i['genre'] ?? i['genero'] ?? '').toString().toLowerCase();
-          return g.contains('anime') || g.contains('animacion');
+          return t.contains('anime') || g.contains('anime');
         }).toList();
         if (fromWidget.isNotEmpty) return fromWidget;
         return _categoryCache['Anime'] ?? [];

@@ -1105,3 +1105,48 @@ Esta fase corrige la incidencia reportada por los usuarios donde al pulsar conte
 - **Archivos de Versionado Sincronizados**: `pubspec.yaml`, `lib/core/constants/versiones.dart`, `filmotic_config.json`.
 - **Verificación de Binario**: APK validada con `aapt dump badging` confirmando `versionCode='10'` y `versionName='1.0.0-beta.10'`.
 - **Publicación**: Tag y Release en GitHub con el binario `filmotic.apk` verificado vía `curl -I`.
+
+---
+
+## 29. WAVE 12.12 (Final) – Corrección Integral de Errores y Lanzamiento Beta.12
+
+Esta fase aborda la resolución completa de los errores de enrutamiento, consistencia visual, categorías y reproducción de TV en vivo tanto en móvil como en Android TV.
+
+### 29.1 Bloque A: Enrutamiento y Categorías
+1. **A.1 Enrutamiento desde el Home (`home_page.dart` / `tv_home_page.dart`)**:
+   - Detección precisa de origen externo mediante `_detectSitio()`. Si un ítem proviene de un scraper o contiene una URL externa, se enruta directamente a `DerivarPage` (móvil) o `DerivarTvPage` (TV), evitando consultas inválidas a TMDB.
+2. **A.2 Corrección de la Categoría "Novelas" (`category_list_page.dart`)**:
+   - **Causa raíz**: En `filmotic_config.json` la fuente figuraba como `"canela"`, pero en `registry.dart` el identificador era `"canelatv"`. El control `isSourceEnabled('canelatv')` devolvía falso y se activaba un fallback permisivo que incluía cualquier película o serie de TMDB con género `'drama'`.
+   - **Solución**: Se implementó equivalencia bidireccional entre los alias `canela` y `canelatv` en `RemoteConfigService.isSourceEnabled()`. Se eliminó la condición laxa `g.contains('drama')`, restringiendo el contenido estrictamente a fuentes de novelas (`canela`, `canelatv`, `telemundo`) o metadatos explícitos (`novela`, `soap`).
+3. **A.3 Categorías "Novelas" y "Anime" en "Todo el contenido"**:
+   - Se garantizó la presencia y funcionamiento de los filtros "Novelas" y "Anime" tanto en `CategoryListPage` (móvil) como en `TvDiscoverPage` (Android TV).
+   - En `tv_discover_page.dart`, se corrigió la lista `_fuentesDisponibles` para que no colapse al valor genérico `'all'` cuando se selecciona Novelas o Anime.
+4. **A.4 Rediseño e Identidad del Buscador en TV (`tv_search_page.dart` y `source_search.dart`)**:
+   - Se removieron estilos heredados y tonalidades desalineadas (rojo Netflix `#E50914` y morado `#2A2A38`).
+   - Se unificó la paleta con la identidad oficial de Filmotic: acento naranja `#FF6B35`, superficie oscura de teclas `#1E1E24`, fondos `#16161A` y estados de foco con borde de acento y tipografía blanca de alto contraste.
+
+### 29.2 Bloque B: Reproducción y Canales de TV en Vivo
+1. **B.1 Pantalla Completa en Android TV sin Recargas (`live_tv_page_tv.dart`)**:
+   - **Causa raíz**: Al pulsar "pantalla completa", la app abría una nueva ruta `PlayerScreen` que intentaba crear una segunda instancia de decodificador de video mientras la vista previa seguía en memoria, provocando fallos por agotamiento de decodificadores hardware en cajas Android TV.
+   - **Solución**: Se transformó la transición a una expansión in-place mediante `_isFullScreen = true`. El `VideoPlayerController` existente continúa reproduciendo la señal sin ninguna interrupción, recarga ni recreación. Se implementó una interfaz OSD completa con control D-Pad (Atrás para salir, Arriba/Abajo para cambiar canal, Izquierda/Derecha para alternar señales).
+2. **B.2 Diagnóstico y Corrección de Canales sin Audio**:
+   - Se configuró explícitamente `controller.setVolume(1.0)` al inicializar canales en vivo para evitar silenciamiento por defecto en ciertos bridges de ExoPlayer.
+   - Se añadió control rápido de alternancia de señales alternativas en la interfaz OSD.
+3. **B.3 Ampliación de Canales Deportivos**:
+   - Se integraron fuentes de canales deportivos en el agregador IPTV (`iptv_aggregator/sources.json` y `filmotic_config.json`):
+     - **IPTV-org Sports**: `https://iptv-org.github.io/iptv/categories/sports.m3u`
+     - **IPTV-Scraper-Zilla Combined**: `https://raw.githubusercontent.com/abusaeeidx/IPTV-Scraper-Zilla/main/combined-playlist.m3u`
+   - En `live_tv_service.dart`, se configuró la descarga y fusión automática de estas listas al solicitar la categoría "sports" o "deportes".
+
+### 29.3 Bloque C: Sincronización, Compilación y Publicación Beta.12
+1. **Sincronización de Versión**:
+   - `pubspec.yaml`: `1.0.0-beta.12+12`
+   - `lib/core/constants/versiones.dart`: `currentVersionName = "1.0.0-beta.12"`, `currentVersionCode = 12`
+   - `filmotic_config.json`: `"latest_version": "1.0.0-beta.12"`
+2. **Pruebas y Verificación**:
+   - Pruebas unitarias de RemoteConfig y versionado aprobadas al 100%.
+   - Verificación de binario release con `aapt dump badging`: `package: name='com.example.lol' versionCode='12' versionName='1.0.0-beta.12'`.
+3. **Publicación y Distribución**:
+   - Tag y Release Git `v1.0.0-beta.12` subidos a GitHub.
+   - Binario `filmotic.apk` subido a GitHub Releases y validado mediante `curl -sI -L`.
+

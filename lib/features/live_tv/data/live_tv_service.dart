@@ -116,6 +116,33 @@ class LiveTvService {
           }
         }
 
+        // Enriquecer con listas de deportes dedicadas si se solicitó la categoría 'sports' o 'deportes'
+        final isSports = group != null && (group.toLowerCase() == 'sports' || group.toLowerCase() == 'deportes');
+        if (isSports) {
+          final sportsUrls = [
+            'https://iptv-org.github.io/iptv/categories/sports.m3u',
+            'https://raw.githubusercontent.com/abusaeeidx/IPTV-Scraper-Zilla/main/combined-playlist.m3u',
+          ];
+          for (final sUrl in sportsUrls) {
+            try {
+              final sRes = await http.get(Uri.parse(sUrl)).timeout(const Duration(seconds: 10));
+              if (sRes.statusCode == 200) {
+                final sBody = utf8.decode(sRes.bodyBytes);
+                final sResult = M3UParser.parse(sBody, sUrl);
+                final sportsChannels = sResult.channels.where((c) {
+                  final lang = (c.language ?? '').toLowerCase();
+                  final nm = c.name.toLowerCase();
+                  final grp = (c.group ?? '').toLowerCase();
+                  return grp.contains('sport') || grp.contains('deport') ||
+                         lang == 'spa' || lang == 'es' || nm.contains('esp') || nm.contains('spanish') ||
+                         nm.contains('win') || nm.contains('espn') || nm.contains('fox') || nm.contains('tyc') || nm.contains('directv') || nm.contains('marca');
+                }).toList();
+                channels = _mergeAlternateStreams(channels, sportsChannels);
+              }
+            } catch (_) {}
+          }
+        }
+
         // Enriquecer con verified_sources configuradas remotamente (RCN, Caracol, etc.)
         channels = _enrichWithVerifiedSources(channels, country, group: group);
 

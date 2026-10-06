@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/services/remote_config_service.dart';
-import '../../player/presentation/tv/tv_player_page.dart' as tv_player;
 import '../data/epg_service.dart';
 import '../data/live_tv_service.dart';
 import '../domain/channel.dart';
@@ -46,6 +45,9 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
   bool _isPreviewLoading = false;
   String? _previewError;
   Timer? _previewDebounceTimer;
+  bool _isFullScreen = false;
+  bool _showOsd = false;
+  Timer? _osdTimer;
 
   final Map<String, _ChannelEpgState> _channelEpgMap = {};
   Timer? _nowTimer;
@@ -113,6 +115,7 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
     WidgetsBinding.instance.removeObserver(this);
     _previewDebounceTimer?.cancel();
     _nowTimer?.cancel();
+    _osdTimer?.cancel();
     _disposePreview();
     super.dispose();
   }
@@ -247,6 +250,7 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
           return;
         }
 
+        await controller.setVolume(1.0);
         await controller.play();
         await controller.setLooping(true);
 
@@ -274,31 +278,265 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
     });
   }
 
-  void _openFullScreenPlayer(LiveChannel channel) {
-    final channelIndex = _filteredChannels.indexOf(channel);
-    final streams = channel.allStreamUrls;
-    final activeUrl = (streams.isNotEmpty && _selectedStreamIndex < streams.length)
-        ? streams[_selectedStreamIndex]
-        : (channel.streamUrl ?? '');
-    final currentPos = _previewController?.value.position;
-
-    // Pausar mini player mientras se reproduce en fullscreen
-    _previewController?.pause();
-
-    tv_player.TvPlayerPage.openLiveChannel(
-      context,
-      channel,
-      initialStreamIndex: _selectedStreamIndex,
-      initialUrl: activeUrl,
-      streamUrl: activeUrl,
-      initialPosition: currentPos,
-      allChannels: _filteredChannels,
-      currentChannelIndex: channelIndex >= 0 ? channelIndex : null,
-    ).then((_) {
-      if (mounted && widget.isActive) {
-        _previewController?.play();
-      }
+  void _showOsdTemporarily() {
+    setState(() => _showOsd = true);
+    _osdTimer?.cancel();
+    _osdTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) setState(() => _showOsd = false);
     });
+  }
+
+  void _switchNextChannel(int delta) {
+    if (_filteredChannels.isEmpty) return;
+    final currentIdx = _selectedChannel != null
+        ? _filteredChannels.indexOf(_selectedChannel!)
+        : -1;
+    final nextIdx =
+        (currentIdx + delta + _filteredChannels.length) % _filteredChannels.length;
+    _onChannelSelected(_filteredChannels[nextIdx]);
+  }
+
+  void _openFullScreenPlayer(LiveChannel channel) {
+    setState(() {
+      _isFullScreen = true;
+      _showOsd = true;
+    });
+    _showOsdTemporarily();
+  }
+
+  Widget _buildFullScreenView() {
+    final ch = _selectedChannel;
+    if (ch == null) return const SizedBox.shrink();
+    final totalStreams = ch.allStreamUrls.length;
+
+    return Focus(
+      autofocus: true,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+        _showOsdTemporarily();
+
+        if (event.logicalKey == LogicalKeyboardKey.escape ||
+            event.logicalKey == LogicalKeyboardKey.backspace ||
+            event.logicalKey == LogicalKeyboardKey.goBack) {
+          setState(() => _isFullScreen = false);
+          return KeyEventResult.handled;
+        }
+
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          _switchNextChannel(1);
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+          _switchNextChannel(-1);
+          return KeyEventResult.handled;
+        }
+
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight && totalStreams > 1) {
+          final nextIdx = (_selectedStreamIndex + 1) % totalStreams;
+          _initPreviewChannel(ch, streamIndex: nextIdx);
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft && totalStreams > 1) {
+          final prevIdx = (_selectedStreamIndex - 1 + totalStreams) % totalStreams;
+          _initPreviewChannel(ch, streamIndex: prevIdx);
+          return KeyEventResult.handled;
+        }
+
+        if (event.logicalKey == LogicalKeyboardKey.select ||
+            event.logicalKey == LogicalKeyboardKey.enter) {
+          if (_previewController != null) {
+            if (_previewController!.value.isPlaying) {
+              _previewController!.pause();
+            } else {
+              _previewController!.play();
+            }
+            setState(() {});
+          }
+          return KeyEventResult.handled;
+        }
+
+        return KeyEventResult.ignored;
+      },
+      child: GestureDetector(
+        onTap: _showOsdTemporarily,
+        child: Container(
+          color: Colors.black,
+          width: double.infinity,
+          height: double.infinity,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              Center(
+                child: _previewController != null &&
+                        _previewController!.value.isInitialized &&
+                        !_isPreviewLoading
+                    ? AspectRatio(
+                        aspectRatio: _previewController!.value.aspectRatio,
+                        child: VideoPlayer(_previewController!),
+                      )
+                    : _isPreviewLoading
+                        ? const Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                CircularProgressIndicator(color: kBrandOrange),
+                                SizedBox(height: 14),
+                                Text(
+                                  'Conectando a señal en vivo...',
+                                  style: TextStyle(color: Colors.white, fontSize: 16),
+                                ),
+                              ],
+                            ),
+                          )
+                        : Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(Icons.error_outline_rounded, color: kBrandOrange, size: 56),
+                                const SizedBox(height: 12),
+                                Text(
+                                  _previewError ?? 'Señal no disponible',
+                                  style: const TextStyle(color: Colors.white, fontSize: 16),
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton.icon(
+                                  onPressed: () => _initPreviewChannel(ch),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: kBrandOrange,
+                                    foregroundColor: Colors.white,
+                                  ),
+                                  icon: const Icon(Icons.refresh_rounded),
+                                  label: const Text('Reintentar señal'),
+                                ),
+                              ],
+                            ),
+                          ),
+              ),
+
+              // Overlay superior
+              AnimatedOpacity(
+                opacity: _showOsd ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: IgnorePointer(
+                  ignoring: !_showOsd,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withValues(alpha: 0.85),
+                          Colors.transparent,
+                        ],
+                        stops: const [0.0, 0.45],
+                      ),
+                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 28),
+                          onPressed: () => setState(() => _isFullScreen = false),
+                        ),
+                        const SizedBox(width: 12),
+                        if (ch.logo != null && ch.logo!.isNotEmpty)
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: CachedNetworkImage(
+                              imageUrl: ch.logo!,
+                              width: 44,
+                              height: 44,
+                              fit: BoxFit.contain,
+                              errorWidget: (_, __, ___) => const Icon(Icons.tv, color: Colors.white70),
+                            ),
+                          ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                ch.name,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.redAccent,
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text('EN VIVO', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                                  ),
+                                  if (totalStreams > 1) ...[
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Señal ${_selectedStreamIndex + 1}/$totalStreams (◄ / ► para alternar)',
+                                      style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 12),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.fullscreen_exit_rounded, color: Colors.white, size: 28),
+                          onPressed: () => setState(() => _isFullScreen = false),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              // Overlay inferior con controles de guía D-Pad
+              AnimatedOpacity(
+                opacity: _showOsd ? 1.0 : 0.0,
+                duration: const Duration(milliseconds: 200),
+                child: IgnorePointer(
+                  ignoring: !_showOsd,
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter,
+                          end: Alignment.topCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.85),
+                            Colors.transparent,
+                          ],
+                          stops: const [0.0, 0.5],
+                        ),
+                      ),
+                      padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+                      child: Row(
+                        children: [
+                          Text(
+                            '▲ / ▼ Cambiar canal  •  ◄ / ► Alternar señal  •  Atrás Salir de pantalla completa',
+                            style: TextStyle(color: Colors.white.withValues(alpha: 0.75), fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _fetchEpgForVisible() async {
@@ -325,6 +563,20 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
 
   @override
   Widget build(BuildContext context) {
+    if (_isFullScreen) {
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          setState(() => _isFullScreen = false);
+        },
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: _buildFullScreenView(),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: kBgColor,
       body: SafeArea(

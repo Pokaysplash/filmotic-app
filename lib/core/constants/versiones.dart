@@ -4,8 +4,8 @@ class VersionService {
   // ============================================
   // CONFIGURA AQUÍ LA VERSIÓN ACTUAL DE TU APP
   // ============================================
-  static const String currentVersionName = "1.0.0-beta.10"; // version_aceptada
-  static const int currentVersionCode = 10; // version_code_aceptada
+  static const String currentVersionName = "1.0.0-beta.12"; // version_aceptada
+  static const int currentVersionCode = 12; // version_code_aceptada
 
   /// Obtiene la última versión configurada en RemoteConfig
   static Future<VersionInfo?> getLatestAnimeVersion() async {

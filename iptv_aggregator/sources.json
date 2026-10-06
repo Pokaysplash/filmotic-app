@@ -13,6 +13,12 @@
       "category": "deportes"
     },
     {
+      "name": "IPTV-Scraper-Zilla",
+      "url": "https://raw.githubusercontent.com/abusaeeidx/IPTV-Scraper-Zilla/main/combined-playlist.m3u",
+      "priority": 1,
+      "category": "deportes"
+    },
+    {
       "name": "IPTV-org España",
       "url": "https://iptv-org.github.io/iptv/countries/es.m3u",
       "priority": 1,

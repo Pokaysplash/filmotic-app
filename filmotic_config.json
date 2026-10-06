@@ -18,6 +18,7 @@
       "animeflv",
       "cinehax",
       "canela",
+      "canelatv",
       "seriesflix",
       "cineby"
     ],
@@ -33,9 +34,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.10",
+    "latest_version": "1.0.0-beta.12",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.10 disponible: Fix del enrutamiento del Home para fuentes externas (Canela, Anime, Novelas y scrapers).",
+    "update_message": "Filmotic v1.0.0-beta.12 disponible: Corrección integral de enrutamiento, categorías Novelas/Anime, buscador TV, pantalla completa en vivo y nuevos canales deportivos.",
     "force_update": false,
     "is_beta": true
   },
@@ -45,7 +46,9 @@
     "custom_m3u_url": "https://raw.githubusercontent.com/Pokaysplash/filmotic-app/main/docs/filmotic_playlist.m3u",
     "fallback_urls": [
       "https://iptv-org.github.io/iptv/countries/co.m3u",
-      "https://iptv-org.github.io/iptv/languages/spa.m3u"
+      "https://iptv-org.github.io/iptv/languages/spa.m3u",
+      "https://iptv-org.github.io/iptv/categories/sports.m3u",
+      "https://raw.githubusercontent.com/abusaeeidx/IPTV-Scraper-Zilla/main/combined-playlist.m3u"
     ],
     "default_country": "co",
     "default_language": "spa",
@@ -308,6 +311,26 @@
         "country": "ES",
         "streams": [
           "https://service-stitcher.clusters.pluto.tv/stitch/hls/channel/5d8a65acf2ee1a7192cb5c03/master.m3u8"
+        ]
+      },
+      {
+        "name": "Win Sports",
+        "aliases": ["win sports", "winsports", "win sports (720p)", "win sports online"],
+        "logo": "https://i.imgur.com/Lv53nh4.png",
+        "group": "Sports",
+        "country": "CO",
+        "streams": [
+          "https://liveingesta318.cdnmedia.tv/101weblive/smil:antequera.smil/playlist.m3u8"
+        ]
+      },
+      {
+        "name": "Red Bull TV",
+        "aliases": ["red bull tv", "redbull tv", "redbull"],
+        "logo": "https://i.imgur.com/Lv53nh4.png",
+        "group": "Sports",
+        "country": "US",
+        "streams": [
+          "https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8"
         ]
       }
     ],

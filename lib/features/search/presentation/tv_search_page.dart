@@ -12,7 +12,7 @@ import '../../../data/scrapers/base/buscador.dart';
 import '../../../core/services/guardados_bus.dart';
 const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
-const kKeyColor = Color(0xFF2A2A38);
+const kKeyColor = Color(0xFF1E1E24);
 
 class BuscarPage extends StatefulWidget {
   final void Function(BuscarPageState)? onPageCreated;
@@ -659,10 +659,10 @@ class _SystemKeyboardButtonState extends State<_SystemKeyboardButton> {
           height: 40,
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            color: _hasFocus ? Colors.white : kKeyColor,
+            color: _hasFocus ? const Color(0xFF2C2C35) : kKeyColor,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: _hasFocus ? kAccentColor : Colors.transparent,
+              color: _hasFocus ? kAccentColor : Colors.white10,
               width: 1.5,
             ),
           ),
@@ -673,7 +673,7 @@ class _SystemKeyboardButtonState extends State<_SystemKeyboardButton> {
               Icon(
                 Icons.keyboard_alt_outlined,
                 size: 18,
-                color: _hasFocus ? Colors.black : Colors.white70,
+                color: _hasFocus ? kAccentColor : Colors.white70,
               ),
               const SizedBox(width: 8),
               Flexible(
@@ -682,7 +682,7 @@ class _SystemKeyboardButtonState extends State<_SystemKeyboardButton> {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
-                    color: _hasFocus ? Colors.black : Colors.white,
+                    color: _hasFocus ? Colors.white : Colors.white70,
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                   ),
@@ -897,10 +897,10 @@ class _KeyButtonState extends State<_KeyButton> {
           duration: const Duration(milliseconds: 120),
           height: 38,
           decoration: BoxDecoration(
-            color: _hasFocus ? Colors.white : kKeyColor,
+            color: _hasFocus ? const Color(0xFF2C2C35) : kKeyColor,
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
-              color: _hasFocus ? kAccentColor : Colors.transparent,
+              color: _hasFocus ? kAccentColor : Colors.white10,
               width: 1.5,
             ),
           ),
@@ -909,12 +909,12 @@ class _KeyButtonState extends State<_KeyButton> {
               ? Icon(
                   widget.icon,
                   size: 18,
-                  color: _hasFocus ? Colors.black : Colors.white70,
+                  color: _hasFocus ? kAccentColor : Colors.white70,
                 )
               : Text(
                   widget.label ?? '',
                   style: TextStyle(
-                    color: _hasFocus ? Colors.black : Colors.white,
+                    color: _hasFocus ? Colors.white : Colors.white70,
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
                   ),
@@ -968,12 +968,12 @@ class _AccentToggleKeyState extends State<_AccentToggleKey> {
                 ? (_hasFocus
                     ? kAccentColor
                     : kAccentColor.withValues(alpha: 0.9))
-                : (_hasFocus ? Colors.white : kKeyColor),
+                : (_hasFocus ? const Color(0xFF2C2C35) : kKeyColor),
             borderRadius: BorderRadius.circular(6),
             border: Border.all(
               color: _hasFocus
                   ? (widget.isActive ? Colors.white : kAccentColor)
-                  : Colors.transparent,
+                  : Colors.white10,
               width: 1.5,
             ),
           ),
@@ -983,7 +983,7 @@ class _AccentToggleKeyState extends State<_AccentToggleKey> {
             style: TextStyle(
               color: widget.isActive
                   ? Colors.white
-                  : (_hasFocus ? Colors.black : Colors.white),
+                  : (_hasFocus ? kAccentColor : Colors.white),
               fontSize: 14,
               fontWeight: FontWeight.w700,
             ),

@@ -442,10 +442,16 @@ class RemoteConfigService {
   FilmoticRemoteConfig get config => _config;
 
   bool isSourceEnabled(String sourceId) {
-    final id = sourceId.toLowerCase();
+    final id = sourceId.toLowerCase().trim();
     if (_config.disabledSources.contains(id)) return false;
+    if (id == 'canelatv' && _config.disabledSources.contains('canela')) return false;
+    if (id == 'canela' && _config.disabledSources.contains('canelatv')) return false;
+
     if (_config.enabledSources.isNotEmpty) {
-      return _config.enabledSources.contains(id);
+      if (_config.enabledSources.contains(id)) return true;
+      if (id == 'canelatv' && _config.enabledSources.contains('canela')) return true;
+      if (id == 'canela' && _config.enabledSources.contains('canelatv')) return true;
+      return false;
     }
     return true;
   }

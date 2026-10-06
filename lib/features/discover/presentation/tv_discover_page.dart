@@ -105,12 +105,10 @@ class _ServiciosTvPageState extends State<ServiciosTvPage>
     final all = fuentesConListado;
     if (_categoria == 'Todas') return all;
     if (_categoria == 'Novelas') {
-      final novel = getFuentesByCategory('novel').where((f) => f.hasListing).toList();
-      return novel.isNotEmpty ? novel : all;
+      return getFuentesByCategory('novel').where((f) => f.hasListing).toList();
     }
     if (_categoria == 'Anime') {
-      final anime = getFuentesByCategory('anime').where((f) => f.hasListing).toList();
-      return anime.isNotEmpty ? anime : all;
+      return getFuentesByCategory('anime').where((f) => f.hasListing).toList();
     }
     if (_categoria == 'Películas') {
       final pelis = all.where((f) => f.tipos.contains('movie')).toList();
