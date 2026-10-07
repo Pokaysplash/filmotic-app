@@ -780,7 +780,8 @@ class _PageContenidoState extends State<PageContenido>
       _loadingEpisodeKey = null;
     });
 
-    if (playable == null || playable.url.isEmpty) {
+    final resolvedSource = playable;
+    if (resolvedSource == null || resolvedSource.url.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -798,9 +799,9 @@ class _PageContenidoState extends State<PageContenido>
       context,
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
-          videoUrl: playable.url,
-          headers: playable.headers,
-          idioma: playable.idioma,
+          videoUrl: resolvedSource.url,
+          headers: resolvedSource.headers,
+          idioma: resolvedSource.idioma,
           idcontenido: _resolvedTmdbId,
           tmdbId: _resolvedTmdbId,
           temporada: isMovie ? null : seasonNum,
