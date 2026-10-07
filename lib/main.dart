@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 import 'core/services/remote_config_service.dart';
-import 'core/constants/versiones.dart';
+import 'core/services/update_service.dart';
 import 'features/live_tv/data/live_tv_service.dart';
 import 'features/live_tv/data/epg_service.dart';
 import 'presentation/mobile/mobile_shell.dart' as mobile;
@@ -132,19 +132,32 @@ class _SplashScreenState extends State<SplashScreen> {
     await Future.delayed(const Duration(seconds: 2));
 
     // Verificar si se requiere actualización forzada u opcional
-    final currentVersion = VersionService.currentVersionName;
+    final currentVersion = await UpdateService.instance.getInstalledVersion();
     final appConfig = RemoteConfigService.instance.config.app;
 
-    if (RemoteConfigService.instance.isMandatoryUpdateRequired(currentVersion)) {
-      if (!mounted) return;
-      _showBlockingUpdateDialog(appConfig);
-      return;
-    }
+    // 1. Si la versión actual ya es igual o mayor a latestVersion -> NUNCA mostrar aviso
+    final isAlreadyLatest = RemoteConfigService.compareVersions(currentVersion, appConfig.latestVersion) >= 0;
 
-    final dismissed = await RemoteConfigService.instance.getDismissedVersion();
-    if (RemoteConfigService.instance.isOptionalUpdateAvailable(currentVersion, dismissedVersion: dismissed)) {
-      if (!mounted) return;
-      await _showOptionalUpdateDialog(appConfig);
+    // 2. Verificar si el usuario activó la válvula de escape (bypass 24h)
+    final isBypassed = await UpdateService.instance.isUpdateBypassed(appConfig.latestVersion);
+
+    if (!isAlreadyLatest && !isBypassed) {
+      if (RemoteConfigService.instance.isMandatoryUpdateRequired(currentVersion)) {
+        if (!mounted) return;
+        await _showBlockingUpdateDialog(appConfig);
+        // Verificar si tras salir del diálogo el usuario activó el bypass
+        final stillBypassed = await UpdateService.instance.isUpdateBypassed(appConfig.latestVersion);
+        if (!stillBypassed && mounted) {
+          // Si no activó el bypass y sigue desactualizado forzoso, detener bootstrap
+          return;
+        }
+      } else {
+        final dismissed = await RemoteConfigService.instance.getDismissedVersion();
+        if (RemoteConfigService.instance.isOptionalUpdateAvailable(currentVersion, dismissedVersion: dismissed)) {
+          if (!mounted) return;
+          await _showOptionalUpdateDialog(appConfig);
+        }
+      }
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -175,11 +188,14 @@ class _SplashScreenState extends State<SplashScreen> {
     }
   }
 
-  void _showBlockingUpdateDialog(FilmoticAppInfo appInfo) {
-    FilmoticUpdateDialog.show(
+  Future<void> _showBlockingUpdateDialog(FilmoticAppInfo appInfo) async {
+    await FilmoticUpdateDialog.show(
       context,
       appInfo: appInfo,
       isMandatory: true,
+      onDismissed: () {
+        RemoteConfigService.instance.setDismissedVersion(appInfo.latestVersion);
+      },
     );
   }
 

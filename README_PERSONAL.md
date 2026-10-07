@@ -1150,3 +1150,43 @@ Esta fase aborda la resolución completa de los errores de enrutamiento, consist
    - Tag y Release Git `v1.0.0-beta.12` subidos a GitHub.
    - Binario `filmotic.apk` subido a GitHub Releases y validado mediante `curl -sI -L`.
 
+---
+
+## 30. WAVE 12.15 – Fix del Bucle de Actualización Infinita
+
+Esta fase resuelve definitivamente el bucle de actualización infinita reportado por usuarios donde la aplicación, tras abrirse o intentar actualizar, mostraba continuamente el modal bloqueante de actualización.
+
+### 30.1 Diagnóstico de Causas Raíz
+1. **Discrepancia Semver en Defaults Locales (`FilmoticAppInfo.defaults`)**:
+   - `FilmoticAppInfo.defaults` y `fallbackMinVersion` tenían hardcodeado `'1.0.0'`.
+   - Según la especificación SemVer, cualquier versión pre-release como `1.0.0-beta.14` es lexicográficamente menor que la versión final `1.0.0`. Por tanto, si el config remoto tardaba en responder o se usaba el valor por defecto, la app consideraba que `1.0.0-beta.14 < 1.0.0`, activando inmediatamente `isMandatoryUpdateRequired = true`.
+2. **Evaluación Indiscriminada de `force_update`**:
+   - `isMandatoryUpdateRequired` activaba el bloqueo forzado (`if (forceUpdate) return true;`) sin verificar primero si el usuario ya tenía instalada la versión más reciente (`currentVersion >= latestVersion`).
+3. **Ausencia de Tolerancia en Comparación de Versiones**:
+   - Variaciones de build number como `1.0.0-beta.14+14` frente a `1.0.0-beta.14` o prefijos `v` podían provocar comparaciones fallidas.
+4. **Falta de Válvula de Escape**:
+   - Un usuario atrapado por fallos de red o instaladores externos no tenía forma de saltar el diálogo tras reintentos fallidos.
+
+### 30.2 Soluciones Implementadas
+1. **Lógica de Comparación Robusta (`RemoteConfigService`)**:
+   - Tolerancia completa a prefijos `v`, mayúsculas/minúsculas y sufijos de build (`+...`).
+   - Regla inviolable: si `compareVersions(currentVersion, latestVersion) >= 0`, **NUNCA** se exige actualización obligatoria ni opcional (`return false`).
+   - Normalización de defaults: `minVersion` por defecto establecido en `'1.0.0-beta.1'` y `latestVersion` anclado a `VersionService.currentVersionName`.
+2. **Fallback en Cascada y Logging (`UpdateService`)**:
+   - `getInstalledVersion()` consulta primero `PackageInfo.fromPlatform().version`. En caso de excepción, recurre a `VersionService.currentVersionName`.
+   - Logging exhaustivo `[Update] Installed: ... | Hardcoded: ...`.
+3. **Válvula de Escape y Bypass de 24 Horas (`FilmoticUpdateDialog` & `UpdateService`)**:
+   - Detección de reintentos: si el usuario intenta actualizar 2 o más veces y no se completa, o si surge un error de descarga, se habilita el botón de escape **"Continuar sin actualizar"**.
+   - Al pulsarlo, se activa un bypass de 24 horas almacenado en persistencia, evitando bloquear el acceso al contenido.
+4. **Saneamiento del Config Remoto**:
+   - `min_version` establecido en `1.0.0-beta.1` y `force_update: false` en `filmotic_config.json`.
+
+### 30.3 Regla Estricta de Paridad para Futuros Releases
+Antes de cada publicación oficial:
+1. `pubspec.yaml` → `version: X.Y.Z-beta.N+N`
+2. `lib/core/constants/versiones.dart` → `currentVersionName = "X.Y.Z-beta.N"` y `currentVersionCode = N`
+3. `filmotic_config.json` → `"latest_version": "X.Y.Z-beta.N"` y `"min_version": "1.0.0-beta.1"`
+4. Verificación obligatoria con `aapt dump badging`: confirmar que `versionName` y `versionCode` coincidan exactamente.
+5. Verificación de descarga con `curl -sI -L` en la URL de GitHub Releases.
+
+

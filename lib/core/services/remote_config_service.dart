@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:sembast/sembast.dart';
 import '../storage/app_database.dart';
+import '../constants/versiones.dart';
 
 /// Configuración de la aplicación y versionado en GitHub Releases.
 class FilmoticAppInfo {
@@ -23,7 +24,7 @@ class FilmoticAppInfo {
     this.isBeta = false,
   });
 
-  factory FilmoticAppInfo.fromMap(Map<String, dynamic>? map, {String fallbackMinVersion = '1.0.0'}) {
+  factory FilmoticAppInfo.fromMap(Map<String, dynamic>? map, {String fallbackMinVersion = '1.0.0-beta.1'}) {
     final m = map ?? {};
     final minVer = (m['min_version'] ?? fallbackMinVersion).toString();
     final latestVer = (m['latest_version'] ?? minVer).toString();
@@ -56,10 +57,10 @@ class FilmoticAppInfo {
       };
 
   static FilmoticAppInfo get defaults => FilmoticAppInfo(
-        minVersion: '1.0.0',
-        latestVersion: '1.0.0',
+        minVersion: '1.0.0-beta.1',
+        latestVersion: VersionService.currentVersionName,
         updateUrl:
-            'https://github.com/Pokaysplash/filmotic-releases/releases/latest/download/filmotic.apk',
+            'https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk',
         updateMessage:
             'Hay una nueva versión de Filmotic disponible. Actualiza para disfrutar de las últimas mejoras.',
         forceUpdate: false,
@@ -365,7 +366,7 @@ class FilmoticRemoteConfig {
         ? (sourcesMap['disabled'] as List).map((e) => e.toString().toLowerCase()).toList()
         : <String>[];
     final messagesMap = map['messages'] is Map ? Map<String, dynamic>.from(map['messages']) : <String, dynamic>{};
-    final fallbackMin = map['min_app_version']?.toString() ?? '1.0.0';
+    final fallbackMin = map['min_app_version']?.toString() ?? '1.0.0-beta.1';
     final appInfo = map['app'] is Map
         ? FilmoticAppInfo.fromMap(Map<String, dynamic>.from(map['app']), fallbackMinVersion: fallbackMin)
         : FilmoticAppInfo.fromMap(null, fallbackMinVersion: fallbackMin);
@@ -564,8 +565,11 @@ class RemoteConfigService {
   ///   1 si v1 > v2
   static int compareVersions(String v1, String v2) {
     try {
-      final s1 = v1.trim().replaceFirst(RegExp(r'^v'), '').split('+').first.trim();
-      final s2 = v2.trim().replaceFirst(RegExp(r'^v'), '').split('+').first.trim();
+      final s1 = v1.trim().replaceFirst(RegExp(r'^v', caseSensitive: false), '').split('+').first.trim().toLowerCase();
+      final s2 = v2.trim().replaceFirst(RegExp(r'^v', caseSensitive: false), '').split('+').first.trim().toLowerCase();
+
+      // Si los strings normalizados son exactamente iguales (ej. 1.0.0-beta.14 vs 1.0.0-BETA.14+14)
+      if (s1 == s2) return 0;
 
       final base1 = s1.split('-').first.trim();
       final base2 = s2.split('-').first.trim();
@@ -606,17 +610,23 @@ class RemoteConfigService {
   /// Retorna true si se requiere actualización forzada / bloqueante:
   /// - min_version > version_instalada O
   /// - force_update es true
+  /// NUNCA se activa si la versión actual ya es igual o mayor a latestVersion
   bool isMandatoryUpdateRequired(String currentVersion) {
+    // Si la versión actual ya es igual o más reciente que latestVersion, JAMÁS bloquear
+    if (compareVersions(currentVersion, _config.app.latestVersion) >= 0) {
+      return false;
+    }
     if (_config.app.forceUpdate) return true;
     return compareVersions(currentVersion, _config.app.minVersion) < 0;
   }
 
   /// Retorna true si hay una nueva versión opcional disponible que no ha sido descartada
   bool isOptionalUpdateAvailable(String currentVersion, {String? dismissedVersion}) {
+    if (compareVersions(currentVersion, _config.app.latestVersion) >= 0) {
+      return false;
+    }
     if (isMandatoryUpdateRequired(currentVersion)) return false;
-    final hasNewer = compareVersions(currentVersion, _config.app.latestVersion) < 0;
-    if (!hasNewer) return false;
-    if (dismissedVersion != null && dismissedVersion == _config.app.latestVersion) {
+    if (dismissedVersion != null && compareVersions(dismissedVersion, _config.app.latestVersion) >= 0) {
       return false;
     }
     return true;

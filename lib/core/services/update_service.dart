@@ -3,21 +3,80 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../constants/versiones.dart';
+import 'remote_config_service.dart';
+
 /// Servicio para coordinar y verificar el ciclo de actualización de Filmotic.
 class UpdateService {
   UpdateService._();
   static final UpdateService instance = UpdateService._();
 
   static const String _kPendingUpdateKey = 'pending_update_version';
+  static const String _kUpdateAttemptsKey = 'update_attempt_count_';
+  static const String _kLastBypassedTimestampKey = 'update_bypassed_timestamp_';
 
   /// Obtiene la versión real instalada en el sistema según el package manager
+  /// con fallback en cascada a VersionService.currentVersionName
   Future<String> getInstalledVersion() async {
     try {
       final info = await PackageInfo.fromPlatform();
-      return info.version;
+      final v = info.version.trim();
+      debugPrint('[Update] Installed: $v | Hardcoded: ${VersionService.currentVersionName}');
+      if (v.isNotEmpty) return v;
+      return VersionService.currentVersionName;
     } catch (e) {
-      debugPrint('[UpdateService] Error leyendo package_info: $e');
-      return '';
+      debugPrint('[UpdateService] Error leyendo package_info: $e -> Fallback: ${VersionService.currentVersionName}');
+      return VersionService.currentVersionName;
+    }
+  }
+
+  /// Registra un intento de actualización del usuario y devuelve el total
+  Future<int> recordUpdateAttempt(String targetVersion) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_kUpdateAttemptsKey${targetVersion.trim()}';
+      final current = (prefs.getInt(key) ?? 0) + 1;
+      await prefs.setInt(key, current);
+      return current;
+    } catch (_) {
+      return 1;
+    }
+  }
+
+  /// Obtiene el número de intentos de actualización para una versión dada
+  Future<int> getUpdateAttempts(String targetVersion) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = '$_kUpdateAttemptsKey${targetVersion.trim()}';
+      return prefs.getInt(key) ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Activa la válvula de escape por 24 horas para una versión específica
+  Future<void> bypassUpdateFor24Hours(String targetVersion) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await prefs.setInt('$_kLastBypassedTimestampKey${targetVersion.trim()}', now);
+      await RemoteConfigService.instance.setDismissedVersion(targetVersion);
+      debugPrint('[UpdateService] Válvula de escape activada para $targetVersion por 24h');
+    } catch (e) {
+      debugPrint('[UpdateService] Error guardando bypass: $e');
+    }
+  }
+
+  /// Verifica si la actualización está temporalmente silenciada/bypassed por 24h
+  Future<bool> isUpdateBypassed(String targetVersion) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final timestamp = prefs.getInt('$_kLastBypassedTimestampKey${targetVersion.trim()}');
+      if (timestamp == null) return false;
+      final diff = DateTime.now().millisecondsSinceEpoch - timestamp;
+      return diff < const Duration(hours: 24).inMilliseconds;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -47,6 +106,7 @@ class UpdateService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_kPendingUpdateKey, targetVersion.trim());
+      await recordUpdateAttempt(targetVersion);
       debugPrint('[UpdateService] Marcada actualización pendiente: $targetVersion');
     } catch (e) {
       debugPrint('[UpdateService] Error guardando pending update: $e');

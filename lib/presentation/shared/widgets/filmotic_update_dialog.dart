@@ -53,8 +53,20 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
   int _totalBytes = 0;
   String? _downloadError;
   String? _cachedFilePath;
+  int _attempts = 0;
 
   static const Color _kOrange = Color(0xFFFF6B35);
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAttempts();
+  }
+
+  Future<void> _loadAttempts() async {
+    final a = await UpdateService.instance.getUpdateAttempts(widget.appInfo.latestVersion);
+    if (mounted) setState(() => _attempts = a);
+  }
 
   Future<void> _startDownloadAndInstall() async {
     final url = widget.appInfo.updateUrl.trim();
@@ -75,6 +87,9 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
       _totalBytes = 0;
       _downloadError = null;
     });
+
+    final updatedAttempts = await UpdateService.instance.recordUpdateAttempt(widget.appInfo.latestVersion);
+    if (mounted) setState(() => _attempts = updatedAttempts);
 
     try {
       final dir = await getTemporaryDirectory();
@@ -325,6 +340,18 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
               child: const Text(
                 'Más tarde',
                 style: TextStyle(color: Colors.white60),
+              ),
+            ),
+          ] else if (_attempts >= 2 || _downloadError != null) ...[
+            TextButton(
+              onPressed: () async {
+                await UpdateService.instance.bypassUpdateFor24Hours(widget.appInfo.latestVersion);
+                widget.onDismissed?.call();
+                if (context.mounted) Navigator.of(context).pop();
+              },
+              child: const Text(
+                'Continuar sin actualizar',
+                style: TextStyle(color: Colors.white54, fontSize: 13),
               ),
             ),
           ],
