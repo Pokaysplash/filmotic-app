@@ -43,9 +43,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.14",
+    "latest_version": "1.0.0-beta.15",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.14: Fix definitivo de novelas (Canela.TV/Telemundo) que reproducían contenido incorrecto, filtros limpios en Anime/Novelas, scraping intensivo AnimeFLV y 3 nuevas fuentes (AnimePahe, GogoAnime, AnimeAV1).",
+    "update_message": "Filmotic v1.0.0-beta.15: Fix del bucle de actualización, reproducción de episodios garantizada y selección automática ultra-rápida del mejor servidor en paralelo.",
     "force_update": false,
     "is_beta": true
   },

@@ -1189,4 +1189,45 @@ Antes de cada publicación oficial:
 4. Verificación obligatoria con `aapt dump badging`: confirmar que `versionName` y `versionCode` coincidan exactamente.
 5. Verificación de descarga con `curl -sI -L` en la URL de GitHub Releases.
 
+---
+
+## 31. WAVE 12.16 – Reproducción de Episodios, Smart Parallel Resolver y Lanzamiento Beta.15
+
+Esta versión integra la corrección definitiva del bucle de actualización infinita junto con mejoras de rendimiento y experiencia de usuario en series y streaming:
+
+### 31.1 Bloque A: Corrección de Reproducción de Episodios
+- **Diagnóstico**: Al pulsar un episodio en `content_page.dart`, se realizaba una precarga asíncrona con un spinner prolongado mientras se descartaba la URL devuelta por el loader, abriendo un reproductor con `videoUrl: ''` que dependía de una llamada secundaria a TMDB. Si la resolución demoraba o no había servidores, la pantalla quedaba colgada sin feedback.
+- **Solución Quirúrgica**:
+  - Parámetros explícitos unificados en `_openServidores`: `temporada` y `capitulo` con logging estructurado `[Episode] Reproduciendo: [Show] | T{s}E{e} | tmdb_id: ...`.
+  - Pasaje directo de la URL resuelta, headers e idioma a `PlayerScreen(videoUrl, headers, idioma)`.
+  - Manejo honesto de errores: si ninguna fuente tiene servidores disponibles para el episodio solicitado, se muestra el SnackBar: *"No hay servidores disponibles para este episodio. Intenta más tarde."*.
+  - En `player_page.dart`, desacoplamiento de `_initializePlayer()` para ejecutarse de inmediato en paralelo con `_loadApiData()`, eliminando pantallas negras iniciales.
+
+### 31.2 Bloque B: Selección Automática del Servidor Más Rápido (Smart Parallel Resolver)
+- **Resolución Paralela no Bloqueante**:
+  - En `server_loader_shared.dart`, reemplazo de la cola secuencial por un pool de trabajadores concurrentes (`maxParallel = 3`).
+  - Resolución nativa ultra-rápida vía `NativeResolvers` (StreamWish, VidHide, VOE, Filemoon, Dood, GoodStream, etc.) sin requerir `BuildContext` ni overlays ocultos de WebView.
+  - Validación activa de streams con GET parcial `Range: bytes=0-1024` para garantizar que el stream responda (200, 206, 3xx).
+  - El primer servidor válido y rápido en responder gana de inmediato y cancela los intentos pendientes.
+- **Métricas y Memoria de Rendimiento (`AppDatabase` / Sembast)**:
+  - Nueva tienda `server_performance`: guarda la media móvil `avg_response_ms` y `last_success` por servidor.
+  - Ordenamiento predictivo: los servidores con mejor historial y coincidencia de idioma preferido se lanzan primero en el pool paralelo.
+  - Registro de auditoría `saveResolutionMetric` con total de servidores testeados y latencia total de resolución.
+- **Feedback Reactivo en UI**:
+  - `ServerLoader.statusNotifier` informa en tiempo real:
+    - *"Conectando al mejor servidor..."*
+    - *"Probando múltiples servidores..."* (tras 5 segundos de búsqueda)
+    - *"Conectado a [Nombre del Servidor]"*
+  - Reflejado con idéntica fidelidad tanto en el reproductor móvil (`player_page.dart`) como en Android TV (`tv_player_page.dart`).
+
+### 31.3 Bloque C: Espejos y Fuentes de Anime/Series
+- Integración de espejo `https://animeflv.vip` como fallback automático ante fallos de conexión en `animeflv_scraper.dart`.
+- Fuentes de series y anime activas y verificadas: AnimePahe, GogoAnime, AnimeAV1, Seriesflix, Cineby, Canela.TV y Cuevana.
+
+### 31.4 Bloque D: Despliegue Beta.15
+- Sincronización estricta: `pubspec.yaml`, `versiones.dart` y `filmotic_config.json` en versión `1.0.0-beta.15+15`.
+- Verificación con `aapt dump badging` confirmando `versionCode='15'` y `versionName='1.0.0-beta.15'`.
+- Tag y Release GitHub `v1.0.0-beta.15` con binario `filmotic.apk` validado.
+
+
 

@@ -5425,16 +5425,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-              Text(
-                _isSwitchingServerNotice
-                    ? 'Cambiando de servidor...'
-                    : 'Conectando al servidor...',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.4,
-                ),
+              ValueListenableBuilder<String>(
+                valueListenable: ServerLoader.statusNotifier,
+                builder: (context, statusText, _) {
+                  final display = statusText.isNotEmpty
+                      ? statusText
+                      : (_isSwitchingServerNotice
+                          ? 'Cambiando de servidor...'
+                          : 'Conectando al mejor servidor...');
+                  return Text(
+                    display,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.4,
+                    ),
+                  );
+                },
               ),
               if (_showTryAnotherServer) ...[
                 const SizedBox(height: 20),

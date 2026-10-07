@@ -5,7 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../data/aggregators/source_aggregator.dart';
+import '../../data/extractors/hls/hls_extractor.dart';
 import 'remote_config_service.dart';
+import 'server_prevalidation_service.dart';
 import '../storage/app_database.dart';
 /// Preferencias de audio/subtítulo/selección (las 3 nuevas opciones)
 class ServerLoaderPrefs {
@@ -129,6 +131,9 @@ class ServerLoader {
   static const Duration _cacheATtl = Duration(minutes: 60);
   static const String _kCacheAPrefix = 'srv_opt_';
   static const String _kCacheBPrefix = 'srv_valid_';
+
+  /// Notificador reactivo del estado de conexión para feedback en UI
+  static final ValueNotifier<String> statusNotifier = ValueNotifier<String>('');
 
   final Set<String> _invalidUrls = {};
 
@@ -581,21 +586,46 @@ class ServerLoader {
     final completer = Completer<PlayableSource?>();
     final collected = <Map<String, dynamic>>[];
     final seen = <String>{};
-    final pendingFallback = <Map<String, dynamic>>[];
+    final queue = <Map<String, dynamic>>[];
     StreamSubscription<FuenteEvent>? sub;
     var resolved = false;
-    // Serializa intentos para no abrir N extractores a la vez
-    Future<void> chain = Future.value();
+    var isStreamDone = false;
+    int activeWorkers = 0;
+    const int maxParallel = 3;
+    final totalStopwatch = Stopwatch()..start();
+    int serversTestedCount = 0;
+
+    statusNotifier.value = 'Conectando al mejor servidor...';
+
+    final feedbackTimer = Timer(const Duration(seconds: 5), () {
+      if (!completer.isCompleted && !resolved) {
+        statusNotifier.value = 'Probando múltiples servidores...';
+      }
+    });
 
     void finish(PlayableSource? src) {
       if (resolved) return;
       resolved = true;
+      feedbackTimer.cancel();
       sub?.cancel();
+      totalStopwatch.stop();
+
+      if (src != null) {
+        statusNotifier.value = 'Conectado a ${src.serverName}';
+        unawaited(AppDatabase.instance.saveResolutionMetric(
+          contentId: contentId,
+          serversTested: serversTestedCount,
+          winningServer: src.serverName,
+          totalDurationMs: totalStopwatch.elapsedMilliseconds,
+        ));
+      }
+
       if (!completer.isCompleted) completer.complete(src);
     }
 
     Future<void> tryServer(Map<String, dynamic> srv) async {
       if (resolved) return;
+      serversTestedCount++;
       final playable = await tryResolveServer(srv, context: context);
       if (playable != null && !resolved) {
         await _persistWin(
@@ -609,11 +639,35 @@ class ServerLoader {
           allKnown: collected,
         );
         debugPrint(
-          '[ServerLoader] First-win → ${playable.serverName} (${playable.idioma})',
+          '[ServerLoader] Paralelo ganador → ${playable.serverName} (${playable.idioma}) en ${totalStopwatch.elapsedMilliseconds}ms',
         );
         finish(playable);
       } else {
         markServerAsInvalid(srv);
+      }
+    }
+
+    void pumpQueue() {
+      if (resolved) return;
+
+      while (activeWorkers < maxParallel && queue.isNotEmpty) {
+        final srv = queue.removeAt(0);
+        if (_isInvalid(srv)) continue;
+
+        activeWorkers++;
+        tryServer(srv).whenComplete(() {
+          activeWorkers--;
+          if (!resolved) {
+            pumpQueue();
+            if (activeWorkers == 0 && queue.isEmpty && isStreamDone) {
+              finish(null);
+            }
+          }
+        });
+      }
+
+      if (activeWorkers == 0 && queue.isEmpty && isStreamDone && !resolved) {
+        finish(null);
       }
     }
 
@@ -647,46 +701,35 @@ class ServerLoader {
         final idioma = MainFuentes.normalizeIdioma(map['idioma']?.toString());
 
         if (idioma == preferred) {
-          chain = chain.then((_) async {
-            if (!resolved) await tryServer(map);
-          });
-        } else if (order.contains(idioma)) {
-          pendingFallback.add(map);
-          _sortServersByPriority(pendingFallback);
+          // Servidor en idioma preferido: insertar al frente de la cola
+          queue.insert(0, map);
+        } else {
+          // Servidor en otro idioma: agregar al final
+          queue.add(map);
         }
+
+        // Ordenar la cola pendiente según prioridad
+        _sortServersByPriority(queue, preferredLang: preferred);
+        pumpQueue();
       },
       onError: (e) {
         debugPrint('[ServerLoader] stream error: $e');
       },
       onDone: () {
-        chain = chain.then((_) async {
-          if (resolved) return;
-          for (final code in order) {
-            if (code == preferred) continue;
-            for (final srv in pendingFallback) {
-              if (resolved) return;
-              final idioma =
-                  MainFuentes.normalizeIdioma(srv['idioma']?.toString());
-              if (idioma != code) continue;
-              await tryServer(srv);
-            }
-          }
-          if (!resolved) {
-            _sortServersByPriority(collected);
-            for (final srv in collected) {
-              if (resolved) return;
-              await tryServer(srv);
-            }
-          }
+        isStreamDone = true;
+        if (queue.isEmpty && activeWorkers == 0) {
           finish(null);
-        });
+        } else {
+          pumpQueue();
+        }
       },
       cancelOnError: false,
     );
 
     return completer.future.timeout(
-      const Duration(seconds: 45),
+      const Duration(seconds: 40),
       onTimeout: () {
+        feedbackTimer.cancel();
         sub?.cancel();
         return null;
       },
@@ -874,18 +917,26 @@ class ServerLoader {
   }) async {
     if (_isInvalid(srv)) return null;
 
+    final stopwatch = Stopwatch()..start();
+    final srvName = srv['fuente_label']?.toString() ??
+        srv['servidor_nombre']?.toString() ??
+        srv['server']?.toString() ??
+        'Server';
+
     final already = srv['resolved_m3u8']?.toString();
     if (already != null && already.isNotEmpty) {
+      stopwatch.stop();
+      unawaited(AppDatabase.instance.saveServerPerformance(
+        srvName,
+        stopwatch.elapsedMilliseconds.clamp(10, 5000),
+      ));
       return PlayableSource(
         url: already,
         headers: _extractHeaders(srv),
         quality: srv['quality']?.toString() ??
             srv['calidad']?.toString() ??
             'Auto',
-        serverName: srv['fuente_label']?.toString() ??
-            srv['servidor_nombre']?.toString() ??
-            srv['server']?.toString() ??
-            'Server',
+        serverName: srvName,
         idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
         rawServer: srv,
       );
@@ -903,39 +954,78 @@ class ServerLoader {
         (lower.contains('/bt/') && lower.contains('.mp4'));
 
     if (esDirecto) {
-      return PlayableSource(
-        url: url,
-        headers: _extractHeaders(srv),
-        quality: srv['quality']?.toString() ??
-            srv['calidad']?.toString() ??
-            'Auto',
-        serverName: srv['fuente_label']?.toString() ??
-            srv['servidor_nombre']?.toString() ??
-            'Server',
-        idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
-        rawServer: srv,
+      // Validar si el stream directo responde efectivamente
+      final validation = await ServerPreValidationService.instance.validateUrl(
+        url,
+        extraHeaders: _extractHeaders(srv),
       );
+      stopwatch.stop();
+      if (validation.isValid) {
+        unawaited(AppDatabase.instance.saveServerPerformance(
+          srvName,
+          stopwatch.elapsedMilliseconds.clamp(10, 5000),
+        ));
+        return PlayableSource(
+          url: url,
+          headers: _extractHeaders(srv),
+          quality: srv['quality']?.toString() ??
+              srv['calidad']?.toString() ??
+              'Auto',
+          serverName: srvName,
+          idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
+          rawServer: srv,
+        );
+      }
     }
 
+    // 1. Intento nativo ultra-rápido (StreamWish, VidHide, VOE, Filemoon, Dood, etc.)
+    try {
+      final native = await NativeResolvers.resolve(
+        url,
+        timeout: const Duration(seconds: 6),
+      );
+      if (native != null && native.url.isNotEmpty) {
+        stopwatch.stop();
+        srv['resolved_m3u8'] = native.url;
+        srv['verificado'] = true;
+        unawaited(AppDatabase.instance.saveServerPerformance(
+          srvName,
+          stopwatch.elapsedMilliseconds.clamp(20, 5000),
+        ));
+        return PlayableSource(
+          url: native.url,
+          headers: {..._extractHeaders(srv), ...native.headers},
+          quality: native.quality,
+          serverName: srvName,
+          idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
+          rawServer: srv,
+        );
+      }
+    } catch (_) {}
+
+    // 2. Si no resolvió nativamente y hay contexto disponible, probar con extractor WebView
     if (context != null && context.mounted) {
       try {
         final m3u8 = await MainFuentes.verificarConExtractor(
           context,
           url,
-          timeout: const Duration(seconds: 8),
+          timeout: const Duration(seconds: 7),
         );
+        stopwatch.stop();
         if (m3u8 != null && m3u8.isNotEmpty) {
           srv['resolved_m3u8'] = m3u8;
           srv['verificado'] = true;
+          unawaited(AppDatabase.instance.saveServerPerformance(
+            srvName,
+            stopwatch.elapsedMilliseconds.clamp(50, 7000),
+          ));
           return PlayableSource(
             url: m3u8,
             headers: _extractHeaders(srv),
             quality: srv['quality']?.toString() ??
                 srv['calidad']?.toString() ??
                 'Auto',
-            serverName: srv['fuente_label']?.toString() ??
-                srv['servidor_nombre']?.toString() ??
-                'Server',
+            serverName: srvName,
             idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
             rawServer: srv,
           );
@@ -943,6 +1033,7 @@ class ServerLoader {
       } catch (_) {}
     }
 
+    stopwatch.stop();
     return null;
   }
 

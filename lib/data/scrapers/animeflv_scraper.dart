@@ -8,6 +8,16 @@ import 'base/buscador.dart';
 
 class AnimeFLVScraper {
   static const String base = 'https://animeflv.com.es';
+  static const String mirrorBase = 'https://animeflv.vip';
+
+  static Future<String?> _fetchWithMirror(String url) async {
+    var html = await fetchHtml(url);
+    if (html == null && url.startsWith(base)) {
+      final mirrorUrl = url.replaceFirst(base, mirrorBase);
+      html = await fetchHtml(mirrorUrl);
+    }
+    return html;
+  }
 
   static const List<String> generos = [
     'accion',
@@ -69,7 +79,7 @@ class AnimeFLVScraper {
       url = '$url?${queryParams.join('&')}';
     }
 
-    final html = await fetchHtml(url);
+    final html = await _fetchWithMirror(url);
     if (html == null) {
       return ScraperResult(ok: false, error: 'No se pudo conectar a AnimeFLV', url: url);
     }
@@ -117,7 +127,7 @@ class AnimeFLVScraper {
   static Future<List<BuscadorItem>> search(String q) async {
     final query = Uri.encodeComponent(q.trim());
     final url = '$base/browse?q=$query';
-    final html = await fetchHtml(url);
+    final html = await _fetchWithMirror(url);
     if (html == null) return [];
 
     final doc = parser.parse(html);
@@ -155,7 +165,7 @@ class AnimeFLVScraper {
     required String titulo,
     String tipo = 'anime',
   }) async {
-    final html = await fetchHtml(url);
+    final html = await _fetchWithMirror(url);
     if (html == null) {
       return DetalleContenido(
         ok: false,

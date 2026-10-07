@@ -123,6 +123,8 @@ class AppDatabase {
   final _serverValidationStore = stringMapStoreFactory.store('server_validation_cache');
   final _serverBlacklistStore = stringMapStoreFactory.store('server_blacklist');
   final _serverWinCacheStore = stringMapStoreFactory.store('server_win_cache');
+  final _serverPerformanceStore = stringMapStoreFactory.store('server_performance');
+  final _resolutionMetricsStore = stringMapStoreFactory.store('resolution_metrics');
 
   final ValueNotifier<LocalProfile?> activeProfileNotifier =
       ValueNotifier<LocalProfile?>(null);
@@ -700,6 +702,66 @@ class AppDatabase {
     } catch (_) {
       return null;
     }
+  }
+
+  /// Guarda y actualiza la media móvil del tiempo de respuesta por servidor
+  Future<void> saveServerPerformance(String serverKey, int responseMs) async {
+    final cleanKey = serverKey.trim().toLowerCase();
+    if (cleanKey.isEmpty || responseMs <= 0) return;
+    try {
+      final db = await database;
+      final record = await _serverPerformanceStore.record(cleanKey).get(db);
+      int avgMs = responseMs;
+      int count = 1;
+      if (record != null) {
+        final prevAvg = (record['avg_response_ms'] as num?)?.toInt() ?? responseMs;
+        count = ((record['count'] as num?)?.toInt() ?? 1) + 1;
+        // Media móvil exponencial ligera
+        avgMs = ((prevAvg * 0.7) + (responseMs * 0.3)).round();
+      }
+      await _serverPerformanceStore.record(cleanKey).put(db, {
+        'avg_response_ms': avgMs,
+        'last_ms': responseMs,
+        'count': count,
+        'last_success': DateTime.now().toIso8601String(),
+      });
+    } catch (_) {}
+  }
+
+  /// Consulta el rendimiento guardado para un servidor
+  Future<Map<String, dynamic>?> getServerPerformance(String serverKey) async {
+    final cleanKey = serverKey.trim().toLowerCase();
+    if (cleanKey.isEmpty) return null;
+    try {
+      final db = await database;
+      final record = await _serverPerformanceStore.record(cleanKey).get(db);
+      if (record != null) {
+        return Map<String, dynamic>.from(record);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Registra métricas de resolución para optimización continua
+  Future<void> saveResolutionMetric({
+    required int contentId,
+    required int serversTested,
+    required String winningServer,
+    required int totalDurationMs,
+  }) async {
+    try {
+      final db = await database;
+      final key = '${DateTime.now().millisecondsSinceEpoch}_$contentId';
+      await _resolutionMetricsStore.record(key).put(db, {
+        'content_id': contentId,
+        'servers_tested': serversTested,
+        'winning_server': winningServer,
+        'duration_ms': totalDurationMs,
+        'timestamp': DateTime.now().toIso8601String(),
+      });
+    } catch (_) {}
   }
 
   // ══════════════════════════════════════════════════════════════

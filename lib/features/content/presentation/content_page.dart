@@ -744,9 +744,15 @@ class _PageContenidoState extends State<PageContenido>
 
     if (!mounted || _playLoading) return;
     final isMovie = tipo.toLowerCase() != 'tv';
+    final seasonNum = isMovie ? null : (temporada ?? 1);
+    final episodeNum = isMovie ? null : (capitulo ?? 1);
 
-    final epKey = (!isMovie && temporada != null && capitulo != null)
-        ? 'T${temporada}_C$capitulo'
+    debugPrint(
+      '[Episode] Reproduciendo: $titulo | T${seasonNum ?? 0}E${episodeNum ?? 0} | tmdb_id: $_resolvedTmdbId',
+    );
+
+    final epKey = (!isMovie && seasonNum != null && episodeNum != null)
+        ? 'T${seasonNum}_C$episodeNum'
         : null;
 
     setState(() {
@@ -754,17 +760,18 @@ class _PageContenidoState extends State<PageContenido>
       if (epKey != null) _loadingEpisodeKey = epKey;
     });
 
+    PlayableSource? playable;
     try {
       final loader = ServerLoader();
-      await loader.resolvePlayable(
+      playable = await loader.resolvePlayable(
         contentId: _resolvedTmdbId,
         isMovie: isMovie,
-        season: isMovie ? 0 : (temporada ?? 0),
-        episode: isMovie ? 0 : (capitulo ?? 0),
+        season: isMovie ? 0 : seasonNum!,
+        episode: isMovie ? 0 : episodeNum!,
         context: mounted ? context : null,
       );
     } catch (e) {
-      debugPrint('Precarga ServerLoader: $e');
+      debugPrint('[ServerLoader] Error resolviendo episodio: $e');
     }
 
     if (!mounted) return;
@@ -773,15 +780,31 @@ class _PageContenidoState extends State<PageContenido>
       _loadingEpisodeKey = null;
     });
 
+    if (playable == null || playable.url.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'No hay servidores disponibles para este episodio. Intenta más tarde.',
+          ),
+          backgroundColor: Color(0xFF1E1E24),
+          duration: Duration(seconds: 4),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
-          videoUrl: '',
+          videoUrl: playable.url,
+          headers: playable.headers,
+          idioma: playable.idioma,
           idcontenido: _resolvedTmdbId,
           tmdbId: _resolvedTmdbId,
-          temporada: isMovie ? null : temporada,
-          capitulo: isMovie ? null : capitulo,
+          temporada: isMovie ? null : seasonNum,
+          capitulo: isMovie ? null : episodeNum,
           tipo: tipo,
           titulo: titulo,
         ),

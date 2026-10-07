@@ -484,9 +484,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (widget.isLive) {
       _initializePlayer();
     } else {
+      _initializePlayer();
       _loadApiData().then((_) {
-        _initializePlayer();
-        _loadSubtitles();
+        if (mounted && !_isDisposing) {
+          _loadSubtitles();
+        }
+      }).catchError((e) {
+        debugPrint('[Player] Error cargando apiData: $e');
       });
       _loadRecommendationsFromGuardados();
       _loadSubtitlePrefs();
@@ -3653,16 +3657,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              Text(
-                _isSwitchingServerNotice
-                    ? 'Cambiando de servidor...'
-                    : 'Conectando al servidor...',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.3,
-                ),
+              ValueListenableBuilder<String>(
+                valueListenable: ServerLoader.statusNotifier,
+                builder: (context, statusText, _) {
+                  final display = statusText.isNotEmpty
+                      ? statusText
+                      : (_isSwitchingServerNotice
+                          ? 'Cambiando de servidor...'
+                          : 'Conectando al mejor servidor...');
+                  return Text(
+                    display,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  );
+                },
               ),
               if (_showTryAnotherServer) ...[
                 const SizedBox(height: 18),
