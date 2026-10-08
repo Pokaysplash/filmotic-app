@@ -1621,8 +1621,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
                       if (!hasAnyVerified && activeLangServers.isNotEmpty)
                         Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
                             color: Colors.amber.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(8),
@@ -1630,12 +1630,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           ),
                           child: const Row(
                             children: [
-                              Icon(Icons.info_outline, size: 14, color: Colors.amberAccent),
-                              SizedBox(width: 7),
+                              Icon(Icons.info_outline, size: 13, color: Colors.amberAccent),
+                              SizedBox(width: 6),
                               Expanded(
                                 child: Text(
-                                  'Si una opción no reproduce de inmediato, prueba la siguiente.',
-                                  style: TextStyle(color: Colors.amberAccent, fontSize: 11),
+                                  'Prueba otra opción si esta no carga de inmediato.',
+                                  style: TextStyle(color: Colors.amberAccent, fontSize: 12),
                                 ),
                               ),
                             ],
@@ -1643,177 +1643,194 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ),
 
                       Flexible(
-                        child: activeLangServers.isEmpty
-                            ? Container(
-                                padding: const EdgeInsets.all(24),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  'No hay opciones activas para $selectedLang',
-                                  style: const TextStyle(color: Colors.white38),
-                                ),
-                              )
-                            : ListView.builder(
-                                shrinkWrap: true,
-                                itemCount: activeLangServers.length,
-                                itemBuilder: (ctx, idx) {
-                                  final srv = activeLangServers[idx];
-                                  final quality = srv['quality']?.toString() ??
-                                      srv['calidad']?.toString() ??
-                                      'Auto';
-                                  final isCurrentServer = _activeUrl == srv['servidor_url'] ||
-                                      _activeUrl == srv['resolved_m3u8'];
-                                  final isVerified = verifiedKeys.contains(_serverKey(srv));
-                                  final isSelected = selectedOptionServer == srv ||
-                                      (selectedOptionServer == null && isCurrentServer);
-
-                                  final srcId = SourceHealthService.normalizeSourceId(
-                                    srv['fuente_id']?.toString() ??
-                                        srv['fuente']?.toString() ??
-                                        srv['sitio']?.toString() ??
-                                        srv['servidor_nombre'] ??
-                                        '',
-                                  );
-                                  final health = SourceHealthService.instance.getHealth(srcId);
-                                  final isHealthy = health.healthStatus == HealthStatus.healthy;
-                                  final isDegraded = health.healthStatus == HealthStatus.degraded;
-
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 8),
-                                    child: Material(
-                                      color: isSelected
-                                          ? const Color(0xFFFF6B35).withValues(alpha: 0.15)
-                                          : const Color(0xFF202020),
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: ListTile(
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(12),
-                                          side: BorderSide(
-                                            color: isSelected
-                                                ? const Color(0xFFFF6B35)
-                                                : Colors.white.withValues(alpha: 0.08),
-                                            width: isSelected ? 1.5 : 1.0,
-                                          ),
-                                        ),
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                                        leading: Container(
-                                          width: 40,
-                                          height: 40,
-                                          decoration: BoxDecoration(
-                                            color: isSelected
-                                                ? const Color(0xFFFF6B35).withValues(alpha: 0.25)
-                                                : Colors.white.withValues(alpha: 0.05),
-                                            shape: BoxShape.circle,
-                                          ),
-                                          child: Icon(
-                                            isSelected ? Icons.play_arrow_rounded : Icons.hd_rounded,
-                                            color: isSelected ? const Color(0xFFFF6B35) : Colors.white70,
-                                            size: 22,
-                                          ),
-                                        ),
-                                        title: Row(
-                                          children: [
-                                            Text(
-                                              'Opción ${idx + 1}',
-                                              style: TextStyle(
-                                                color: isSelected ? const Color(0xFFFF6B35) : Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 15,
-                                              ),
-                                            ),
-                                            if (isHealthy)
-                                              const Padding(
-                                                padding: EdgeInsets.only(left: 6),
-                                                child: Icon(
-                                                  Icons.check_circle_rounded,
-                                                  size: 14,
-                                                  color: Color(0xFF22C55E),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                        subtitle: Row(
-                                          children: [
-                                            Text(
-                                              quality,
-                                              style: TextStyle(
-                                                color: isSelected ? Colors.white70 : Colors.white54,
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                            ),
-                                            if (isVerified) ...[
-                                              const SizedBox(width: 8),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.green.withValues(alpha: 0.2),
-                                                  borderRadius: BorderRadius.circular(4),
-                                                  border: Border.all(color: Colors.greenAccent, width: 0.8),
-                                                ),
-                                                child: const Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    Icon(Icons.check_circle_rounded, size: 10, color: Colors.greenAccent),
-                                                    SizedBox(width: 3),
-                                                    Text(
-                                                      'Verificado',
-                                                      style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                            if (isDegraded) ...[
-                                              const SizedBox(width: 8),
-                                              Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.orange.withValues(alpha: 0.15),
-                                                  borderRadius: BorderRadius.circular(4),
-                                                  border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5), width: 0.8),
-                                                ),
-                                                child: const Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    Icon(Icons.warning_amber_rounded, size: 10, color: Colors.orangeAccent),
-                                                    SizedBox(width: 3),
-                                                    Text(
-                                                      'Esta fuente está lenta hoy',
-                                                      style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                            if (isCurrentServer) ...[
-                                              const SizedBox(width: 8),
-                                              const Text(
-                                                '• En reproducción',
-                                                style: TextStyle(color: Color(0xFFFF6B35), fontSize: 11, fontWeight: FontWeight.bold),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                        trailing: Radio<Map<String, dynamic>>(
-                                          value: srv,
-                                          groupValue: selectedOptionServer ?? (isCurrentServer ? srv : (activeLangServers.isNotEmpty ? activeLangServers.first : null)),
-                                          activeColor: const Color(0xFFFF6B35),
-                                          onChanged: (val) {
-                                            setModalState(() {
-                                              selectedOptionServer = val;
-                                            });
-                                          },
-                                        ),
-                                        onTap: () {
-                                          setModalState(() {
-                                            selectedOptionServer = srv;
-                                          });
-                                        },
-                                      ),
+                        fit: FlexFit.loose,
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(
+                            minHeight: activeLangServers.isEmpty
+                                ? 50.0
+                                : (activeLangServers.length == 1
+                                    ? 80.0
+                                    : (activeLangServers.length == 2 ? 150.0 : 200.0)),
+                            maxHeight: MediaQuery.of(context).size.height * 0.50,
+                          ),
+                          child: activeLangServers.isEmpty
+                              ? Container(
+                                  padding: const EdgeInsets.all(24),
+                                  alignment: Alignment.center,
+                                  child: Text(
+                                    'No hay opciones activas para $selectedLang',
+                                    style: const TextStyle(color: Colors.white38),
+                                  ),
+                                )
+                              : Scrollbar(
+                                  thumbVisibility: activeLangServers.length > 3,
+                                  child: ListView.builder(
+                                    shrinkWrap: true,
+                                    physics: const BouncingScrollPhysics(
+                                      parent: AlwaysScrollableScrollPhysics(),
                                     ),
-                                  );
-                                },
-                              ),
+                                    itemCount: activeLangServers.length,
+                                    itemBuilder: (ctx, idx) {
+                                      final srv = activeLangServers[idx];
+                                      final quality = srv['quality']?.toString() ??
+                                          srv['calidad']?.toString() ??
+                                          'Auto';
+                                      final isCurrentServer = _activeUrl == srv['servidor_url'] ||
+                                          _activeUrl == srv['resolved_m3u8'];
+                                      final isVerified = verifiedKeys.contains(_serverKey(srv));
+                                      final isSelected = selectedOptionServer == srv ||
+                                          (selectedOptionServer == null && isCurrentServer);
+
+                                      final srcId = SourceHealthService.normalizeSourceId(
+                                        srv['fuente_id']?.toString() ??
+                                            srv['fuente']?.toString() ??
+                                            srv['sitio']?.toString() ??
+                                            srv['servidor_nombre'] ??
+                                            '',
+                                      );
+                                      final health = SourceHealthService.instance.getHealth(srcId);
+                                      final isHealthy = health.healthStatus == HealthStatus.healthy;
+                                      final isDegraded = health.healthStatus == HealthStatus.degraded;
+
+                                      return Padding(
+                                        padding: const EdgeInsets.only(bottom: 8),
+                                        child: Material(
+                                          color: isSelected
+                                              ? const Color(0xFFFF6B35).withValues(alpha: 0.15)
+                                              : const Color(0xFF202020),
+                                          borderRadius: BorderRadius.circular(12),
+                                          child: ListTile(
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(12),
+                                              side: BorderSide(
+                                                color: isSelected
+                                                    ? const Color(0xFFFF6B35)
+                                                    : Colors.white.withValues(alpha: 0.08),
+                                                width: isSelected ? 1.5 : 1.0,
+                                              ),
+                                            ),
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                                            leading: Container(
+                                              width: 40,
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                color: isSelected
+                                                    ? const Color(0xFFFF6B35).withValues(alpha: 0.25)
+                                                    : Colors.white.withValues(alpha: 0.05),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: Icon(
+                                                isSelected ? Icons.play_arrow_rounded : Icons.hd_rounded,
+                                                color: isSelected ? const Color(0xFFFF6B35) : Colors.white70,
+                                                size: 22,
+                                              ),
+                                            ),
+                                            title: Row(
+                                              children: [
+                                                Text(
+                                                  'Opción ${idx + 1}',
+                                                  style: TextStyle(
+                                                    color: isSelected ? const Color(0xFFFF6B35) : Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 15,
+                                                  ),
+                                                ),
+                                                if (isHealthy)
+                                                  const Padding(
+                                                    padding: EdgeInsets.only(left: 6),
+                                                    child: Icon(
+                                                      Icons.check_circle_rounded,
+                                                      size: 14,
+                                                      color: Color(0xFF22C55E),
+                                                    ),
+                                                  ),
+                                              ],
+                                            ),
+                                            subtitle: Row(
+                                              children: [
+                                                Text(
+                                                  quality,
+                                                  style: TextStyle(
+                                                    color: isSelected ? Colors.white70 : Colors.white54,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                                if (isVerified) ...[
+                                                  const SizedBox(width: 8),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.green.withValues(alpha: 0.2),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                      border: Border.all(color: Colors.greenAccent, width: 0.8),
+                                                    ),
+                                                    child: const Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(Icons.check_circle_rounded, size: 10, color: Colors.greenAccent),
+                                                        SizedBox(width: 3),
+                                                        Text(
+                                                          'Verificado',
+                                                          style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                                if (isDegraded) ...[
+                                                  const SizedBox(width: 8),
+                                                  Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                    decoration: BoxDecoration(
+                                                      color: Colors.orange.withValues(alpha: 0.15),
+                                                      borderRadius: BorderRadius.circular(4),
+                                                      border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5), width: 0.8),
+                                                    ),
+                                                    child: const Row(
+                                                      mainAxisSize: MainAxisSize.min,
+                                                      children: [
+                                                        Icon(Icons.warning_amber_rounded, size: 10, color: Colors.orangeAccent),
+                                                        SizedBox(width: 3),
+                                                        Text(
+                                                          'Esta fuente está lenta hoy',
+                                                          style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ],
+                                                if (isCurrentServer) ...[
+                                                  const SizedBox(width: 8),
+                                                  const Text(
+                                                    '• En reproducción',
+                                                    style: TextStyle(color: Color(0xFFFF6B35), fontSize: 11, fontWeight: FontWeight.bold),
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                            trailing: Radio<Map<String, dynamic>>(
+                                              value: srv,
+                                              groupValue: selectedOptionServer ?? (isCurrentServer ? srv : (activeLangServers.isNotEmpty ? activeLangServers.first : null)),
+                                              activeColor: const Color(0xFFFF6B35),
+                                              onChanged: (val) {
+                                                setModalState(() {
+                                                  selectedOptionServer = val;
+                                                });
+                                              },
+                                            ),
+                                            onTap: () {
+                                              setModalState(() {
+                                                selectedOptionServer = srv;
+                                              });
+                                            },
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                        ),
                       ),
                       if (activeLangServers.isNotEmpty) ...[
                         const SizedBox(height: 12),

@@ -46,9 +46,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.17",
+    "latest_version": "1.0.0-beta.18",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.17: Integración de fuentes PelisPlusHD, Cuevana3 y AnimeFLV-API con motor de priorización dinámica por telemetría de salud y aislamiento de fallos.",
+    "update_message": "Filmotic v1.0.0-beta.18: Corrección del layout del selector de idioma y calidad en móviles con restricciones de altura mínima y scroll adaptativo.",
     "force_update": false,
     "is_beta": true
   },
