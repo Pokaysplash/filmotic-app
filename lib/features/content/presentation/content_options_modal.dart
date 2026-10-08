@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'content_page.dart';
 import '../../player/presentation/player_page.dart';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Modal de opciones – móvil (diseño de la captura + blur)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,6 +25,7 @@ Future<T?> showContenidoOpcionesModal<T>(
   String? posterUrl,
   String? backdropUrl,
   String? logoUrl,
+  bool isFromContinueWatching = false,
 }) {
   return showDialog<T>(
     context: context,
@@ -37,6 +39,7 @@ Future<T?> showContenidoOpcionesModal<T>(
       posterUrl: posterUrl,
       backdropUrl: backdropUrl,
       logoUrl: logoUrl,
+      isFromContinueWatching: isFromContinueWatching,
     ),
   );
 }
@@ -49,6 +52,7 @@ class ContenidoOpcionesModal extends StatefulWidget {
   final String? posterUrl;
   final String? backdropUrl;
   final String? logoUrl;
+  final bool isFromContinueWatching;
 
   const ContenidoOpcionesModal({
     super.key,
@@ -59,6 +63,7 @@ class ContenidoOpcionesModal extends StatefulWidget {
     this.posterUrl,
     this.backdropUrl,
     this.logoUrl,
+    this.isFromContinueWatching = false,
   });
 
   @override
@@ -456,10 +461,55 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
                   : 'Añadir a la biblioteca',
               isDestructive: _isSaved,
               onTap: _toggleSave,
-              isLast: true,
+              isLast: !_canRemoveFromHistory,
             ),
+            if (_canRemoveFromHistory) ...[
+              const Divider(
+                height: 1,
+                color: Color(0xFF3A3A3C),
+                indent: 16,
+                endIndent: 16,
+              ),
+              // 4. Quitar de Continuar viendo
+              _MobileOption(
+                icon: Icons.delete_outline_rounded,
+                label: 'Quitar de Continuar viendo',
+                subtitle: 'Eliminar tu progreso de reproducción',
+                isDestructive: true,
+                onTap: _eliminarDeHistorial,
+                isLast: true,
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+
+  bool get _canRemoveFromHistory =>
+      widget.isFromContinueWatching || _history != null || _hasProgress;
+
+  Future<void> _eliminarDeHistorial() async {
+    final nav = Navigator.of(context);
+    final scaffold = ScaffoldMessenger.maybeOf(context);
+    nav.pop(true);
+    await HistorialHelper.eliminarDeHistorial(
+      id: widget.idcontenido,
+      tmdbId: widget.tmdbId,
+    );
+    scaffold?.showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.delete_outline_rounded, color: Colors.white70, size: 20),
+            SizedBox(width: 10),
+            Text('Eliminado de Continuar viendo'),
+          ],
+        ),
+        backgroundColor: const Color(0xFF2C2C2E),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
   }

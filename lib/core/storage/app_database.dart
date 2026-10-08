@@ -564,6 +564,44 @@ class AppDatabase {
     );
   }
 
+  Future<void> deleteHistoryItem({
+    required int contenidoId,
+    String? episodioId,
+    String? perfilId,
+    int? tmdbId,
+  }) async {
+    final targetId = perfilId ?? _cachedActiveProfile?.id;
+    if (targetId == null || contenidoId <= 0) return;
+    final db = await database;
+    if (episodioId != null && episodioId.isNotEmpty) {
+      final key = _histKey(targetId, contenidoId, episodioId);
+      await _historialStore.record(key).delete(db);
+      if (tmdbId != null && tmdbId > 0 && tmdbId != contenidoId) {
+        final keyTmdb = _histKey(targetId, tmdbId, episodioId);
+        await _historialStore.record(keyTmdb).delete(db);
+      }
+    } else {
+      final idFilters = <Filter>[
+        Filter.equals('contenido_id', contenidoId),
+        Filter.equals('idcontenido', contenidoId),
+      ];
+      if (tmdbId != null && tmdbId > 0) {
+        idFilters.add(Filter.equals('contenido_id', tmdbId));
+        idFilters.add(Filter.equals('idcontenido', tmdbId));
+        idFilters.add(Filter.equals('tmdb_id', tmdbId));
+      }
+      await _historialStore.delete(
+        db,
+        finder: Finder(
+          filter: Filter.and([
+            Filter.equals('perfil_id', targetId),
+            Filter.or(idFilters),
+          ]),
+        ),
+      );
+    }
+  }
+
   // ══════════════════════════════════════════════════════════════
   // CACHÉ TMDB (Sembast)
   // ══════════════════════════════════════════════════════════════
@@ -871,7 +909,11 @@ class AppDatabase {
     final records = await _liveChannelsStore.find(db);
     var list = records.map((r) => r.value).toList();
     if (country != null && country.isNotEmpty && country != 'ALL') {
-      list = list.where((c) => (c['country']?.toString().toUpperCase() == country.toUpperCase())).toList();
+      final cUpper = country.toUpperCase();
+      list = list.where((c) {
+        final cCountry = c['country']?.toString().toUpperCase();
+        return cCountry == cUpper || (cCountry == 'LATAM' && ['CO', 'MX', 'AR', 'CL', 'PE', 'VE', 'EC', 'UY', 'PY', 'BO', 'GT', 'PR', 'DO'].contains(cUpper));
+      }).toList();
     }
     if (language != null && language.isNotEmpty && language != 'ALL') {
       list = list.where((c) => (c['language']?.toString().toLowerCase() == language.toLowerCase())).toList();

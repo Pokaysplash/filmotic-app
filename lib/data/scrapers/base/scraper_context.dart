@@ -45,13 +45,21 @@ class Fuente {
   })? fetch;
 
   /// Búsqueda por texto. Solo se llama si [hasSearch] es true.
-  final Future<List<BuscadorItem>> Function(String q)? search;
+  final Future<List<BuscadorItem>> Function(String query)? search;
+
+  /// Prioridad inicial estática: 1 (máxima/preferente), 3 (estándar/baja)
+  final int priority;
+
+  /// Si la fuente está habilitada
+  final bool enabled;
 
   const Fuente({
     required this.id,
     required this.label,
     this.category = 'movie',
     this.language = 'es',
+    this.priority = 3,
+    this.enabled = true,
     this.tipos = const ['movie', 'tv'],
     this.generos = const [],
     this.supportsPopulares = false,

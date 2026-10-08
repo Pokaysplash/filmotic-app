@@ -230,12 +230,46 @@ class NativeResolvers {
           return await _resolveDropcdn(url).timeout(timeout);
         case 'yourupload':
           return await _resolveYourUpload(url).timeout(timeout);
+        case 'okru':
+          return await _resolveOkRu(url).timeout(timeout);
         default:
           return null;
       }
     } catch (_) {
       return null;
     }
+  }
+
+  // ---------- OK.RU ----------
+  static Future<StreamResult?> _resolveOkRu(String url) async {
+    try {
+      final res = await http.get(Uri.parse(url), headers: {'User-Agent': _ua});
+      if (res.statusCode != 200) return null;
+      final body = res.body;
+
+      final hlsM = RegExp(r'hlsManifestUrl(?:&quot;|"):("?)(https?://[^"&]+)').firstMatch(body);
+      if (hlsM != null) {
+        final decodedUrl = Uri.decodeFull(hlsM.group(2)!.replaceAll(r'\/', '/'));
+        return StreamResult(
+          url: decodedUrl,
+          headers: {'User-Agent': _ua},
+          serverName: 'OK.ru',
+          quality: 'HD',
+        );
+      }
+
+      final mp4M = RegExp(r'(?:url&quot;:&quot;|"url":")(https?://[^"&]+\.mp4[^"&]*)').firstMatch(body);
+      if (mp4M != null) {
+        final decodedUrl = Uri.decodeFull(mp4M.group(1)!.replaceAll(r'\/', '/'));
+        return StreamResult(
+          url: decodedUrl,
+          headers: {'User-Agent': _ua},
+          serverName: 'OK.ru',
+          quality: 'HD',
+        );
+      }
+    } catch (_) {}
+    return null;
   }
 
   // ---------- YOURUPLOAD ----------

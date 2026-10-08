@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../data/aggregators/main_fuentes_servidores.dart';
+import '../../../../core/services/source_health_service.dart';
 import 'extractor.dart';
 import 'player_screen.dart';
 const kAccentColor = Color(0xFFE50914);
@@ -676,9 +677,42 @@ class _ServidoresModalState extends State<ServidoresModal> {
   Widget _buildList(bool isPortrait) {
     final byLang = <String, List<Map<String, dynamic>>>{};
     for (final s in _servers) {
+      final srvName = s['fuente_label']?.toString() ?? s['servidor_nombre']?.toString() ?? '';
+      final srcId = SourceHealthService.normalizeSourceId(
+        s['fuente_id']?.toString() ?? s['fuente']?.toString() ?? s['sitio']?.toString() ?? srvName,
+      );
+      final health = SourceHealthService.instance.getHealth(srcId);
+      // Ocultar servidores de fuentes down
+      if (health.healthStatus == HealthStatus.down &&
+          !SourceHealthService.instance.canRetryDownSource(srcId)) {
+        continue;
+      }
+
       final lang = _normalizeIdioma(s['idioma']?.toString());
       byLang.putIfAbsent(lang, () => []).add(s);
     }
+
+    // Ordenar servidores en cada idioma: healthy primero, luego degraded
+    for (final list in byLang.values) {
+      list.sort((a, b) {
+        final aName = a['fuente_label']?.toString() ?? a['servidor_nombre']?.toString() ?? '';
+        final bName = b['fuente_label']?.toString() ?? b['servidor_nombre']?.toString() ?? '';
+        final aId = SourceHealthService.normalizeSourceId(
+          a['fuente_id']?.toString() ?? a['fuente']?.toString() ?? a['sitio']?.toString() ?? aName,
+        );
+        final bId = SourceHealthService.normalizeSourceId(
+          b['fuente_id']?.toString() ?? b['fuente']?.toString() ?? b['sitio']?.toString() ?? bName,
+        );
+        final aH = SourceHealthService.instance.getHealth(aId);
+        final bH = SourceHealthService.instance.getHealth(bId);
+
+        final aRank = aH.healthStatus == HealthStatus.healthy ? 0 : 1;
+        final bRank = bH.healthStatus == HealthStatus.healthy ? 0 : 1;
+        if (aRank != bRank) return aRank.compareTo(bRank);
+        return bH.priorityScore.compareTo(aH.priorityScore);
+      });
+    }
+
     final langKeys = byLang.keys.toList()
       ..sort((a, b) {
         const order = ['es_MX', 'es_ES', 'en_US', 'ja_JP'];
@@ -745,6 +779,13 @@ class _ServidoresModalState extends State<ServidoresModal> {
     final esPlayer = verificado && resuelto != null && resuelto.isNotEmpty;
     final flagSize = isPortrait ? 40.0 : 44.0;
 
+    final srcId = SourceHealthService.normalizeSourceId(
+      s['fuente_id']?.toString() ?? s['fuente']?.toString() ?? s['sitio']?.toString() ?? nombre,
+    );
+    final health = SourceHealthService.instance.getHealth(srcId);
+    final isHealthy = health.healthStatus == HealthStatus.healthy;
+    final isDegraded = health.healthStatus == HealthStatus.degraded;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 9),
       child: Material(
@@ -772,15 +813,26 @@ class _ServidoresModalState extends State<ServidoresModal> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        nombre,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: isPortrait ? 14 : 15,
-                          fontWeight: FontWeight.w700,
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              nombre,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: isPortrait ? 14 : 15,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          if (isHealthy)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 4),
+                              child: Icon(Icons.check_circle_rounded, color: Color(0xFF22C55E), size: 14),
+                            ),
+                        ],
                       ),
                       const SizedBox(height: 4),
                       Wrap(
@@ -808,6 +860,26 @@ class _ServidoresModalState extends State<ServidoresModal> {
                             _badge('PLAYER', const Color(0xFF22C55E), Icons.play_circle_fill_rounded)
                           else
                             _badge('WEBVIEW', const Color(0xFF3B82F6), Icons.language_rounded),
+                          if (isDegraded)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.orange.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5), width: 0.8),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.warning_amber_rounded, size: 10, color: Colors.orangeAccent),
+                                  SizedBox(width: 3),
+                                  Text(
+                                    'Esta fuente está lenta hoy',
+                                    style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                     ],

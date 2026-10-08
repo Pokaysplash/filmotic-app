@@ -35,6 +35,7 @@ class GuardadosPageState extends State<GuardadosPage>
   void initState() {
     super.initState();
     GuardadosBus.version.addListener(_onExternalChange);
+    HistorialBus.version.addListener(_onExternalChange);
     AppDatabase.instance.activeProfileNotifier.addListener(_onExternalChange);
     _load();
   }
@@ -47,6 +48,7 @@ class GuardadosPageState extends State<GuardadosPage>
   @override
   void dispose() {
     GuardadosBus.version.removeListener(_onExternalChange);
+    HistorialBus.version.removeListener(_onExternalChange);
     AppDatabase.instance.activeProfileNotifier.removeListener(_onExternalChange);
     super.dispose();
   }
@@ -285,7 +287,10 @@ class GuardadosPageState extends State<GuardadosPage>
   // ─────────────────────────────────────────────────────────────────────────
   // LONG PRESS → abre el modal de opciones nuevo
   // ─────────────────────────────────────────────────────────────────────────
-  void _showOpcionesModal(Map<String, dynamic> item) {
+  void _showOpcionesModal(
+    Map<String, dynamic> item, {
+    bool isFromContinueWatching = false,
+  }) {
     final id = parseCanonicalTmdbId(item['tmdb_id']) ??
         parseCanonicalTmdbId(item['idtmdb']) ??
         parseCanonicalTmdbId(item['idcontenido']) ??
@@ -326,10 +331,56 @@ class GuardadosPageState extends State<GuardadosPage>
       titulo: titulo,
       posterUrl: poster.isNotEmpty ? poster : null,
       backdropUrl: backdrop.isNotEmpty ? backdrop : null,
+      isFromContinueWatching: isFromContinueWatching,
     ).then((_) {
       // Recargar por si se quitó de la lista
       if (mounted) _load();
     });
+  }
+
+  Future<void> _eliminarDeContinuarViendo(Map<String, dynamic> item) async {
+    final id = item['idcontenido'] as int? ??
+        item['tmdb_id'] as int? ??
+        item['idtmdb'] as int? ??
+        0;
+    if (id <= 0) return;
+    final tmdbId = item['tmdb_id'] as int? ?? id;
+    final temporada = item['temporada'] as int?;
+    final capitulo = item['capitulo'] as int?;
+
+    setState(() {
+      _historial.removeWhere((e) {
+        final eid = e['idcontenido'] ?? e['tmdb_id'] ?? e['idtmdb'];
+        final sameId = eid == id || eid == tmdbId;
+        final sameEp = (temporada == null || e['temporada'] == temporada) &&
+            (capitulo == null || e['capitulo'] == capitulo);
+        return sameId && sameEp;
+      });
+    });
+
+    await HistorialHelper.eliminarDeHistorial(
+      id: id,
+      tmdbId: tmdbId,
+      temporada: temporada,
+      capitulo: capitulo,
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.delete_outline_rounded, color: Colors.white70, size: 20),
+            SizedBox(width: 10),
+            Text('Eliminado de Continuar viendo'),
+          ],
+        ),
+        backgroundColor: const Color(0xFF2C2C2E),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   @override
@@ -377,7 +428,11 @@ class GuardadosPageState extends State<GuardadosPage>
                               capitulo: item['capitulo'],
                               segundo: item['segundo'] as int? ?? 0,
                               onTap: () => _openHistorial(item),          // ← player directo
-                              onLongPress: () => _showOpcionesModal(item), // ← modal opciones
+                              onLongPress: () => _showOpcionesModal(
+                                item,
+                                isFromContinueWatching: true,
+                              ), // ← modal opciones
+                              onDelete: () => _eliminarDeContinuarViendo(item),
                             );
                           },
                         ),
@@ -510,6 +565,7 @@ class _HistorialBanner extends StatelessWidget {
   final int segundo;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
+  final VoidCallback? onDelete;
 
   const _HistorialBanner({
     required this.title,
@@ -520,6 +576,7 @@ class _HistorialBanner extends StatelessWidget {
     required this.segundo,
     required this.onTap,
     this.onLongPress,
+    this.onDelete,
   });
 
   String get _timeLabel {
@@ -649,6 +706,34 @@ class _HistorialBanner extends StatelessWidget {
                   ),
                 ),
               ),
+              if (onDelete != null)
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: GestureDetector(
+                    onTap: onDelete,
+                    behavior: HitTestBehavior.opaque,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.65),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white.withValues(alpha: 0.2),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.close_rounded,
+                          color: Colors.white,
+                          size: 15,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             ],
           ),
         ),

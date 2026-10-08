@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'tv_content_page.dart';
 import '../../player/presentation/tv/tv_player_page.dart';
+
 /// ─────────────────────────────────────────────────────────────────────────────
 /// Modal independiente de opciones de contenido.
 ///
@@ -44,6 +45,7 @@ Future<T?> showContenidoOpcionesModal<T>(
   String? posterUrl,
   String? backdropUrl,
   String? logoUrl,
+  bool isFromContinueWatching = false,
 }) {
   return showDialog<T>(
     context: context,
@@ -57,6 +59,7 @@ Future<T?> showContenidoOpcionesModal<T>(
       posterUrl: posterUrl,
       backdropUrl: backdropUrl,
       logoUrl: logoUrl,
+      isFromContinueWatching: isFromContinueWatching,
     ),
   );
 }
@@ -69,6 +72,7 @@ class ContenidoOpcionesModal extends StatefulWidget {
   final String? posterUrl;
   final String? backdropUrl;
   final String? logoUrl;
+  final bool isFromContinueWatching;
 
   const ContenidoOpcionesModal({
     super.key,
@@ -79,6 +83,7 @@ class ContenidoOpcionesModal extends StatefulWidget {
     this.posterUrl,
     this.backdropUrl,
     this.logoUrl,
+    this.isFromContinueWatching = false,
   });
 
   @override
@@ -97,8 +102,9 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
   final FocusNode _playNode = FocusNode(debugLabel: 'opt_play');
   final FocusNode _infoNode = FocusNode(debugLabel: 'opt_info');
   final FocusNode _saveNode = FocusNode(debugLabel: 'opt_save');
+  final FocusNode _removeHistNode = FocusNode(debugLabel: 'opt_remove_hist');
 
-  late final List<FocusNode> _nodes;
+  late List<FocusNode> _nodes;
 
   @override
   void initState() {
@@ -114,9 +120,10 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
 
   @override
   void dispose() {
-    for (final n in _nodes) {
-      n.dispose();
-    }
+    _playNode.dispose();
+    _infoNode.dispose();
+    _saveNode.dispose();
+    _removeHistNode.dispose();
     super.dispose();
   }
 
@@ -174,6 +181,11 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
       _history = hist;
       _isSaved = saved;
       _loading = false;
+      if (_canRemoveFromHistory) {
+        _nodes = [_playNode, _infoNode, _saveNode, _removeHistNode];
+      } else {
+        _nodes = [_playNode, _infoNode, _saveNode];
+      }
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -432,6 +444,18 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
                             onTap: _toggleSave,
                             onArrow: (dx) => _moveFocus(2, dx),
                           ),
+                          if (_canRemoveFromHistory) ...[
+                            const SizedBox(height: 8),
+                            _OptionTile(
+                              focusNode: _removeHistNode,
+                              icon: Icons.delete_outline_rounded,
+                              label: 'Quitar de Continuar viendo',
+                              subtitle: 'Eliminar tu progreso de reproducción',
+                              isDestructive: true,
+                              onTap: _eliminarDeHistorial,
+                              onArrow: (dx) => _moveFocus(3, dx),
+                            ),
+                          ],
                           const SizedBox(height: 12),
                         ],
                       ),
@@ -441,6 +465,24 @@ class _ContenidoOpcionesModalState extends State<ContenidoOpcionesModal> {
         ),
       ),
     );
+  }
+
+  bool get _canRemoveFromHistory =>
+      widget.isFromContinueWatching || _history != null || _hasProgress;
+
+  Future<void> _eliminarDeHistorial() async {
+    Navigator.of(context).pop(true);
+    await HistorialHelper.eliminarDeHistorial(
+      id: widget.idcontenido,
+      tmdbId: widget.tmdbId,
+    );
+    if (mounted) {
+      showTvToast(
+        context,
+        message: 'Eliminado de Continuar viendo',
+        icon: Icons.delete_outline_rounded,
+      );
+    }
   }
 
   Widget _buildHeader() {
@@ -544,6 +586,7 @@ class _OptionTile extends StatelessWidget {
   final String label;
   final String? subtitle;
   final bool accent;
+  final bool isDestructive;
   final bool compact;
   final VoidCallback onTap;
   final void Function(int dx) onArrow;
@@ -554,6 +597,7 @@ class _OptionTile extends StatelessWidget {
     required this.label,
     this.subtitle,
     this.accent = false,
+    this.isDestructive = false,
     this.compact = false,
     required this.onTap,
     required this.onArrow,
@@ -598,15 +642,21 @@ class _OptionTile extends StatelessWidget {
               ),
               decoration: BoxDecoration(
                 color: hasFocus
-                    ? (accent
-                        ? _kAccent.withValues(alpha: 0.22)
-                        : Colors.white.withValues(alpha: 0.1))
-                    : (accent
-                        ? _kAccent.withValues(alpha: 0.12)
-                        : Colors.transparent),
+                    ? (isDestructive
+                        ? Colors.redAccent.withValues(alpha: 0.28)
+                        : (accent
+                            ? _kAccent.withValues(alpha: 0.22)
+                            : Colors.white.withValues(alpha: 0.1)))
+                    : (isDestructive
+                        ? Colors.redAccent.withValues(alpha: 0.10)
+                        : (accent
+                            ? _kAccent.withValues(alpha: 0.12)
+                            : Colors.transparent)),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: hasFocus ? Colors.white : Colors.transparent,
+                  color: hasFocus
+                      ? (isDestructive ? Colors.redAccent : Colors.white)
+                      : Colors.transparent,
                   width: 2,
                 ),
               ),
@@ -616,16 +666,20 @@ class _OptionTile extends StatelessWidget {
                     width: 40,
                     height: 40,
                     decoration: BoxDecoration(
-                      color: accent
-                          ? _kAccent.withValues(alpha: hasFocus ? 0.9 : 0.75)
-                          : Colors.white.withValues(alpha: 0.08),
+                      color: isDestructive
+                          ? Colors.redAccent.withValues(alpha: hasFocus ? 0.9 : 0.75)
+                          : (accent
+                              ? _kAccent.withValues(alpha: hasFocus ? 0.9 : 0.75)
+                              : Colors.white.withValues(alpha: 0.08)),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
                       icon,
-                      color: accent || hasFocus
+                      color: isDestructive
                           ? Colors.white
-                          : Colors.white70,
+                          : (accent || hasFocus
+                              ? Colors.white
+                              : Colors.white70),
                       size: 22,
                     ),
                   ),

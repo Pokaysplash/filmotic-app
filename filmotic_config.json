@@ -15,6 +15,9 @@
   },
   "sources": {
     "enabled": [
+      "pelisplushd",
+      "cuevana3",
+      "animeflv_api",
       "cuevana",
       "pelisplus",
       "serieskao",
@@ -43,9 +46,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.15",
+    "latest_version": "1.0.0-beta.17",
     "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.15: Fix del bucle de actualización, reproducción de episodios garantizada y selección automática ultra-rápida del mejor servidor en paralelo.",
+    "update_message": "Filmotic v1.0.0-beta.17: Integración de fuentes PelisPlusHD, Cuevana3 y AnimeFLV-API con motor de priorización dinámica por telemetría de salud y aislamiento de fallos.",
     "force_update": false,
     "is_beta": true
   },

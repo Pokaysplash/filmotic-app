@@ -94,6 +94,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     GuardadosBus.version.addListener(_onContinueBus);
+    HistorialBus.version.addListener(_onContinueBus);
     DownloadNavBus.version.addListener(_onDownloadNavBus);
     AppDatabase.instance.activeProfileNotifier.addListener(_onActiveProfileChanged);
     _loadContinueItem();
@@ -406,6 +407,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
   @override
   void dispose() {
     GuardadosBus.version.removeListener(_onContinueBus);
+    HistorialBus.version.removeListener(_onContinueBus);
     DownloadNavBus.version.removeListener(_onDownloadNavBus);
     AppDatabase.instance.activeProfileNotifier.removeListener(_onActiveProfileChanged);
     WidgetsBinding.instance.removeObserver(this);
@@ -430,6 +432,13 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
 
   Future<void> _loadContinueItem() async {
     try {
+      final sembastHistory = await AppDatabase.instance.getHistory();
+      if (sembastHistory.isNotEmpty) {
+        if (!mounted) return;
+        setState(() => _continueItem = sembastHistory.first);
+        return;
+      }
+
       final prefs = await SharedPreferences.getInstance();
       final keys = prefs
           .getKeys()
@@ -457,7 +466,8 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() => _continueItem = best);
     } catch (_) {
-      if (mounted) setState(() => _continueItem = null);
+      if (!mounted) return;
+      setState(() => _continueItem = null);
     }
   }
 
@@ -465,7 +475,91 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
       !_continueDismissed && _continueItem != null && _currentIndex == 0;
 
   void _dismissContinue() {
-    setState(() => _continueDismissed = true);
+    final item = _continueItem;
+    if (item == null) {
+      setState(() => _continueDismissed = true);
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF1C1C1E),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              item['titulo']?.toString() ?? 'Continuar viendo',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 14),
+            ListTile(
+              leading: const Icon(Icons.visibility_off_rounded, color: Colors.white70),
+              title: const Text('Ocultar por ahora', style: TextStyle(color: Colors.white)),
+              subtitle: const Text('No mostrar esta barra flotante', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => _continueDismissed = true);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+              title: const Text('Eliminar de Continuar viendo', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w600)),
+              subtitle: const Text('Quitar permanentemente de tu lista', style: TextStyle(color: Colors.white54, fontSize: 12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              onTap: () async {
+                Navigator.pop(ctx);
+                setState(() {
+                  _continueDismissed = true;
+                  _continueItem = null;
+                });
+                final id = item['idcontenido'] as int? ?? item['tmdb_id'] as int? ?? 0;
+                final tmdbId = item['tmdb_id'] as int? ?? id;
+                final temporada = item['temporada'] as int?;
+                final capitulo = item['capitulo'] as int?;
+                await HistorialHelper.eliminarDeHistorial(
+                  id: id,
+                  tmdbId: tmdbId,
+                  temporada: temporada,
+                  capitulo: capitulo,
+                );
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: const Row(
+                        children: [
+                          Icon(Icons.delete_outline_rounded, color: Colors.white70, size: 20),
+                          SizedBox(width: 10),
+                          Text('Eliminado de Continuar viendo'),
+                        ],
+                      ),
+                      backgroundColor: const Color(0xFF2C2C2E),
+                      behavior: SnackBarBehavior.floating,
+                      duration: const Duration(seconds: 2),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _openContinuePlayer() {

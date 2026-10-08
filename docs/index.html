@@ -44,11 +44,10 @@
     </header>
 
     <div class="beta-banner">
-      <span class="beta-badge">BETA</span>
+      <span class="beta-badge">BETA PÚBLICA</span>
       <p>
-        <strong>Filmotic está en desarrollo activo.</strong>
-        Esta es una versión beta. La mayoría de las funciones están operativas, pero puedes encontrar errores. 
-        Agradecemos tu paciencia y tus reportes para seguir mejorando.
+        <strong>Filmotic está en desarrollo activo (Fase Beta).</strong>
+        Esta versión incluye las últimas novedades y correcciones continuas. Todas las funciones principales están operativas, pero puedes reportar cualquier detalle en nuestra comunidad.
       </p>
     </div>
 
@@ -57,7 +56,7 @@
       <section class="hero">
         <div class="badge-pill">
           <span class="pulse-dot"></span>
-          Versión Beta v1.0.0-beta.4 disponible
+          <span id="version-badge-text">Versión Beta v1.0.0-beta.17 disponible</span>
         </div>
         <h1 class="hero-title">
           Tu cine personal en <span class="gradient-text">cualquier pantalla</span>
@@ -73,7 +72,7 @@
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
             </svg>
-            Descargar APK Oficial
+            <span id="btn-download-label">Descargar APK Oficial (v1.0.0-beta.17)</span>
           </a>
           <div class="download-meta">
             <span>
@@ -84,7 +83,9 @@
               Android 5.0+ (Móvil & TV)
             </span>
             <span>•</span>
-            <span>APK Directo (~90 MB)</span>
+            <span id="apk-size-info">APK Directo (~98 MB)</span>
+            <span>•</span>
+            <span style="color: #FF8552; font-weight: 600;">Estado: Beta</span>
             <span>•</span>
             <span>100% Libre de Virus</span>
           </div>
@@ -259,9 +260,9 @@
           </a>
         </div>
         <div class="footer-meta">
-          <span>Versión: <strong>1.0.0-beta.4</strong></span>
+          <span>Versión: <strong id="footer-version">1.0.0-beta.17 (Beta)</strong></span>
           <span>•</span>
-          <span>Actualizado: <strong>Septiembre 2026</strong></span>
+          <span>Actualizado: <strong>Octubre 2026</strong></span>
           <span>•</span>
           <span>Android 5.0+ (Móvil & TV)</span>
         </div>
@@ -271,5 +272,59 @@
       </div>
     </footer>
   </div>
+
+  <!-- Sincronización automática de versión en vivo -->
+  <script>
+    (async function initVersionSync() {
+      const fallbackVersion = '1.0.0-beta.17';
+      let detectedVersion = fallbackVersion;
+      let isBeta = true;
+
+      try {
+        // 1. Intentar consultar la API de GitHub Releases
+        const ghRes = await fetch('https://api.github.com/repos/Pokaysplash/filmotic-app/releases/latest', {
+          headers: { 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (ghRes.ok) {
+          const ghData = await ghRes.json();
+          if (ghData.tag_name) {
+            detectedVersion = ghData.tag_name.replace(/^v/, '');
+            isBeta = detectedVersion.toLowerCase().includes('beta');
+          }
+        } else {
+          // 2. Fallback a filmotic_config.json
+          const cfgRes = await fetch('https://raw.githubusercontent.com/Pokaysplash/filmotic-app/main/filmotic_config.json');
+          if (cfgRes.ok) {
+            const cfgData = await cfgRes.json();
+            if (cfgData && cfgData.app && cfgData.app.latest_version) {
+              detectedVersion = cfgData.app.latest_version.replace(/^v/, '');
+              isBeta = cfgData.app.is_beta !== false;
+            }
+          }
+        }
+      } catch (e) {
+        // En caso de fallo o modo offline, se preserva el fallback embebido
+      }
+
+      // Aplicar actualización reactiva en la landing page
+      const vText = `v${detectedVersion}`;
+      const badgeElem = document.getElementById('version-badge-text');
+      if (badgeElem) {
+        badgeElem.textContent = isBeta
+          ? `Versión Beta ${vText} disponible`
+          : `Versión Oficial ${vText} disponible`;
+      }
+
+      const btnLabel = document.getElementById('btn-download-label');
+      if (btnLabel) {
+        btnLabel.textContent = `Descargar APK Oficial (${vText})`;
+      }
+
+      const footerVer = document.getElementById('footer-version');
+      if (footerVer) {
+        footerVer.textContent = isBeta ? `${detectedVersion} (Beta)` : detectedVersion;
+      }
+    })();
+  </script>
 </body>
 </html>

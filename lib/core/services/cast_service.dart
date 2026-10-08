@@ -1,9 +1,29 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:media_cast_dlna/media_cast_dlna.dart';
+import 'package:dart_cast/dart_cast.dart' as dc;
 
-/// Estados posibles de la sesión de casting DLNA
+export 'package:dart_cast/dart_cast.dart'
+    show CastDevice, CastProtocol, CastMediaType, CastSession, SessionState;
+
+/// Extensiones de compatibilidad con versiones previas
+extension CastDeviceCompat on dc.CastDevice {
+  String get friendlyName => name;
+  UdnCompat get udn => UdnCompat(id);
+}
+
+class UdnCompat {
+  final String value;
+  const UdnCompat(this.value);
+  @override
+  String toString() => value;
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || (other is UdnCompat && other.value == value);
+  @override
+  int get hashCode => value.hashCode;
+}
+
+/// Estados posibles de la sesión de casting
 enum CastState {
   idle,
   discovering,
@@ -12,16 +32,37 @@ enum CastState {
   error,
 }
 
-/// Servicio central de Casting DLNA / UPnP (Controlador DMC)
-/// Permite descubrir reproductores DLNA (Xbox, Smart TV, TV Box),
-/// enviar streams VOD (películas y series) y controlar la reproducción remota.
+/// Servicio central de Casting unificado (pure Dart: DLNA, Chromecast, AirPlay)
+/// Utiliza `dart_cast` con proxy HTTP integrado para inyectar cabeceras HTTP
+/// (como Referer y User-Agent) en streams HLS protegidos (Cuevana, PelisPlus, etc.).
 class CastService {
   CastService._internal();
   static final CastService instance = CastService._internal();
   factory CastService() => instance;
 
-  final MediaCastDlnaApi _api = MediaCastDlnaApi();
-  MediaCastDlnaDiscoveryEvents? _discoveryEvents;
+  late final dc.CastService _dcService = dc.CastService(
+    discoveryProviders: [
+      dc.ChromecastDiscoveryProvider(),
+      dc.AirPlayDiscoveryProvider(),
+      dc.DlnaDiscoveryProvider(),
+    ],
+    sessionFactory: (device) {
+      switch (device.protocol) {
+        case dc.CastProtocol.chromecast:
+          return dc.ChromecastSession(device: device);
+        case dc.CastProtocol.airplay:
+          return dc.AirPlaySession(device);
+        case dc.CastProtocol.dlna:
+          return dc.DlnaSession.fromDevice(device);
+      }
+    },
+  );
+
+  dc.CastSession? _activeSession;
+  dc.CastSession? get activeSession => _activeSession;
+
+  dc.CastDevice? _connectedDevice;
+  dc.CastDevice? get connectedDevice => _connectedDevice;
 
   final ValueNotifier<CastState> stateNotifier =
       ValueNotifier<CastState>(CastState.idle);
@@ -29,43 +70,38 @@ class CastService {
 
   final ValueNotifier<bool> isRemotePlaying = ValueNotifier<bool>(false);
 
-  DlnaDevice? _connectedDevice;
-  DlnaDevice? get connectedDevice => _connectedDevice;
-
   String? _lastError;
   String? get lastError => _lastError;
 
-  final List<DlnaDevice> _devices = [];
-  List<DlnaDevice> get devices => List.unmodifiable(_devices);
+  final List<dc.CastDevice> _devices = [];
+  List<dc.CastDevice> get devices => List.unmodifiable(_devices);
 
-  final StreamController<List<DlnaDevice>> _devicesController =
-      StreamController<List<DlnaDevice>>.broadcast();
+  final StreamController<List<dc.CastDevice>> _devicesController =
+      StreamController<List<dc.CastDevice>>.broadcast();
 
-  StreamSubscription<DlnaDevice>? _foundSub;
-  StreamSubscription<DeviceUdn>? _lostSub;
-  StreamSubscription<DeviceUdn>? _offlineSub;
+  StreamSubscription<List<dc.CastDevice>>? _discoverySub;
+  StreamSubscription<dc.SessionState>? _sessionStateSub;
+  StreamSubscription<Duration>? _positionSub;
+  StreamSubscription<Duration>? _durationSub;
   Timer? _discoveryTimeoutTimer;
-  bool _isInitialized = false;
 
-  /// Inicializa la API de UPnP/DLNA en Android
-  Future<void> init() async {
-    if (_isInitialized) return;
-    if (!Platform.isAndroid) return;
+  Duration _position = Duration.zero;
+  Duration get position => _position;
+  final StreamController<Duration> _positionController =
+      StreamController<Duration>.broadcast();
+  Stream<Duration> get positionStream => _positionController.stream;
 
-    try {
-      final initialized = await _api.isUpnpServiceInitialized();
-      if (!initialized) {
-        await _api.initializeUpnpService();
-      }
-      _discoveryEvents ??= MediaCastDlnaDiscoveryEvents();
-      _isInitialized = true;
-    } catch (e) {
-      debugPrint('[CastService] init error: $e');
-    }
-  }
+  Duration _duration = Duration.zero;
+  Duration get duration => _duration;
+  final StreamController<Duration> _durationController =
+      StreamController<Duration>.broadcast();
+  Stream<Duration> get durationStream => _durationController.stream;
 
-  /// Inicia el descubrimiento de dispositivos en la red local y emite la lista en tiempo real
-  Stream<List<DlnaDevice>> discoverDevices({
+  /// Inicialización retrocompatible (no-op en dart_cast pure Dart)
+  Future<void> init() async {}
+
+  /// Inicia el descubrimiento de dispositivos en la red local (DLNA, Chromecast, AirPlay)
+  Stream<List<dc.CastDevice>> discoverDevices({
     Duration timeout = const Duration(seconds: 10),
   }) {
     _startDiscovery(timeout);
@@ -73,99 +109,69 @@ class CastService {
   }
 
   Future<void> _startDiscovery(Duration timeout) async {
-    if (!Platform.isAndroid) {
-      _lastError = 'El casting DLNA está disponible en dispositivos Android.';
-      stateNotifier.value = CastState.error;
-      return;
-    }
-
-    await init();
     _devices.clear();
     _devicesController.add(List.unmodifiable(_devices));
     _lastError = null;
     stateNotifier.value = CastState.discovering;
 
-    _cancelDiscoverySubscriptions();
-    _discoveryEvents ??= MediaCastDlnaDiscoveryEvents();
-
-    _foundSub = _discoveryEvents!.onDeviceFound.listen((device) {
-      // Ignorar dispositivos sin nombre amigable
-      if (device.friendlyName.trim().isEmpty) return;
-
-      final existingIndex = _devices.indexWhere(
-        (item) => item.udn.value == device.udn.value,
-      );
-
-      if (existingIndex >= 0) {
-        _devices[existingIndex] = device;
-      } else {
-        _devices.add(device);
-      }
-
-      _devicesController.add(List.unmodifiable(_devices));
-      if (_devices.isNotEmpty && state == CastState.discovering) {
-        _lastError = null;
-      }
-    });
-
-    _lostSub = _discoveryEvents!.onDeviceLost.listen((udn) {
-      _devices.removeWhere((item) => item.udn.value == udn.value);
-      _devicesController.add(List.unmodifiable(_devices));
-    });
-
-    _offlineSub = _discoveryEvents!.onRendererOffline.listen((udn) {
-      _devices.removeWhere((item) => item.udn.value == udn.value);
-      _devicesController.add(List.unmodifiable(_devices));
-      if (_connectedDevice?.udn.value == udn.value) {
-        disconnect();
-      }
-    });
+    _discoverySub?.cancel();
+    _discoveryTimeoutTimer?.cancel();
 
     try {
-      // Búsqueda orientada a MediaRenderers (Smart TV, Xbox, TV Box)
-      await _api.startDiscovery(
-        DiscoveryOptions(
-          searchTarget: SearchTarget(
-            target: 'urn:schemas-upnp-org:device:MediaRenderer:1',
-          ),
-          timeout: DiscoveryTimeout(seconds: timeout.inSeconds),
-        ),
+      final stream = _dcService.startDiscovery(timeout: timeout);
+      _discoverySub = stream.listen(
+        (list) {
+          _devices.clear();
+          final seenIds = <String>{};
+          for (final d in list) {
+            if (d.name.trim().isNotEmpty && seenIds.add(d.id)) {
+              _devices.add(d);
+            }
+          }
+          _devicesController.add(List.unmodifiable(_devices));
+          if (_devices.isNotEmpty && state == CastState.discovering) {
+            _lastError = null;
+          }
+        },
+        onError: (err) {
+          debugPrint('[CastService] discovery error: $err');
+        },
+        onDone: () {
+          if (state == CastState.discovering) {
+            stateNotifier.value =
+                _devices.isNotEmpty ? CastState.idle : CastState.error;
+            if (_devices.isEmpty) {
+              _lastError =
+                  'No se encontraron dispositivos. Asegúrate de estar en la misma red WiFi y que el dispositivo esté encendido.';
+            }
+          }
+        },
       );
     } catch (e) {
       debugPrint('[CastService] startDiscovery error: $e');
     }
 
-    _discoveryTimeoutTimer?.cancel();
     _discoveryTimeoutTimer = Timer(timeout, () {
       if (_devices.isEmpty && state == CastState.discovering) {
         _lastError =
             'No se encontraron dispositivos. Asegúrate de estar en la misma red WiFi y que el dispositivo esté encendido.';
         stateNotifier.value = CastState.error;
+      } else if (state == CastState.discovering) {
+        stateNotifier.value = CastState.idle;
       }
     });
   }
 
-  void _cancelDiscoverySubscriptions() {
-    _discoveryTimeoutTimer?.cancel();
-    _foundSub?.cancel();
-    _lostSub?.cancel();
-    _offlineSub?.cancel();
-    _foundSub = null;
-    _lostSub = null;
-    _offlineSub = null;
-  }
-
-  /// Conecta con el dispositivo seleccionado por el usuario (con 1 reintento automático)
-  Future<bool> connectToDevice(String deviceUdn) async {
+  /// Conecta con el dispositivo seleccionado
+  Future<bool> connectToDevice(String deviceId) async {
     _lastError = null;
-
-    DlnaDevice? targetDevice;
+    dc.CastDevice? targetDevice;
     try {
       targetDevice = _devices.firstWhere(
-        (d) => d.udn.value == deviceUdn,
+        (d) => d.id == deviceId,
       );
     } catch (_) {
-      if (_connectedDevice != null && _connectedDevice!.udn.value == deviceUdn) {
+      if (_connectedDevice != null && _connectedDevice!.id == deviceId) {
         targetDevice = _connectedDevice;
       }
     }
@@ -176,39 +182,87 @@ class CastService {
       return false;
     }
 
-    // Reintento de verificación online
-    bool isOnline = false;
-    for (int attempt = 1; attempt <= 2; attempt++) {
-      try {
-        isOnline = await _api.isDeviceOnline(targetDevice.udn);
-        if (isOnline) break;
-      } catch (e) {
-        debugPrint('[CastService] connect attempt $attempt failed: $e');
-        if (attempt < 2) {
-          await Future.delayed(const Duration(milliseconds: 600));
-        }
-      }
+    try {
+      final session = await _dcService.connect(targetDevice);
+      _activeSession = session;
+      _connectedDevice = targetDevice;
+      _attachSessionListeners(session);
+      stateNotifier.value = CastState.connected;
+      return true;
+    } catch (e) {
+      debugPrint('[CastService] connect error: $e');
+      _lastError = 'Error al conectar con ${targetDevice.name}.';
+      stateNotifier.value = CastState.error;
+      return false;
     }
-
-    // Aceptamos la conexión: muchos dispositivos DLNA no responden ping UPnP pero sí llamadas AVTransport
-    _connectedDevice = targetDevice;
-    stateNotifier.value = CastState.connected;
-    return true;
   }
 
-  /// Envía la URL del video y metadatos al dispositivo remoto e inicia la reproducción
+  void _attachSessionListeners(dc.CastSession session) {
+    _sessionStateSub?.cancel();
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+
+    _sessionStateSub = session.stateStream.listen((sessState) {
+      debugPrint('[CastService] Session state: $sessState');
+      switch (sessState) {
+        case dc.SessionState.connecting:
+          stateNotifier.value = CastState.connected;
+          break;
+        case dc.SessionState.connected:
+          stateNotifier.value = CastState.connected;
+          break;
+        case dc.SessionState.loading:
+        case dc.SessionState.playing:
+        case dc.SessionState.buffering:
+          stateNotifier.value = CastState.casting;
+          isRemotePlaying.value = (sessState == dc.SessionState.playing);
+          break;
+        case dc.SessionState.paused:
+          stateNotifier.value = CastState.casting;
+          isRemotePlaying.value = false;
+          break;
+        case dc.SessionState.idle:
+          isRemotePlaying.value = false;
+          if (stateNotifier.value == CastState.casting) {
+            stateNotifier.value = CastState.connected;
+          }
+          break;
+        case dc.SessionState.disconnected:
+          isRemotePlaying.value = false;
+          _activeSession = null;
+          _connectedDevice = null;
+          stateNotifier.value = CastState.idle;
+          break;
+      }
+    });
+
+    _positionSub = session.positionStream.listen((pos) {
+      _position = pos;
+      _positionController.add(pos);
+    });
+
+    _durationSub = session.durationStream.listen((dur) {
+      _duration = dur;
+      _durationController.add(dur);
+    });
+  }
+
+  /// Envía la URL del video y metadatos con cabeceras HTTP (Referer / User-Agent)
+  /// al dispositivo remoto a través del proxy HTTP de dart_cast.
   Future<bool> castMedia(
     String videoUrl, {
     String? title,
     String? posterUrl,
+    Map<String, String>? headers,
   }) async {
-    if (_connectedDevice == null) {
+    if (_activeSession == null || _connectedDevice == null) {
       _lastError = 'No hay ningún dispositivo conectado para enviar el video.';
       stateNotifier.value = CastState.error;
       return false;
     }
 
-    if (videoUrl.trim().isEmpty) {
+    final cleanUrl = videoUrl.trim();
+    if (cleanUrl.isEmpty) {
       _lastError = 'La URL del video aún no está disponible.';
       stateNotifier.value = CastState.error;
       return false;
@@ -218,16 +272,24 @@ class CastService {
     _lastError = null;
 
     try {
-      final mediaUri = Url(value: videoUrl.trim());
-      final metadata = VideoMetadata(
+      final mediaType = _detectMediaType(cleanUrl);
+      final httpHeaders = Map<String, String>.from(headers ?? {});
+
+      // Inyectar User-Agent estándar si no viene especificado
+      if (!httpHeaders.keys.any((k) => k.toLowerCase() == 'user-agent')) {
+        httpHeaders['User-Agent'] =
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+      }
+
+      final media = dc.CastMedia(
+        url: cleanUrl,
+        type: mediaType,
         title: title,
-        thumbnailUri: (posterUrl != null && posterUrl.trim().isNotEmpty)
-            ? Url(value: posterUrl.trim())
-            : null,
+        imageUrl: posterUrl,
+        httpHeaders: httpHeaders,
       );
 
-      await _api.setMediaUri(_connectedDevice!.udn, mediaUri, metadata);
-      await _api.play(_connectedDevice!.udn);
+      await _activeSession!.loadMedia(media);
       isRemotePlaying.value = true;
       return true;
     } catch (e) {
@@ -241,9 +303,9 @@ class CastService {
 
   /// Reanuda la reproducción remota
   Future<void> play() async {
-    if (_connectedDevice == null) return;
+    if (_activeSession == null) return;
     try {
-      await _api.play(_connectedDevice!.udn);
+      await _activeSession!.play();
       isRemotePlaying.value = true;
     } catch (e) {
       debugPrint('[CastService] play error: $e');
@@ -252,9 +314,9 @@ class CastService {
 
   /// Pausa la reproducción remota
   Future<void> pause() async {
-    if (_connectedDevice == null) return;
+    if (_activeSession == null) return;
     try {
-      await _api.pause(_connectedDevice!.udn);
+      await _activeSession!.pause();
       isRemotePlaying.value = false;
     } catch (e) {
       debugPrint('[CastService] pause error: $e');
@@ -263,9 +325,9 @@ class CastService {
 
   /// Detiene la reproducción remota
   Future<void> stop() async {
-    if (_connectedDevice == null) return;
+    if (_activeSession == null) return;
     try {
-      await _api.stop(_connectedDevice!.udn);
+      await _activeSession!.stop();
       isRemotePlaying.value = false;
       stateNotifier.value = CastState.connected;
     } catch (e) {
@@ -275,12 +337,9 @@ class CastService {
 
   /// Salta a una posición específica en el dispositivo remoto
   Future<void> seek(Duration position) async {
-    if (_connectedDevice == null) return;
+    if (_activeSession == null) return;
     try {
-      await _api.seek(
-        _connectedDevice!.udn,
-        TimePosition(seconds: position.inSeconds),
-      );
+      await _activeSession!.seek(position);
     } catch (e) {
       debugPrint('[CastService] seek error: $e');
     }
@@ -288,19 +347,42 @@ class CastService {
 
   /// Cierra la conexión, detiene la reproducción remota y resetea el servicio
   Future<void> disconnect() async {
-    if (_connectedDevice != null) {
+    _discoveryTimeoutTimer?.cancel();
+    _discoverySub?.cancel();
+    _sessionStateSub?.cancel();
+    _positionSub?.cancel();
+    _durationSub?.cancel();
+
+    if (_activeSession != null) {
       try {
-        await _api.stop(_connectedDevice!.udn);
+        await _activeSession!.stop();
       } catch (_) {}
+      try {
+        await _activeSession!.disconnect();
+      } catch (_) {}
+      _activeSession = null;
     }
+
     _connectedDevice = null;
     isRemotePlaying.value = false;
-
-    try {
-      await _api.stopDiscovery();
-    } catch (_) {}
-
-    _cancelDiscoverySubscriptions();
     stateNotifier.value = CastState.idle;
+  }
+
+  static dc.CastMediaType _detectMediaType(String url) {
+    final lower = url.toLowerCase();
+    if (lower.contains('.m3u8') ||
+        lower.contains('.m3u') ||
+        lower.contains('hls') ||
+        lower.contains('format=m3u8') ||
+        lower.contains('/stream/')) {
+      return dc.CastMediaType.hls;
+    }
+    if (lower.contains('.ts')) {
+      return dc.CastMediaType.mpegTs;
+    }
+    if (lower.contains('.mkv')) {
+      return dc.CastMediaType.mkv;
+    }
+    return dc.CastMediaType.mp4;
   }
 }

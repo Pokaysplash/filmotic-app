@@ -82,3 +82,14 @@ Una vez publicado el release en GitHub:
    - **Actualización Suave (Opcional)**: Cambia `"latest_version": "1.0.1"`. Los usuarios verán un diálogo informativo para actualizar con botones *"Actualizar"* y *"Más tarde"*. Si pulsan *"Más tarde"*, no se les volverá a molestar con esa versión.
    - **Actualización Obligatoria (Crítica / Bloqueante)**: Cambia `"min_version": "1.0.1"` o `"force_update": true`. Cualquier app instalada con versión menor no podrá avanzar hasta que el usuario descargue e instale la nueva versión.
 3. Haz `git commit` y `git push origin main`. En cuanto GitHub Raw sirva el nuevo JSON, los clientes detectarán el cambio automáticamente.
+
+---
+
+## 5. Sincronización de la Landing Page (`docs/index.html`)
+
+**Regla obligatoria:** En la landing page siempre debe figurar explícitamente que la app está en **Fase Beta** y mostrar la **versión exacta y vigente** para descargar:
+
+1. **Indicador de Fase Beta:** El banner superior (`.beta-banner`) y los metadatos de descarga deben advertir que el proyecto está en beta y desarrollo continuo.
+2. **Badge y Botón de Descarga:** `#version-badge-text`, `#btn-download-label` y `#footer-version` deben reflejar la versión publicada (ej. `v1.0.0-beta.16`).
+3. **Sincronización Automática:** La landing page cuenta con un script que consulta en vivo la API de GitHub Releases y `filmotic_config.json`, actualizando la versión dinámicamente en el navegador. No obstante, siempre se debe actualizar también el valor estático en `docs/index.html` para garantizar consistencia sin conexión o antes de la ejecución de JS.
+

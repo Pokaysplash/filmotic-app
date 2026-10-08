@@ -51,6 +51,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
   };
 
   int _focusedIndex = -1;
+  List<Map<String, dynamic>> _localItems = [];
 
   List<String> get _visibleCategories {
     final catKey = (widget.categoryKey ?? '').toLowerCase().trim();
@@ -71,6 +72,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
   @override
   void initState() {
     super.initState();
+    _localItems = List<Map<String, dynamic>>.from(widget.items);
     final catKey = (widget.categoryKey ?? '').toLowerCase().trim();
     final titleLower = widget.title.toLowerCase().trim();
 
@@ -182,12 +184,12 @@ class _CategoryListPageState extends State<CategoryListPage> {
   List<Map<String, dynamic>> get _currentItems {
     switch (_selectedCategory) {
       case 'Películas':
-        return widget.items.where((i) {
+        return _localItems.where((i) {
           final t = (i['tipo'] ?? i['type'] ?? i['media_type'] ?? '').toString().toLowerCase();
           return t == 'movie' || t == 'pelicula' || (i['title'] != null && i['name'] == null);
         }).toList();
       case 'Series':
-        return widget.items.where((i) {
+        return _localItems.where((i) {
           final t = (i['tipo'] ?? i['type'] ?? i['media_type'] ?? '').toString().toLowerCase();
           return t == 'tv' || t == 'serie' || (i['name'] != null && i['title'] == null);
         }).toList();
@@ -195,7 +197,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
         if (_categoryCache.containsKey('Novelas') && _categoryCache['Novelas']!.isNotEmpty) {
           return _categoryCache['Novelas']!;
         }
-        final fromWidget = widget.items.where((i) {
+        final fromWidget = _localItems.where((i) {
           final s = (i['sitio'] ?? i['fuente'] ?? '').toString().toLowerCase();
           if (s == 'canela' || s == 'canelatv' || s == 'telemundo') return true;
           final t = (i['title'] ?? i['name'] ?? '').toString().toLowerCase();
@@ -208,7 +210,7 @@ class _CategoryListPageState extends State<CategoryListPage> {
         if (_categoryCache.containsKey('Anime') && _categoryCache['Anime']!.isNotEmpty) {
           return _categoryCache['Anime']!;
         }
-        final fromWidget = widget.items.where((i) {
+        final fromWidget = _localItems.where((i) {
           final s = (i['sitio'] ?? i['fuente'] ?? '').toString().toLowerCase();
           if (s == 'jkanime' || s == 'tioanime' || s == 'animeflv') return true;
           final t = (i['title'] ?? i['name'] ?? '').toString().toLowerCase();
@@ -218,7 +220,53 @@ class _CategoryListPageState extends State<CategoryListPage> {
         if (fromWidget.isNotEmpty) return fromWidget;
         return _categoryCache['Anime'] ?? [];
       default:
-        return widget.items;
+        return _localItems;
+    }
+  }
+
+  Future<void> _deleteContinueItem(Map<String, dynamic> item) async {
+    final id = item['idcontenido'] as int? ??
+        item['tmdb_id'] as int? ??
+        item['idtmdb'] as int? ??
+        0;
+    if (id <= 0) return;
+    final tmdbId = item['tmdb_id'] as int? ?? id;
+    final temporada = item['temporada'] as int?;
+    final capitulo = item['capitulo'] as int?;
+
+    setState(() {
+      _localItems.removeWhere((e) {
+        final eid = e['idcontenido'] ?? e['tmdb_id'] ?? e['idtmdb'];
+        final sameId = eid == id || eid == tmdbId;
+        final sameEp = (temporada == null || e['temporada'] == temporada) &&
+            (capitulo == null || e['capitulo'] == capitulo);
+        return sameId && sameEp;
+      });
+    });
+
+    await HistorialHelper.eliminarDeHistorial(
+      id: id,
+      tmdbId: tmdbId,
+      temporada: temporada,
+      capitulo: capitulo,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Row(
+            children: [
+              Icon(Icons.delete_outline_rounded, color: Colors.white70, size: 20),
+              SizedBox(width: 10),
+              Text('Eliminado de Continuar viendo'),
+            ],
+          ),
+          backgroundColor: const Color(0xFF2C2C2E),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
     }
   }
 
@@ -793,6 +841,34 @@ class _CategoryListPageState extends State<CategoryListPage> {
                                     ),
                                   ),
                                 ],
+                              ),
+                            ),
+                          ),
+                        if (widget.categoryKey == 'continue_watching')
+                          Positioned(
+                            top: 6,
+                            right: 6,
+                            child: GestureDetector(
+                              onTap: () => _deleteContinueItem(item),
+                              behavior: HitTestBehavior.opaque,
+                              child: Container(
+                                width: 26,
+                                height: 26,
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.65),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(
+                                    color: Colors.white.withValues(alpha: 0.2),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: const Center(
+                                  child: Icon(
+                                    Icons.close_rounded,
+                                    color: Colors.white,
+                                    size: 15,
+                                  ),
+                                ),
                               ),
                             ),
                           ),

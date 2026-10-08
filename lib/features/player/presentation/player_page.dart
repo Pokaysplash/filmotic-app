@@ -26,6 +26,7 @@ import '../../../core/services/audio_service.dart';
 import '../../../core/services/server_prevalidation_service.dart';
 import '../../../core/services/remote_config_service.dart';
 import '../../../core/services/server_loader_shared.dart';
+import '../../../core/services/source_health_service.dart';
 import '../../../data/scrapers/base/registry.dart';
 
 class _SubtitleCue {
@@ -1350,6 +1351,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     final Map<String, List<Map<String, dynamic>>> byLang = {};
     for (final srv in _fallbackServers) {
+      final srvName = srv['fuente_label']?.toString() ?? srv['servidor_nombre']?.toString() ?? '';
+      final srcId = SourceHealthService.normalizeSourceId(
+        srv['fuente_id']?.toString() ?? srv['fuente']?.toString() ?? srv['sitio']?.toString() ?? srvName,
+      );
+      final health = SourceHealthService.instance.getHealth(srcId);
+      if (health.healthStatus == HealthStatus.down &&
+          !SourceHealthService.instance.canRetryDownSource(srcId)) {
+        continue;
+      }
       final rawLang = srv['idioma']?.toString() ?? '';
       final label = _langLabel(rawLang);
       byLang.putIfAbsent(label, () => []).add(srv);
@@ -1656,6 +1666,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   final isSelected = selectedOptionServer == srv ||
                                       (selectedOptionServer == null && isCurrentServer);
 
+                                  final srcId = SourceHealthService.normalizeSourceId(
+                                    srv['fuente_id']?.toString() ??
+                                        srv['fuente']?.toString() ??
+                                        srv['sitio']?.toString() ??
+                                        srv['servidor_nombre'] ??
+                                        '',
+                                  );
+                                  final health = SourceHealthService.instance.getHealth(srcId);
+                                  final isHealthy = health.healthStatus == HealthStatus.healthy;
+                                  final isDegraded = health.healthStatus == HealthStatus.degraded;
+
                                   return Padding(
                                     padding: const EdgeInsets.only(bottom: 8),
                                     child: Material(
@@ -1689,13 +1710,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                             size: 22,
                                           ),
                                         ),
-                                        title: Text(
-                                          'Opción ${idx + 1}',
-                                          style: TextStyle(
-                                            color: isSelected ? const Color(0xFFFF6B35) : Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 15,
-                                          ),
+                                        title: Row(
+                                          children: [
+                                            Text(
+                                              'Opción ${idx + 1}',
+                                              style: TextStyle(
+                                                color: isSelected ? const Color(0xFFFF6B35) : Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 15,
+                                              ),
+                                            ),
+                                            if (isHealthy)
+                                              const Padding(
+                                                padding: EdgeInsets.only(left: 6),
+                                                child: Icon(
+                                                  Icons.check_circle_rounded,
+                                                  size: 14,
+                                                  color: Color(0xFF22C55E),
+                                                ),
+                                              ),
+                                          ],
                                         ),
                                         subtitle: Row(
                                           children: [
@@ -1724,6 +1758,28 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                                     Text(
                                                       'Verificado',
                                                       style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                            if (isDegraded) ...[
+                                              const SizedBox(width: 8),
+                                              Container(
+                                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: Colors.orange.withValues(alpha: 0.15),
+                                                  borderRadius: BorderRadius.circular(4),
+                                                  border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5), width: 0.8),
+                                                ),
+                                                child: const Row(
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Icon(Icons.warning_amber_rounded, size: 10, color: Colors.orangeAccent),
+                                                    SizedBox(width: 3),
+                                                    Text(
+                                                      'Esta fuente está lenta hoy',
+                                                      style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold),
                                                     ),
                                                   ],
                                                 ),
@@ -2216,6 +2272,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
       debugPrint('[Player] Error detectado en VideoPlayer: ${value.errorDescription}');
       _vodWatchdogTimer?.cancel();
       _vodWatchdogTimer = null;
+      if (widget.isLive) {
+        final streams = widget.liveStreams ?? [widget.videoUrl];
+        if (streams.length > 1) {
+          _currentLiveIndex = (_currentLiveIndex + 1) % streams.length;
+          final nextStream = streams[_currentLiveIndex];
+          debugPrint('[Live TV] Señal dio error durante reproducción. Cambiando automáticamente a señal ${_currentLiveIndex + 1}/${streams.length}: $nextStream');
+          if (mounted && !_isDisposing) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Señal interrumpida. Cambiando a señal alternativa (${_currentLiveIndex + 1}/${streams.length})...'),
+                duration: const Duration(seconds: 2),
+                backgroundColor: accentOrange,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            _startControllerWithUrl(nextStream, _activeHeaders);
+          }
+          return;
+        } else {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'La señal en vivo no está disponible en este momento.\nEl canal podría estar fuera del aire o temporalmente inaccesible.';
+            _allServersFailed = true;
+          });
+          return;
+        }
+      }
       if (_fallbackIndex < _fallbackServers.length) {
         _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
       }
@@ -2955,6 +3038,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       videoUrl: streamUrl,
       title: title,
       posterUrl: poster,
+      headers: _activeHeaders,
       onCastStarted: () {
         // Pausar reproducción local para evitar duplicidad de audio
         if (_controllerReady && _isPlaying) {

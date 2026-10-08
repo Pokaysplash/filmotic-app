@@ -9,6 +9,7 @@ import '../../../data/datasources/remote/tmdb/tmdb_discover_api.dart';
 import '../../../data/scrapers/base/registry.dart';
 import '../../../data/scrapers/base/buscador.dart';
 import '../../../core/services/guardados_bus.dart';
+import '../../../core/utils/navigation_helper.dart';
 // Modal de opciones móvil
 import '../../content/presentation/content_options_modal.dart';
 const kAccentColor = Color(0xFFFF6B35);
@@ -234,80 +235,49 @@ class BuscarPageState extends State<BuscarPage>
   }
 
   Future<void> _openContent(Map<String, dynamic> item) async {
-    final sitio = (item['sitio'] ?? item['fuente'] ?? '').toString().trim();
-    final url = (item['url'] ?? item['link'] ?? '').toString().trim();
-    final titulo = (item['title'] ?? item['name'] ?? item['titulo'] ?? '').toString().trim();
-    final tipo = canonicalMediaType(
-        item['media_type'] ?? item['type'] ?? item['tipo'] ?? (item['name'] != null && item['title'] == null ? 'tv' : 'movie'));
+    final target = resolveNavigationTarget(item);
 
-    final tmdbRaw = item['tmdb_id'] ?? item['idtmdb'] ?? item['idcontenido'];
-    debugPrint('[Navigation] Abriendo contenido: "$titulo" | sitio: ${sitio.isEmpty ? "null" : sitio} | tmdb_id: $tmdbRaw');
-
-    // Regla estricta 1: Si tiene sitio (novelas, anime, scrapers) -> DerivarPage directamente
-    if (sitio.isNotEmpty) {
-      debugPrint('[Navigation] Enrutando a: DerivarPage');
+    if (target.type == NavigationTargetType.derivar) {
       if (!mounted) return;
       FocusScope.of(context).unfocus();
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => DerivarPage(
-            servicio: sitio,
-            url: url,
-            titulo: titulo,
-            tipo: tipo,
+            servicio: target.servicio,
+            url: target.url,
+            titulo: target.titulo,
+            tipo: target.tipo,
           ),
         ),
       );
       return;
     }
 
-    // Si tiene url externa evidente de scrapers
-    if (url.contains('canela') || url.contains('telemundo') || url.contains('jkanime') || url.contains('tioanime') || url.contains('animeflv')) {
-      final detected = url.contains('canela') ? 'canelatv' : (url.contains('telemundo') ? 'telemundo' : 'scraper');
-      debugPrint('[Navigation] Enrutando a: DerivarPage (detectado: $detected)');
-      if (!mounted) return;
-      FocusScope.of(context).unfocus();
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => DerivarPage(
-            servicio: detected,
-            url: url,
-            titulo: titulo,
-            tipo: tipo,
-          ),
-        ),
-      );
-      return;
-    }
-
-    // Regla estricta 2: TMDB con ID válido (SOLO de campos TMDB reales, nunca hashes)
-    final tmdbId = parseCanonicalTmdbId(item['tmdb_id'] ?? item['idtmdb'] ?? item['idcontenido'] ?? item['contenido_id']);
-    if (tmdbId != null && tmdbId > 0 && tmdbId < 2000000) {
-      debugPrint('[Navigation] Enrutando a: PageContenido (tmdbId: $tmdbId)');
+    if (target.type == NavigationTargetType.pageContenido) {
       if (!mounted) return;
       FocusScope.of(context).unfocus();
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => PageContenido(
-            idcontenido: tmdbId,
-            tmdbId: tmdbId,
-            mediaType: tipo,
-            expectedTitle: titulo.isNotEmpty ? titulo : null,
+            idcontenido: target.tmdbId,
+            tmdbId: target.tmdbId,
+            mediaType: target.tipo,
+            expectedTitle: target.titulo.isNotEmpty ? target.titulo : null,
           ),
         ),
       );
       return;
     }
 
-    // Regla estricta 3: Ni fuente externa ni TMDB válido -> Error honesto
-    // NUNCA hacer búsqueda ciega en TMDB que sobreescriba con contenidos ajenos
-    debugPrint('[Navigation] Error: sin fuente externa ni tmdbId válido para "$titulo"');
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Este contenido no tiene información disponible')),
+      SnackBar(
+        content: Text(target.errorMessage ?? 'Este contenido no tiene información disponible'),
+        backgroundColor: Colors.redAccent,
+        duration: const Duration(seconds: 2),
+      ),
     );
   }
 

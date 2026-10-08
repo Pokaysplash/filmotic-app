@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/constants/sources.dart';
 import '../config_shared.dart';
+import '../source_health_page.dart';
 import '../../../addons/presentation/widgets/custom_api_config_card.dart'; // ajusta la ruta si hace falta
 
 class FuentesSection extends StatefulWidget {
@@ -237,6 +238,10 @@ class _FuentesSectionState extends State<FuentesSection> {
         _sectionHeader('CACHÉ'),
         _buildTtlCard(),
 
+        // ── DIAGNÓSTICO Y SALUD ─────────────────────────────────────────
+        _sectionHeader('DIAGNÓSTICO Y RENDIMIENTO'),
+        _buildHealthDiagnosticsCard(),
+
         // ── MIS FUENTES (CustomApiConfig – se guardan bien) ─────────────
         _sectionHeader('MIS FUENTES'),
         const CustomApiConfigCard(),
@@ -264,6 +269,41 @@ class _FuentesSectionState extends State<FuentesSection> {
         _buildResetButton(),
         const SizedBox(height: 16),
       ],
+    );
+  }
+
+  Widget _buildHealthDiagnosticsCard() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1C1C1E),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFF6B00).withValues(alpha: 0.15),
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(Icons.monitor_heart_rounded, color: Color(0xFFFF6B00), size: 22),
+        ),
+        title: const Text(
+          'Estado y Salud de las Fuentes',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+        ),
+        subtitle: const Text(
+          'Rendimiento en tiempo real, latencias y tasa de éxito',
+          style: TextStyle(color: Colors.white54, fontSize: 12),
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded, color: Colors.white38),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SourceHealthPage()),
+          );
+        },
+      ),
     );
   }
 

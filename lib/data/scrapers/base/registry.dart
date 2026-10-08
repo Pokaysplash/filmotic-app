@@ -23,11 +23,98 @@ import '../cineby_scraper.dart';
 import '../animepahe_scraper.dart';
 import '../gogoanime_scraper.dart';
 import '../animeav1_scraper.dart';
+import '../pelisplushd_scraper.dart';
+import '../cuevana3_scraper.dart';
+import '../animeflv_api_scraper.dart';
 import 'buscador.dart';
 import '../../../core/services/remote_config_service.dart';
+import '../../../core/services/source_health_service.dart';
 
 /// Todas las fuentes disponibles (listado + búsqueda) agrupadas por categoría.
 final List<Fuente> fuentesRegistry = [
+  // ── PelisPlusHD (WAVE 12.17 - Prioridad Alta) ─────────────────────────
+  Fuente(
+    id: 'pelisplushd',
+    label: 'PelisPlusHD',
+    category: 'movie',
+    language: 'es',
+    priority: 1,
+    tipos: const ['movie', 'tv'],
+    generos: const ['Acción', 'Comedia', 'Drama', 'Terror', 'Ciencia Ficción'],
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return PelisPlusHdScraper.fetch(tipo: tipo, genero: genero, page: page);
+    },
+    search: (q) async {
+      final items = await PelisPlusHdScraper.search(q);
+      return items.map((i) => BuscadorItem(
+        sitio: 'pelisplushd',
+        titulo: i.titulo,
+        tipo: i.tipo,
+        url: i.url,
+        imagen: i.poster,
+        anio: i.year,
+      )).toList();
+    },
+  ),
+
+  // ── Cuevana3 (WAVE 12.17 - Prioridad Alta) ───────────────────────────
+  Fuente(
+    id: 'cuevana3',
+    label: 'Cuevana3',
+    category: 'movie',
+    language: 'es',
+    priority: 1,
+    tipos: const ['movie', 'tv'],
+    generos: const ['Acción', 'Estrenos', 'Comedia', 'Drama', 'Terror'],
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return Cuevana3Scraper.fetch(tipo: tipo, genero: genero, page: page);
+    },
+    search: (q) async {
+      final items = await Cuevana3Scraper.search(q);
+      return items.map((i) => BuscadorItem(
+        sitio: 'cuevana3',
+        titulo: i.titulo,
+        tipo: i.tipo,
+        url: i.url,
+        imagen: i.poster,
+        anio: i.year,
+      )).toList();
+    },
+  ),
+
+  // ── AnimeFLV API (WAVE 12.17 - Prioridad Alta) ────────────────────────
+  Fuente(
+    id: 'animeflv_api',
+    label: 'AnimeFLV (API)',
+    category: 'anime',
+    language: 'sub',
+    priority: 1,
+    tipos: const ['anime'],
+    generos: const ['Anime', 'Acción', 'Aventura', 'Comedia', 'Shounen'],
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return AnimeFlvApiScraper.fetch(tipo: tipo, genero: genero, page: page);
+    },
+    search: (q) async {
+      final items = await AnimeFlvApiScraper.search(q);
+      return items.map((i) => BuscadorItem(
+        sitio: 'animeflv_api',
+        titulo: i.titulo,
+        tipo: 'anime',
+        url: i.url,
+        imagen: i.poster,
+      )).toList();
+    },
+  ),
+
   // ── Cuevana (Películas y Series) ──────────────────────────────────────
   Fuente(
     id: 'cuevana',
@@ -435,23 +522,54 @@ Future<BuscadorResult> buscarEnFuentes({
     return BuscadorResult(ok: false, error: 'Escribe algo para buscar');
   }
 
-  final aBuscar = tipo == 'todas'
+  final baseFuentes = tipo == 'todas'
       ? fuentesConBusqueda
       : fuentesConBusqueda.where((f) => f.id == tipo).toList();
 
-  if (aBuscar.isEmpty) {
+  if (baseFuentes.isEmpty) {
     return BuscadorResult(
       ok: false,
       error: 'Fuente de búsqueda no encontrada: $tipo',
     );
   }
 
-  // Ejecutar búsqueda en paralelo
+  // Mapa de prioridades estáticas declaradas
+  final declaredPriorities = <String, int>{
+    for (final f in baseFuentes) f.id: f.priority,
+  };
+
+  // Ordenar y filtrar dinámicamente según estado de salud
+  final orderedIds = SourceHealthService.instance.getOrderedSources(
+    candidates: baseFuentes.map((f) => f.id).toList(),
+    declaredPriorities: declaredPriorities,
+  );
+
+  final aBuscar = baseFuentes
+      .where((f) => orderedIds.contains(f.id))
+      .toList()
+    ..sort((a, b) => orderedIds.indexOf(a.id).compareTo(orderedIds.indexOf(b.id)));
+
+  if (aBuscar.isEmpty) {
+    return BuscadorResult(
+      ok: false,
+      error: 'No pudimos conectar con las fuentes en este momento. Reintentando...',
+    );
+  }
+
+  // Ejecutar búsqueda en paralelo registrando telemetría de salud
   final futures = aBuscar.map((fuente) async {
     if (fuente.search == null) return <BuscadorItem>[];
+    final sw = Stopwatch()..start();
     try {
-      return await fuente.search!(query);
-    } catch (_) {
+      final items = await fuente.search!(query);
+      sw.stop();
+      if (items.isNotEmpty) {
+        SourceHealthService.instance.recordSuccess(fuente.id, sw.elapsedMilliseconds);
+      }
+      return items;
+    } catch (e) {
+      sw.stop();
+      SourceHealthService.instance.recordFailure(fuente.id, e.toString());
       return <BuscadorItem>[];
     }
   });
@@ -463,20 +581,32 @@ Future<BuscadorResult> buscarEnFuentes({
     todosLosItems.addAll(items);
   }
 
-  // Deduplicar por título normalizado
+  if (todosLosItems.isEmpty) {
+    return BuscadorResult(
+      ok: false,
+      error: 'No se encontraron resultados disponibles para "$query".',
+      query: query,
+      tipo: tipo,
+      total: 0,
+      resultados: {'todas': const []},
+    );
+  }
+
+  // Deduplicar por título normalizado, priorizando la fuente más saludable y rápida
   final deduplicados = <String, BuscadorItem>{};
   for (final item in todosLosItems) {
-    // Normalizar: sin espacios, minúsculas
     final normTitle = item.titulo.toLowerCase().replaceAll(RegExp(r'\s+'), '');
     final key = '${item.tipo}_$normTitle';
 
     if (deduplicados.containsKey(key)) {
       final existente = deduplicados[key]!;
       final agrupadas = List<Map<String, String>>.from(existente.fuentesAgrupadas ?? []);
-      agrupadas.add({'sitio': item.sitio, 'url': item.url});
+      if (!agrupadas.any((g) => g['sitio'] == item.sitio)) {
+        agrupadas.add({'sitio': item.sitio, 'url': item.url});
+      }
 
       deduplicados[key] = BuscadorItem(
-        sitio: existente.sitio, // visual fallback
+        sitio: existente.sitio,
         titulo: existente.titulo,
         tipo: existente.tipo,
         url: existente.url,

@@ -1802,7 +1802,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         });
       }
 
-      // ── Watchdog de 8 segundos para VOD ─────────────────────────────────
+      // ── Watchdog de 8 segundos para VOD y Live TV ───────────────────────
       _vodWatchdogTimer?.cancel();
       if (!widget.isLive) {
         _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
@@ -1821,6 +1821,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
               _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
             }
             _tryNextServer(reason: 'El servidor tardó más de 8s en iniciar reproducción');
+          }
+        });
+      } else {
+        _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
+          if (!mounted || _isDisposing || !widget.isLive) return;
+          final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
+          final isBlackScreen = _controllerReady && (_controller.value.size == Size.zero || _controller.value.size.width == 0);
+          final hasNoProgress = pos == 0 && !_controller.value.isBuffering;
+          final hasError = _controllerReady && _controller.value.hasError;
+          if (isBlackScreen || hasNoProgress || hasError || !_controllerReady) {
+            final streams = _liveStreams.isNotEmpty
+                ? _liveStreams
+                : (widget.liveStreams ?? [widget.videoUrl]);
+            if (streams.length > 1) {
+              debugPrint('[TV Live Watchdog] Canal sin avance o pantalla negra. Probando señal alternativa...');
+              _cycleLiveStream();
+            }
           }
         });
       }
@@ -2149,6 +2166,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
       debugPrint('[TV Player] Error detectado en VideoPlayer: ${value.errorDescription}');
       _vodWatchdogTimer?.cancel();
       _vodWatchdogTimer = null;
+      if (widget.isLive) {
+        final streams = _liveStreams.isNotEmpty
+            ? _liveStreams
+            : (widget.liveStreams ?? [widget.videoUrl]);
+        if (streams.length > 1) {
+          _currentLiveIndex = (_currentLiveIndex + 1) % streams.length;
+          final nextStream = streams[_currentLiveIndex];
+          debugPrint('[TV Live] Señal falló en reproducción. Cambiando automáticamente a ${_currentLiveIndex + 1}/${streams.length}: $nextStream');
+          if (mounted && !_isDisposing) {
+            setState(() {
+              _fitToastLabel = 'Señal falló. Cambiando a ${_currentLiveIndex + 1}/${streams.length}...';
+              _isLoading = true;
+            });
+            _fitToastTimer?.cancel();
+            _fitToastTimer = Timer(const Duration(seconds: 3), () {
+              if (mounted) setState(() => _fitToastLabel = null);
+            });
+            _startControllerWithUrl(nextStream, {});
+          }
+          return;
+        } else {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'La señal en vivo no está disponible en este momento.\nEl canal podría estar fuera del aire o temporalmente inaccesible.';
+            _allServersFailed = true;
+          });
+          return;
+        }
+      }
       if (_fallbackIndex < _fallbackServers.length) {
         _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
       }

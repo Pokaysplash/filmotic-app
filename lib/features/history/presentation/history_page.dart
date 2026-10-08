@@ -422,6 +422,7 @@ class GuardadosPageState extends State<GuardadosPage>
       backdropUrl:
           item['backdrop']?.toString() ?? item['backdrop_path']?.toString(),
       logoUrl: item['logo']?.toString() ?? item['logo_path']?.toString(),
+      isFromContinueWatching: true,
     ).then((_) {
       if (mounted) {
         _armIgnoreSelect(ms: 400);

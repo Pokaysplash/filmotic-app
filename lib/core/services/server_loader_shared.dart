@@ -8,6 +8,7 @@ import '../../data/aggregators/source_aggregator.dart';
 import '../../data/extractors/hls/hls_extractor.dart';
 import 'remote_config_service.dart';
 import 'server_prevalidation_service.dart';
+import 'source_health_service.dart';
 import '../storage/app_database.dart';
 /// Preferencias de audio/subtítulo/selección (las 3 nuevas opciones)
 class ServerLoaderPrefs {
@@ -871,6 +872,28 @@ class ServerLoader {
         return aMatchesPreferred ? -1 : 1;
       }
 
+      // 0.1. Priorizar por estado de salud de la fuente (healthy > degraded > down)
+      final aSrcId = SourceHealthService.normalizeSourceId(
+        a['fuente_id']?.toString() ?? a['fuente']?.toString() ?? a['sitio']?.toString() ?? aName,
+      );
+      final bSrcId = SourceHealthService.normalizeSourceId(
+        b['fuente_id']?.toString() ?? b['fuente']?.toString() ?? b['sitio']?.toString() ?? bName,
+      );
+      final aHealth = SourceHealthService.instance.getHealth(aSrcId);
+      final bHealth = SourceHealthService.instance.getHealth(bSrcId);
+
+      final aRank = aHealth.healthStatus == HealthStatus.healthy
+          ? 0
+          : (aHealth.healthStatus == HealthStatus.degraded ? 1 : 2);
+      final bRank = bHealth.healthStatus == HealthStatus.healthy
+          ? 0
+          : (bHealth.healthStatus == HealthStatus.degraded ? 1 : 2);
+      if (aRank != bRank) return aRank.compareTo(bRank);
+
+      // Score dinámico de rendimiento de la fuente (mayor es mejor)
+      final pDiff = bHealth.priorityScore.compareTo(aHealth.priorityScore);
+      if ((pDiff.abs() > 0.05)) return pDiff;
+
       // Si el idioma preferido es VOS / Inglés Subtitulado, priorizar servidores de Seriesflix y Cineby
       if (isVosTarget) {
         final aIsSpecialVos = aName.contains('seriesflix') ||
@@ -917,11 +940,32 @@ class ServerLoader {
   }) async {
     if (_isInvalid(srv)) return null;
 
-    final stopwatch = Stopwatch()..start();
     final srvName = srv['fuente_label']?.toString() ??
         srv['servidor_nombre']?.toString() ??
         srv['server']?.toString() ??
         'Server';
+
+    final sourceId = SourceHealthService.normalizeSourceId(
+      srv['fuente_id']?.toString() ??
+          srv['fuente']?.toString() ??
+          srv['sitio']?.toString() ??
+          srv['source'] ??
+          srvName,
+    );
+    final health = SourceHealthService.instance.getHealth(sourceId);
+
+    // Omitir fuentes marcadas como 'down' salvo que corresponda reintentarlas
+    if (health.healthStatus == HealthStatus.down &&
+        !SourceHealthService.instance.canRetryDownSource(sourceId)) {
+      debugPrint('[SourceHealth] $sourceId descartada: ${health.consecutiveFailures} fallos consecutivos');
+      return null;
+    }
+
+    final stopwatch = Stopwatch()..start();
+    // Timeout diferenciado: 8s para healthy, 5s para degraded
+    final resolveTimeout = (health.healthStatus == HealthStatus.degraded)
+        ? const Duration(seconds: 5)
+        : const Duration(seconds: 8);
 
     final already = srv['resolved_m3u8']?.toString();
     if (already != null && already.isNotEmpty) {
@@ -930,6 +974,8 @@ class ServerLoader {
         srvName,
         stopwatch.elapsedMilliseconds.clamp(10, 5000),
       ));
+      unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+      debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
       return PlayableSource(
         url: already,
         headers: _extractHeaders(srv),
@@ -943,7 +989,10 @@ class ServerLoader {
     }
 
     final url = srv['servidor_url']?.toString() ?? '';
-    if (url.isEmpty) return null;
+    if (url.isEmpty) {
+      unawaited(SourceHealthService.instance.recordFailure(sourceId, 'Empty URL'));
+      return null;
+    }
 
     final lower = url.toLowerCase();
     final esDirecto = srv['type']?.toString() == 'direct' ||
@@ -965,6 +1014,8 @@ class ServerLoader {
           srvName,
           stopwatch.elapsedMilliseconds.clamp(10, 5000),
         ));
+        unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+        debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
         return PlayableSource(
           url: url,
           headers: _extractHeaders(srv),
@@ -982,7 +1033,7 @@ class ServerLoader {
     try {
       final native = await NativeResolvers.resolve(
         url,
-        timeout: const Duration(seconds: 6),
+        timeout: resolveTimeout,
       );
       if (native != null && native.url.isNotEmpty) {
         stopwatch.stop();
@@ -992,6 +1043,8 @@ class ServerLoader {
           srvName,
           stopwatch.elapsedMilliseconds.clamp(20, 5000),
         ));
+        unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+        debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
         return PlayableSource(
           url: native.url,
           headers: {..._extractHeaders(srv), ...native.headers},
@@ -1009,7 +1062,7 @@ class ServerLoader {
         final m3u8 = await MainFuentes.verificarConExtractor(
           context,
           url,
-          timeout: const Duration(seconds: 7),
+          timeout: resolveTimeout,
         );
         stopwatch.stop();
         if (m3u8 != null && m3u8.isNotEmpty) {
@@ -1019,6 +1072,8 @@ class ServerLoader {
             srvName,
             stopwatch.elapsedMilliseconds.clamp(50, 7000),
           ));
+          unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+          debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
           return PlayableSource(
             url: m3u8,
             headers: _extractHeaders(srv),
@@ -1034,6 +1089,7 @@ class ServerLoader {
     }
 
     stopwatch.stop();
+    unawaited(SourceHealthService.instance.recordFailure(sourceId, 'No playable stream found'));
     return null;
   }
 

@@ -13,6 +13,8 @@ import '../../discover/domain/mobile/derivar.dart';
 import 'category_list_page.dart';
 
 import '../../../core/services/ad_service.dart';
+import '../../../core/storage/app_database.dart';
+
 
 const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
@@ -71,6 +73,8 @@ class _HomePageState extends State<HomePage>
       ),
     );
 
+    HistorialBus.version.addListener(_onHistorialBusChanged);
+
     if (_hasLoadedOnce && _cachedData != null) {
       _data = _cachedData;
       _historial = List<Map<String, dynamic>>.from(_cachedHistorial);
@@ -83,8 +87,13 @@ class _HomePageState extends State<HomePage>
 
   @override
   void dispose() {
+    HistorialBus.version.removeListener(_onHistorialBusChanged);
     _mainSliderController.dispose();
     super.dispose();
+  }
+
+  void _onHistorialBusChanged() {
+    if (mounted) _refreshHistorialQuiet();
   }
 
   Future<void> _refreshHistorialQuiet() async {
@@ -148,6 +157,9 @@ class _HomePageState extends State<HomePage>
 
   Future<List<Map<String, dynamic>>> _loadHistorial() async {
     try {
+      final sembastHistory = await AppDatabase.instance.getHistory();
+      if (sembastHistory.isNotEmpty) return sembastHistory;
+
       final prefs = await SharedPreferences.getInstance();
       final keys = prefs
           .getKeys()
@@ -290,8 +302,57 @@ class _HomePageState extends State<HomePage>
     });
   }
 
+  Future<void> _eliminarDeContinuarViendo(Map<String, dynamic> item) async {
+    final id = item['idcontenido'] as int? ??
+        item['tmdb_id'] as int? ??
+        item['idtmdb'] as int? ??
+        0;
+    if (id <= 0) return;
+    final tmdbId = item['tmdb_id'] as int? ?? id;
+    final temporada = item['temporada'] as int?;
+    final capitulo = item['capitulo'] as int?;
+
+    setState(() {
+      _historial.removeWhere((e) {
+        final eid = e['idcontenido'] ?? e['tmdb_id'] ?? e['idtmdb'];
+        final sameId = eid == id || eid == tmdbId;
+        final sameEp = (temporada == null || e['temporada'] == temporada) &&
+            (capitulo == null || e['capitulo'] == capitulo);
+        return sameId && sameEp;
+      });
+      _cachedHistorial = _historial;
+    });
+
+    await HistorialHelper.eliminarDeHistorial(
+      id: id,
+      tmdbId: tmdbId,
+      temporada: temporada,
+      capitulo: capitulo,
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Row(
+          children: [
+            Icon(Icons.delete_outline_rounded, color: Colors.white70, size: 20),
+            SizedBox(width: 10),
+            Text('Eliminado de Continuar viendo'),
+          ],
+        ),
+        backgroundColor: const Color(0xFF2C2C2E),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+  }
+
   // ── Long press → modal de opciones ──────────────────────────────────────
-  void _showOpcionesModal(Map<String, dynamic> item) {
+  void _showOpcionesModal(
+    Map<String, dynamic> item, {
+    bool isFromContinueWatching = false,
+  }) {
     final id =
         item['tmdb_id'] as int? ??
         item['idcontenido'] as int? ??
@@ -329,6 +390,7 @@ class _HomePageState extends State<HomePage>
       titulo: titulo,
       posterUrl: poster.isNotEmpty ? poster : null,
       backdropUrl: backdrop.isNotEmpty ? backdrop : null,
+      isFromContinueWatching: isFromContinueWatching,
     ).then((_) {
       if (mounted) _refreshHistorialQuiet();
     });
@@ -635,7 +697,11 @@ class _HomePageState extends State<HomePage>
                       return _ContinueCard(
                         item: item,
                         onTap: () => _openHistorial(item), // ← player
-                        onLongPress: () => _showOpcionesModal(item), // ← modal
+                        onLongPress: () => _showOpcionesModal(
+                          item,
+                          isFromContinueWatching: true,
+                        ), // ← modal
+                        onDelete: () => _eliminarDeContinuarViendo(item),
                       );
                     },
                   ),
@@ -1290,11 +1356,13 @@ class _ContinueCard extends StatelessWidget {
   final Map<String, dynamic> item;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
+  final VoidCallback? onDelete;
 
   const _ContinueCard({
     required this.item,
     required this.onTap,
     this.onLongPress,
+    this.onDelete,
   });
 
   String get _image {
@@ -1467,6 +1535,34 @@ class _ContinueCard extends StatelessWidget {
                 ],
               ),
             ),
+            if (onDelete != null)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: GestureDetector(
+                  onTap: onDelete,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.65),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.close_rounded,
+                        color: Colors.white,
+                        size: 16,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

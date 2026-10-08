@@ -1,8 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <uses-sdk tools:overrideLibrary="br.com.felnanuke2.media_cast_dlna" />
-
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <!-- Notificaciones (Android 13+) -->
@@ -124,9 +122,6 @@
             android:foregroundServiceType="dataSync|mediaPlayback"
             android:exported="false"
             android:stopWithTask="false" />
-
-        <!-- UPnP Service for DLNA Casting (media_cast_dlna) -->
-        <service android:name="org.jupnp.android.AndroidUpnpServiceImpl"/>
 
         <meta-data
             android:name="flutterEmbedding"

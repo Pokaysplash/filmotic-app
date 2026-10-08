@@ -17,6 +17,9 @@ import '../cineby_scraper.dart';
 import '../animepahe_scraper.dart';
 import '../gogoanime_scraper.dart';
 import '../animeav1_scraper.dart';
+import '../pelisplushd_scraper.dart';
+import '../cuevana3_scraper.dart';
+import '../animeflv_api_scraper.dart';
 
 class DetalleScraper {
   static Future<DetalleContenido> fetch({
@@ -35,6 +38,12 @@ class DetalleScraper {
 
     try {
       switch (s) {
+        case 'pelisplushd':
+          return await PelisPlusHdScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'cuevana3':
+          return await Cuevana3Scraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
+        case 'animeflv_api':
+          return await AnimeFlvApiScraper.fetchDetail(url: url, titulo: titulo, tipo: tipo);
         case 'serieskao':
           return await DetalleSeriesKao.fetch(url: url, titulo: titulo, tipo: tipo);
         case 'tioplus':
@@ -99,6 +108,12 @@ class DetalleScraper {
     final s = servicio.toLowerCase().trim();
     try {
       switch (s) {
+        case 'pelisplushd':
+          return await PelisPlusHdScraper.fetchServers(url: url);
+        case 'cuevana3':
+          return await Cuevana3Scraper.fetchServers(url: url);
+        case 'animeflv_api':
+          return await AnimeFlvApiScraper.fetchServers(url: url);
         case 'jkanime':
           return await JKAnimeScraper.fetchServers(url: url);
         case 'tioanime':

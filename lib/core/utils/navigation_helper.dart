@@ -41,7 +41,13 @@ NavigationTarget resolveNavigationTarget(Map<String, dynamic> item) {
   String sitio = rawSitio.toLowerCase();
   if (sitio.isEmpty && url.isNotEmpty) {
     final lowerUrl = url.toLowerCase();
-    if (lowerUrl.contains('canela.tv') || lowerUrl.contains('canelatv')) {
+    if (lowerUrl.contains('pelisplushd') || lowerUrl.contains('pelisplus.to')) {
+      sitio = 'pelisplushd';
+    } else if (lowerUrl.contains('cuevana3')) {
+      sitio = 'cuevana3';
+    } else if (lowerUrl.contains('animeflv.net')) {
+      sitio = 'animeflv_api';
+    } else if (lowerUrl.contains('canela.tv') || lowerUrl.contains('canelatv')) {
       sitio = 'canelatv';
     } else if (lowerUrl.contains('telemundo')) {
       sitio = 'telemundo';
@@ -50,11 +56,11 @@ NavigationTarget resolveNavigationTarget(Map<String, dynamic> item) {
     } else if (lowerUrl.contains('tioanime')) {
       sitio = 'tioanime';
     } else if (lowerUrl.contains('animeflv')) {
-      sitio = 'animeflv';
+      sitio = 'animeflv_api';
     } else if (lowerUrl.contains('cuevana')) {
-      sitio = 'cuevana';
+      sitio = 'cuevana3';
     } else if (lowerUrl.contains('pelisplus')) {
-      sitio = 'pelisplus';
+      sitio = 'pelisplushd';
     } else if (lowerUrl.contains('serieskao')) {
       sitio = 'serieskao';
     } else if (lowerUrl.contains('tioplus')) {

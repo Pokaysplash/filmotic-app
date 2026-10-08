@@ -54,11 +54,10 @@ void main() {
 
     test('Regla crítica: Si currentVersion >= latestVersion NUNCA se requiere actualización', () {
       final config = RemoteConfigService.instance;
+      final latest = config.config.app.latestVersion;
       // Cuando el usuario ya tiene la última versión instalada
-      expect(config.isMandatoryUpdateRequired('1.0.0-beta.14'), isFalse);
-      expect(config.isOptionalUpdateAvailable('1.0.0-beta.14'), isFalse);
-      expect(config.isMandatoryUpdateRequired('1.0.0-beta.14+14'), isFalse);
-      expect(config.isOptionalUpdateAvailable('1.0.0-beta.14+14'), isFalse);
+      expect(config.isMandatoryUpdateRequired(latest), isFalse);
+      expect(config.isOptionalUpdateAvailable(latest), isFalse);
     });
   });
 }

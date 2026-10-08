@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import '../../../core/services/remote_config_service.dart';
 import '../../../core/storage/app_database.dart';
@@ -13,6 +14,7 @@ class LiveTvService {
   LiveTvService._internal();
 
   static const int _kTtlMillis = 24 * 60 * 60 * 1000; // 24h
+  static const String _kCacheVersion = 'v4_xtream_';
   String? lastEpgUrl;
 
   /// Carga canales aplicando filtros y caché Sembast.
@@ -22,7 +24,7 @@ class LiveTvService {
     String? group,
     bool forceRefresh = false,
   }) async {
-    final listKey = _buildListKey(country: country, language: language, group: group);
+    final listKey = '$_kCacheVersion${_buildListKey(country: country, language: language, group: group)}';
 
     // 1. Verificar caché Sembast
     if (!forceRefresh) {
@@ -51,30 +53,42 @@ class LiveTvService {
     // 2. Obtener configuración remota
     final config = RemoteConfigService.instance.config.liveTv;
     
-    // 3. Preparar e iniciar descargas independientes
-    http.Response? mainRes;
-    
-    // Intentar primero la customM3uUrl si usamos filmotic_master
-    if (config.sourcePriority == 'filmotic_master' && config.customM3uUrl.isNotEmpty) {
+    // 3. Preparar e iniciar carga de lista prioritizando el asset local con Xtream Codes
+    String? rawBody;
+    String effectiveSource = 'assets/filmotic_playlist.m3u';
+
+    if (config.sourcePriority == 'filmotic_master') {
       try {
-        mainRes = await http.get(Uri.parse(config.customM3uUrl)).timeout(const Duration(seconds: 15));
-        if (mainRes.statusCode != 200 || mainRes.bodyBytes.isEmpty) mainRes = null;
-      } catch (_) { mainRes = null; }
-    }
-    
-    // Si no usamos master o falló, usar iptv-org fallback
-    final fallbackUrl = _buildDownloadUrl(country: country, language: language, group: group);
-    if (mainRes == null) {
-      try {
-        mainRes = await http.get(Uri.parse(fallbackUrl)).timeout(const Duration(seconds: 12));
-        if (mainRes.statusCode != 200 || mainRes.bodyBytes.isEmpty) mainRes = null;
-      } catch (_) { mainRes = null; }
+        rawBody = await rootBundle.loadString('assets/filmotic_playlist.m3u');
+      } catch (_) {}
+
+      // Si existe una lista remota válida y completa en customM3uUrl (> 500KB)
+      if (config.customM3uUrl.isNotEmpty) {
+        try {
+          final mainRes = await http.get(Uri.parse(config.customM3uUrl)).timeout(const Duration(seconds: 10));
+          if (mainRes.statusCode == 200 && mainRes.bodyBytes.length > 500000) {
+            rawBody = utf8.decode(mainRes.bodyBytes);
+            effectiveSource = config.customM3uUrl;
+          }
+        } catch (_) {}
+      }
     }
 
-    if (mainRes != null) {
+    // Si no usamos master o ambos fallaron, usar iptv-org fallback
+    final fallbackUrl = _buildDownloadUrl(country: country, language: language, group: group);
+    if (rawBody == null) {
       try {
-        final body = utf8.decode(mainRes.bodyBytes);
-        final parseResult = M3UParser.parse(body, config.sourcePriority == 'filmotic_master' ? config.customM3uUrl : fallbackUrl);
+        final fbRes = await http.get(Uri.parse(fallbackUrl)).timeout(const Duration(seconds: 12));
+        if (fbRes.statusCode == 200 && fbRes.bodyBytes.isNotEmpty) {
+          rawBody = utf8.decode(fbRes.bodyBytes);
+          effectiveSource = fallbackUrl;
+        }
+      } catch (_) {}
+    }
+
+    if (rawBody != null && rawBody.isNotEmpty) {
+      try {
+        final parseResult = M3UParser.parse(rawBody, effectiveSource);
         if (parseResult.epgUrl != null && parseResult.epgUrl!.isNotEmpty) {
           lastEpgUrl = parseResult.epgUrl;
         }
@@ -152,8 +166,15 @@ class LiveTvService {
           await AppDatabase.instance.saveLiveChannels(listKey, maps);
 
           var result = channels;
+          if (country != null && country.isNotEmpty && country != 'ALL') {
+            final cUpper = country.toUpperCase();
+            result = result.where((c) {
+              final cCountry = c.country?.toUpperCase();
+              return cCountry == cUpper || (cCountry == 'LATAM' && ['CO', 'MX', 'AR', 'CL', 'PE', 'VE', 'EC', 'UY', 'PY', 'BO', 'GT', 'PR', 'DO'].contains(cUpper));
+            }).toList();
+          }
           if (hasGroup) {
-            result = channels.where((c) => matchesCategory(c, group)).toList();
+            result = result.where((c) => matchesCategory(c, group)).toList();
             if (result.isEmpty) result = channels; // Fallback seguro
           }
           return _sortChannels(result);

@@ -25,12 +25,6 @@ const double _kEpisodeItemExtent =
 const double _kRecoItemExtent = 148.0; // ancho poster reco + margen
 
 
-class HistorialBus {
-  HistorialBus._();
-  static final ValueNotifier<int> version = ValueNotifier<int>(0);
-
-  static void bump() => version.value++;
-}
 
 
 class EpisodeProgressInfo {
@@ -114,7 +108,10 @@ class _PageContenidoState extends State<PageContenido>
   final ValueNotifier<Map<String, dynamic>?> _selectedRecoNotifier =
       ValueNotifier(null);
 
+  int? _overrideTmdbId;
+
   int get _resolvedTmdbId =>
+      _overrideTmdbId ??
       parseCanonicalTmdbId(widget.tmdbId) ??
       parseCanonicalTmdbId(widget.idcontenido) ??
       0;
@@ -214,9 +211,17 @@ class _PageContenidoState extends State<PageContenido>
             widget.expectedTitle != 'Cargando contenido...' &&
             widget.expectedTitle != 'N/A') {
           final expTitle = widget.expectedTitle!.trim();
-          if (!titlesMatch(fetchedTitle, expTitle)) {
+          final origTitle = (contentData['original_title'] ??
+                  contentData['original_name'] ??
+                  '')
+              .toString()
+              .trim();
+          final matchesTitle = titlesMatch(fetchedTitle, expTitle) ||
+              (origTitle.isNotEmpty && titlesMatch(origTitle, expTitle));
+
+          if (!matchesTitle) {
             debugPrint(
-                '[TvPageContenido] Mismatch detectado: esperado "$expTitle", recibido "$fetchedTitle" para tmdbId $_resolvedTmdbId');
+                '[TvPageContenido] Mismatch detectado: esperado "$expTitle", recibido "$fetchedTitle" (orig: "$origTitle") para tmdbId $_resolvedTmdbId');
             final recoveredId = await GuardadosCache.recoverTmdbId(
               title: expTitle,
               mediaType: _resolvedMediaType,
@@ -239,8 +244,15 @@ class _PageContenidoState extends State<PageContenido>
                         '')
                     .toString()
                     .trim();
-                if (titlesMatch(retryTitle, expTitle)) {
+                final retryOrig = (retryData['original_title'] ??
+                        retryData['original_name'] ??
+                        '')
+                    .toString()
+                    .trim();
+                if (titlesMatch(retryTitle, expTitle) ||
+                    (retryOrig.isNotEmpty && titlesMatch(retryOrig, expTitle))) {
                   contentData = retryData;
+                  _overrideTmdbId = recoveredId;
                   await GuardadosCache.update({
                     'idcontenido': recoveredId,
                     'contenido_id': recoveredId,
@@ -252,35 +264,8 @@ class _PageContenidoState extends State<PageContenido>
                     'poster_path': _firstUrl(retryData['poster_path']),
                     'metadatos_completos': true,
                   });
-                } else {
-                  if (mounted) {
-                    setState(() {
-                      _loading = false;
-                      _error =
-                          'Este contenido no está disponible. Intenta abrirlo desde el buscador.';
-                    });
-                  }
-                  return;
                 }
-              } else {
-                if (mounted) {
-                  setState(() {
-                    _loading = false;
-                    _error =
-                        'Este contenido no está disponible. Intenta abrirlo desde el buscador.';
-                  });
-                }
-                return;
               }
-            } else {
-              if (mounted) {
-                setState(() {
-                  _loading = false;
-                  _error =
-                      'Este contenido no está disponible. Intenta abrirlo desde el buscador.';
-                });
-              }
-              return;
             }
           }
         }

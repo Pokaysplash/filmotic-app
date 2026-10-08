@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/datasources/remote/tmdb/tmdb_content.dart';
 import '../../supabase/guardados_service.dart';
+import '../storage/app_database.dart';
 
 /// Parsea de forma segura cualquier representación de TMDB ID a int canónico.
 int? parseCanonicalTmdbId(dynamic raw) {
@@ -29,18 +31,37 @@ String canonicalTipo(dynamic raw) {
   return 'pelicula';
 }
 
-/// Compara dos títulos limpiando signos y acentos para evitar falsos negativos.
+/// Compara dos títulos limpiando signos y acentos para evitar falsos negativos,
+/// con soporte universal de caracteres Unicode (incluye ideogramas chinos, kanji, kana, hangul, cirílico, etc.).
 bool titlesMatch(String? a, String? b) {
   if (a == null || b == null) return false;
-  String clean(String s) => s
+  final trimA = a.trim();
+  final trimB = b.trim();
+  if (trimA.isEmpty || trimB.isEmpty) return false;
+
+  final lowA = trimA.toLowerCase();
+  final lowB = trimB.toLowerCase();
+  if (lowA == lowB) return true;
+  if (lowA.contains(lowB) || lowB.contains(lowA)) return true;
+
+  String normalize(String s) => s
       .toLowerCase()
-      .replaceAll(RegExp(r'[^a-z0-9áéíóúüñ]'), '')
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll('ü', 'u')
+      .replaceAll('×', 'x')
+      .replaceAll(RegExp(r'[\s\p{P}\p{S}\p{Z}]', unicode: true), '')
       .trim();
-  final cleanA = clean(a);
-  final cleanB = clean(b);
-  if (cleanA.isEmpty || cleanB.isEmpty) return false;
-  if (cleanA == cleanB) return true;
-  if (cleanA.contains(cleanB) || cleanB.contains(cleanA)) return true;
+
+  final cleanA = normalize(trimA);
+  final cleanB = normalize(trimB);
+  if (cleanA.isNotEmpty && cleanB.isNotEmpty) {
+    if (cleanA == cleanB) return true;
+    if (cleanA.contains(cleanB) || cleanB.contains(cleanA)) return true;
+  }
   return false;
 }
 
@@ -179,6 +200,80 @@ class GuardadosBus {
   }
 }
 
+/// Bus de eventos global para cambios en el historial de reproducción / continuar viendo.
+/// Notifica instantáneamente a listeners en móvil y Android TV.
+class HistorialBus {
+  HistorialBus._();
+
+  static final ValueNotifier<int> version = ValueNotifier<int>(0);
+
+  /// Incrementa la versión para notificar a todos los listeners activos.
+  static void bump() {
+    version.value++;
+  }
+}
+
+/// Helper unificado para operaciones sobre el historial de reproducción y "Continuar viendo".
+class HistorialHelper {
+  HistorialHelper._();
+
+  /// Elimina un contenido (o episodio puntual) del historial tanto de Sembast (AppDatabase)
+  /// como de SharedPreferences (claves `cachePlayer_*` y `cachePlayerRapido_*`),
+  /// y notifica a toda la app mediante [HistorialBus.bump()].
+  static Future<void> eliminarDeHistorial({
+    required int id,
+    int? tmdbId,
+    int? temporada,
+    int? capitulo,
+    String? perfilId,
+  }) async {
+    try {
+      final episodioId = (temporada != null && capitulo != null)
+          ? 'T${temporada}_C$capitulo'
+          : null;
+
+      // 1. Borrar de Sembast por perfil
+      await AppDatabase.instance.deleteHistoryItem(
+        contenidoId: id,
+        episodioId: episodioId,
+        perfilId: perfilId,
+        tmdbId: tmdbId,
+      );
+
+      // 2. Borrar de SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys().toList();
+
+      final ids = <int>{id};
+      if (tmdbId != null && tmdbId > 0) ids.add(tmdbId);
+
+      for (final targetId in ids) {
+        if (temporada != null && capitulo != null) {
+          final epKey = 'cachePlayer_${targetId}_T${temporada}_C$capitulo';
+          final epKeyRapido =
+              'cachePlayerRapido_${targetId}_T${temporada}_C$capitulo';
+          await prefs.remove(epKey);
+          await prefs.remove(epKeyRapido);
+        }
+
+        for (final k in keys) {
+          if (k == 'cachePlayer_$targetId' ||
+              k.startsWith('cachePlayer_${targetId}_') ||
+              k == 'cachePlayerRapido_$targetId' ||
+              k.startsWith('cachePlayerRapido_${targetId}_')) {
+            await prefs.remove(k);
+          }
+        }
+      }
+
+      // 3. Notificar reactivamente a toda la interfaz
+      HistorialBus.bump();
+    } catch (e) {
+      debugPrint('[HistorialHelper] Error al eliminar de historial: $e');
+    }
+  }
+}
+
 /// Fachada unificada de favoritos para móvil y Android TV.
 class GuardadosCache {
   GuardadosCache._();
@@ -231,7 +326,8 @@ class GuardadosCache {
       );
       for (final res in results) {
         final resTitle = (res['title'] ?? res['name'] ?? '').toString();
-        if (titlesMatch(clean, resTitle)) {
+        final resOrig = (res['original_title'] ?? res['original_name'] ?? '').toString();
+        if (titlesMatch(clean, resTitle) || (resOrig.isNotEmpty && titlesMatch(clean, resOrig))) {
           final id = parseCanonicalTmdbId(res['id']);
           if (id != null && id > 0) return id;
         }
@@ -272,7 +368,7 @@ void showTvToast(
             border: Border.all(color: Colors.white12),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.5),
+                color: Colors.black.withValues(alpha: 0.5),
                 blurRadius: 24,
                 offset: const Offset(0, 8),
               ),

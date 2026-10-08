@@ -1,14 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:media_cast_dlna/media_cast_dlna.dart';
 import '../../../../core/services/cast_service.dart';
-import '../../../../core/services/dlna_helper.dart';
 
-/// Modal bottom sheet para descubrimiento y selección de dispositivos DLNA
+
+/// Modal bottom sheet para descubrimiento y selección de dispositivos de casting
+/// (DLNA, Chromecast, AirPlay) con soporte de proxy HTTP integrado para headers.
 class DlnaCastSheet extends StatefulWidget {
   final String videoUrl;
   final String title;
   final String? posterUrl;
+  final Map<String, String>? headers;
   final VoidCallback onCastStarted;
   final VoidCallback? onSelectServerForDlna;
   final VoidCallback? onResumeLocal;
@@ -18,6 +19,7 @@ class DlnaCastSheet extends StatefulWidget {
     required this.videoUrl,
     required this.title,
     this.posterUrl,
+    this.headers,
     required this.onCastStarted,
     this.onSelectServerForDlna,
     this.onResumeLocal,
@@ -28,6 +30,7 @@ class DlnaCastSheet extends StatefulWidget {
     required String videoUrl,
     required String title,
     String? posterUrl,
+    Map<String, String>? headers,
     required VoidCallback onCastStarted,
     VoidCallback? onSelectServerForDlna,
     VoidCallback? onResumeLocal,
@@ -40,6 +43,7 @@ class DlnaCastSheet extends StatefulWidget {
         videoUrl: videoUrl,
         title: title,
         posterUrl: posterUrl,
+        headers: headers,
         onCastStarted: onCastStarted,
         onSelectServerForDlna: onSelectServerForDlna,
         onResumeLocal: onResumeLocal,
@@ -53,10 +57,10 @@ class DlnaCastSheet extends StatefulWidget {
 
 class _DlnaCastSheetState extends State<DlnaCastSheet> {
   final CastService _castService = CastService.instance;
-  StreamSubscription<List<DlnaDevice>>? _sub;
-  List<DlnaDevice> _devices = [];
+  StreamSubscription<List<CastDevice>>? _sub;
+  List<CastDevice> _devices = [];
   bool _isSearching = true;
-  String? _connectingUdn;
+  String? _connectingId;
   String? _errorMessage;
 
   static const Color kOrange = Color(0xFFFF6B35);
@@ -77,7 +81,9 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
     });
 
     _sub?.cancel();
-    _sub = _castService.discoverDevices(timeout: const Duration(seconds: 10)).listen(
+    _sub = _castService
+        .discoverDevices(timeout: const Duration(seconds: 10))
+        .listen(
       (list) {
         if (!mounted) return;
         setState(() {
@@ -89,7 +95,6 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
       },
     );
 
-    // Timeout de 10 segundos
     Future.delayed(const Duration(seconds: 10), () {
       if (!mounted) return;
       if (_devices.isEmpty) {
@@ -110,34 +115,26 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
     super.dispose();
   }
 
-  Future<void> _selectDevice(DlnaDevice device) async {
-    setState(() => _connectingUdn = device.udn.value);
-
-    // 0. Pre-validación de compatibilidad con DLNA (evita que la Xbox abra reproductor y se quede pegada)
-    final isCompatible = await DlnaHelper.isDlnaCompatible(widget.videoUrl);
-    if (!isCompatible) {
-      if (!mounted) return;
-      setState(() => _connectingUdn = null);
-      _showIncompatibleDialog(device);
-      return;
-    }
+  Future<void> _selectDevice(CastDevice device) async {
+    setState(() => _connectingId = device.id);
 
     // 1. Conectar al dispositivo
-    final connected = await _castService.connectToDevice(device.udn.value);
+    final connected = await _castService.connectToDevice(device.id);
     if (!connected || !mounted) {
       setState(() {
-        _connectingUdn = null;
-        _errorMessage = _castService.lastError ??
-            'Error al conectar con ${device.friendlyName}.';
+        _connectingId = null;
+        _errorMessage =
+            _castService.lastError ?? 'Error al conectar con ${device.name}.';
       });
       return;
     }
 
-    // 2. Enviar el stream VOD
+    // 2. Enviar el stream con headers inyectados por proxy HTTP
     final success = await _castService.castMedia(
       widget.videoUrl,
       title: widget.title,
       posterUrl: widget.posterUrl,
+      headers: widget.headers,
     );
 
     if (!mounted) return;
@@ -149,11 +146,12 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
         SnackBar(
           content: Row(
             children: [
-              const Icon(Icons.cast_connected_rounded, color: kOrange, size: 22),
+              const Icon(Icons.cast_connected_rounded,
+                  color: kOrange, size: 22),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
-                  'Reproduciendo en ${device.friendlyName}',
+                  'Transmitiendo en ${device.name}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
@@ -164,82 +162,60 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
           ),
           backgroundColor: const Color(0xFF1E1E1E),
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           duration: const Duration(seconds: 4),
         ),
       );
     } else {
       setState(() {
-        _connectingUdn = null;
+        _connectingId = null;
         _errorMessage = _castService.lastError ??
             'Este dispositivo no puede reproducir este formato. Prueba con otro contenido.';
       });
     }
   }
 
-  Future<void> _showIncompatibleDialog(DlnaDevice device) async {
-    final action = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Color(0xFFFF6B35), size: 28),
-            SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                'Servidor no compatible con DLNA',
-                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        content: Text(
-          'Este contenido no se puede enviar a ${device.friendlyName} porque su servidor requiere autenticación o cabeceras protegidas que DLNA no soporta.\n\nPrueba otro servidor (preferiblemente MP4) o reproduce localmente.',
-          style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop('local'),
-            child: const Text('Reproducir localmente', style: TextStyle(color: Colors.white60)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFFF6B35),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            onPressed: () => Navigator.of(ctx).pop('servers'),
-            child: const Text(
-              'Buscar otro servidor',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    if (!mounted) return;
-
-    if (action == 'servers') {
-      Navigator.of(context).pop();
-      widget.onSelectServerForDlna?.call();
-    } else if (action == 'local') {
-      Navigator.of(context).pop();
-      widget.onResumeLocal?.call();
-    }
-  }
-
-  IconData _deviceIcon(DlnaDevice device) {
-    final name = device.friendlyName.toLowerCase();
-    final model = device.modelDetails.modelName.toLowerCase();
-    if (name.contains('xbox') || model.contains('xbox')) {
+  IconData _deviceIcon(CastDevice device) {
+    final lowerName = device.name.toLowerCase();
+    if (lowerName.contains('xbox')) {
       return Icons.videogame_asset_rounded;
     }
-    if (name.contains('speaker') || name.contains('audio')) {
+    if (device.protocol == CastProtocol.chromecast) {
+      return Icons.cast_rounded;
+    }
+    if (device.protocol == CastProtocol.airplay) {
+      return Icons.airplay_rounded;
+    }
+    if (lowerName.contains('speaker') || lowerName.contains('audio')) {
       return Icons.speaker_group_rounded;
     }
     return Icons.tv_rounded;
+  }
+
+  String _protocolLabel(CastDevice device) {
+    switch (device.protocol) {
+      case CastProtocol.chromecast:
+        return 'Chromecast / Google Cast';
+      case CastProtocol.airplay:
+        return 'AirPlay / Apple';
+      case CastProtocol.dlna:
+        if (device.name.toLowerCase().contains('xbox')) {
+          return 'Xbox (DLNA)';
+        }
+        return 'DLNA / Smart TV';
+    }
+  }
+
+  Color _protocolBadgeColor(CastDevice device) {
+    switch (device.protocol) {
+      case CastProtocol.chromecast:
+        return const Color(0xFF4285F4);
+      case CastProtocol.airplay:
+        return const Color(0xFFAAAAAA);
+      case CastProtocol.dlna:
+        return kOrange;
+    }
   }
 
   @override
@@ -300,7 +276,7 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Enviar a TV',
+                          'Transmitir a pantalla',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 18,
@@ -309,7 +285,7 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
                         ),
                         SizedBox(height: 2),
                         Text(
-                          'Dispositivos DLNA en tu red WiFi (Xbox, Smart TV)',
+                          'DLNA (Smart TV, Xbox), Chromecast y AirPlay',
                           style: TextStyle(
                             color: Colors.white54,
                             fontSize: 12,
@@ -332,12 +308,14 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
                     )
                   else
                     IconButton(
-                      icon: const Icon(Icons.refresh_rounded, color: Colors.white70),
+                      icon: const Icon(Icons.refresh_rounded,
+                          color: Colors.white70),
                       tooltip: 'Buscar de nuevo',
                       onPressed: _startSearch,
                     ),
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Colors.white54),
+                    icon:
+                        const Icon(Icons.close_rounded, color: Colors.white54),
                     onPressed: () => Navigator.of(context).pop(),
                   ),
                 ],
@@ -408,27 +386,24 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
                 child: ListView.separated(
                   shrinkWrap: true,
                   physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   itemCount: _devices.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final device = _devices[index];
-                    final isConnectingThis = _connectingUdn == device.udn.value;
-                    final subtitle = [
-                      if (device.manufacturerDetails.manufacturer.isNotEmpty)
-                        device.manufacturerDetails.manufacturer,
-                      if (device.modelDetails.modelName.isNotEmpty &&
-                          device.modelDetails.modelName !=
-                              device.manufacturerDetails.manufacturer)
-                        device.modelDetails.modelName,
-                    ].join(' · ');
+                    final isConnectingThis = _connectingId == device.id;
+                    final protocolText = _protocolLabel(device);
+                    final badgeColor = _protocolBadgeColor(device);
 
                     return Material(
                       color: kCardDark,
                       borderRadius: BorderRadius.circular(12),
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
-                        onTap: isConnectingThis ? null : () => _selectDevice(device),
+                        onTap: isConnectingThis
+                            ? null
+                            : () => _selectDevice(device),
                         splashColor: kOrange.withValues(alpha: 0.15),
                         child: Padding(
                           padding: const EdgeInsets.all(14),
@@ -443,7 +418,9 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
                                 ),
                                 child: Icon(
                                   _deviceIcon(device),
-                                  color: isConnectingThis ? kOrange : Colors.white70,
+                                  color: isConnectingThis
+                                      ? kOrange
+                                      : Colors.white70,
                                   size: 24,
                                 ),
                               ),
@@ -453,25 +430,44 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      device.friendlyName,
+                                      device.name,
                                       style: const TextStyle(
                                         color: Colors.white,
                                         fontSize: 15,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
-                                    if (subtitle.isNotEmpty) ...[
-                                      const SizedBox(height: 3),
-                                      Text(
-                                        subtitle,
-                                        style: const TextStyle(
-                                          color: Colors.white38,
-                                          fontSize: 12,
+                                    const SizedBox(height: 3),
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 6, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: badgeColor
+                                                .withValues(alpha: 0.15),
+                                            borderRadius:
+                                                BorderRadius.circular(4),
+                                          ),
+                                          child: Text(
+                                            protocolText,
+                                            style: TextStyle(
+                                              color: badgeColor,
+                                              fontSize: 10,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
                                         ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ],
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          '${device.address.address}:${device.port}',
+                                          style: const TextStyle(
+                                            color: Colors.white38,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ],
                                 ),
                               ),
@@ -521,7 +517,7 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'Verifica que tu TV o Xbox estén en el mismo WiFi',
+                      'Asegúrate de estar en el mismo WiFi que tu TV, Xbox o Chromecast',
                       style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.4),
                         fontSize: 12,
