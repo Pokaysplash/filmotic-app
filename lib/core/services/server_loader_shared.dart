@@ -9,6 +9,7 @@ import '../../data/extractors/hls/hls_extractor.dart';
 import 'remote_config_service.dart';
 import 'server_prevalidation_service.dart';
 import 'source_health_service.dart';
+import 'backend_scraper_service.dart';
 import '../storage/app_database.dart';
 /// Preferencias de audio/subtítulo/selección (las 3 nuevas opciones)
 class ServerLoaderPrefs {
@@ -232,6 +233,22 @@ class ServerLoader {
     if (cachedMain != null && cachedMain.isNotEmpty) {
       return cachedMain;
     }
+
+    // Consultar Backend Scraper si está activo
+    List<Map<String, dynamic>> backendServers = [];
+    if (BackendScraperService.instance.isEnabled) {
+      try {
+        backendServers = await BackendScraperService.instance.getSources(
+          tmdbId: contentId.toString(),
+          mediaType: isMovie ? 'movie' : 'tv',
+          season: isMovie ? null : season,
+          episode: isMovie ? null : episode,
+        );
+      } catch (e) {
+        debugPrint('[ServerLoader] Error consultando backend scraper: $e');
+      }
+    }
+
     final result = await _main.fetchAll(
       tmdbId: contentId,
       isMovie: isMovie,
@@ -240,16 +257,17 @@ class ServerLoader {
       context: context,
       forzarVerificar: false,
     );
-    if (result.todos.isNotEmpty) {
+    final allCombined = [...backendServers, ...result.todos];
+    if (allCombined.isNotEmpty) {
       await FuentesCache.saveServers(
         tmdbId: contentId,
         tipo: isMovie ? 'movie' : 'tv',
         season: season,
         episode: episode,
-        servidores: result.todos,
+        servidores: allCombined,
       );
     }
-    return result.todos;
+    return allCombined;
   }
 
   /// Primera fuente válida del idioma configurado → m3u8 y PARA (no espera el resto).
@@ -321,6 +339,41 @@ class ServerLoader {
         cacheKey: key,
       );
       if (fromLists != null) return fromLists;
+    }
+
+    // 1) Consulta prioritaria al Backend Scraper centralizado
+    if (BackendScraperService.instance.isEnabled) {
+      try {
+        final backendServers = await BackendScraperService.instance.getSources(
+          tmdbId: contentId.toString(),
+          mediaType: isMovie ? 'movie' : 'tv',
+          season: isMovie ? null : s,
+          episode: isMovie ? null : e,
+        );
+        if (backendServers.isNotEmpty) {
+          final playable = await _resolveServersInParallel(
+            backendServers,
+            context: context,
+            maxParallel: 3,
+          );
+          if (playable != null) {
+            await _persistWin(
+              cacheKey: key,
+              contentId: contentId,
+              isMovie: isMovie,
+              season: s,
+              episode: e,
+              playable: playable,
+              server: playable.rawServer,
+              allKnown: backendServers,
+            );
+            debugPrint('[ServerLoader] Backend Scraper Win → ${playable.serverName}');
+            return playable;
+          }
+        }
+      } catch (e) {
+        debugPrint('[ServerLoader] Backend Scraper falló o timeout ($e). Fallback a local.');
+      }
     }
 
     return _resolveProgressiveFirstWin(

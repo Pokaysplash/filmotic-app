@@ -328,6 +328,41 @@ class FilmoticPlayerConfig {
   };
 }
 
+class FilmoticBackendConfig {
+  final bool enabled;
+  final String baseUrl;
+  final int timeoutSeconds;
+  final bool fallbackToLocal;
+  final String type;
+
+  const FilmoticBackendConfig({
+    this.enabled = true,
+    this.baseUrl = 'http://localhost:3000',
+    this.timeoutSeconds = 10,
+    this.fallbackToLocal = true,
+    this.type = 'auto',
+  });
+
+  factory FilmoticBackendConfig.fromMap(Map<String, dynamic>? map) {
+    if (map == null) return const FilmoticBackendConfig();
+    return FilmoticBackendConfig(
+      enabled: map['enabled'] != false,
+      baseUrl: (map['base_url'] ?? 'http://localhost:3000').toString(),
+      timeoutSeconds: (map['timeout_seconds'] as num?)?.toInt() ?? 10,
+      fallbackToLocal: map['fallback_to_local'] != false,
+      type: (map['type'] ?? 'auto').toString(),
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+    'enabled': enabled,
+    'base_url': baseUrl,
+    'timeout_seconds': timeoutSeconds,
+    'fallback_to_local': fallbackToLocal,
+    'type': type,
+  };
+}
+
 class FilmoticRemoteConfig {
   final int version;
   final Map<String, dynamic> ads;
@@ -338,6 +373,7 @@ class FilmoticRemoteConfig {
   final FilmoticLiveTvConfig liveTv;
   final ServerPriorityConfig serverPriority;
   final FilmoticPlayerConfig player;
+  final FilmoticBackendConfig backend;
 
   /// Compatibilidad hacia atrás con min_app_version
   String get minAppVersion => app.minVersion;
@@ -352,9 +388,11 @@ class FilmoticRemoteConfig {
     FilmoticLiveTvConfig? liveTv,
     ServerPriorityConfig? serverPriority,
     FilmoticPlayerConfig? player,
+    FilmoticBackendConfig? backend,
   }) : liveTv = liveTv ?? FilmoticLiveTvConfig.defaults,
        serverPriority = serverPriority ?? const ServerPriorityConfig(),
-       player = player ?? const FilmoticPlayerConfig();
+       player = player ?? const FilmoticPlayerConfig(),
+       backend = backend ?? const FilmoticBackendConfig();
 
   factory FilmoticRemoteConfig.fromMap(Map<String, dynamic> map) {
     final adsMap = map['ads'] is Map ? Map<String, dynamic>.from(map['ads']) : <String, dynamic>{};
@@ -379,6 +417,9 @@ class FilmoticRemoteConfig {
     final playerConf = map['player'] is Map
         ? FilmoticPlayerConfig.fromMap(Map<String, dynamic>.from(map['player']))
         : const FilmoticPlayerConfig();
+    final backendConf = map['backend'] is Map
+        ? FilmoticBackendConfig.fromMap(Map<String, dynamic>.from(map['backend']))
+        : const FilmoticBackendConfig();
 
     return FilmoticRemoteConfig(
       version: (map['version'] is int) ? map['version'] : 1,
@@ -390,6 +431,7 @@ class FilmoticRemoteConfig {
       liveTv: liveTvConf,
       serverPriority: serverPriorityConf,
       player: playerConf,
+      backend: backendConf,
     );
   }
 
@@ -405,6 +447,7 @@ class FilmoticRemoteConfig {
         'min_app_version': app.minVersion,
         'live_tv': liveTv.toMap(),
         'player': player.toMap(),
+        'backend': backend.toMap(),
       };
 
   static FilmoticRemoteConfig get defaults => FilmoticRemoteConfig(

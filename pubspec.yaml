@@ -5,7 +5,7 @@ description: "A new lolplus project."
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
 
-version: 1.0.0-beta.18+18
+version: 1.0.0-beta.19+19
 
 environment:
   sdk: ^3.12.2

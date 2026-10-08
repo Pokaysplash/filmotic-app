@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../../../core/services/source_health_service.dart';
+import '../../../../core/services/backend_scraper_service.dart';
 import '../../../../data/scrapers/base/registry.dart';
 import '../../../../data/scrapers/base/scraper_context.dart';
 
@@ -160,8 +161,9 @@ class _SourceHealthPageState extends State<SourceHealthPage> {
             children: [
               _buildSummaryHeader(sources),
               const SizedBox(height: 18),
+              _buildBackendHealthCard(),
               Text(
-                'FUENTES REGISTRADAS (${sources.length})',
+                'FUENTES LOCALES REGISTRADAS (${sources.length})',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.4),
                   fontSize: 12,
@@ -175,6 +177,209 @@ class _SourceHealthPageState extends State<SourceHealthPage> {
           );
         },
       ),
+    );
+  }
+
+  Widget _buildBackendHealthCard() {
+    return ValueListenableBuilder<BackendHealthMetrics>(
+      valueListenable: BackendScraperService.instance.metricsNotifier,
+      builder: (context, metrics, _) {
+        final isEnabled = BackendScraperService.instance.isEnabled;
+        final isOnline = metrics.status == BackendStatus.online;
+        final isChecking = metrics.status == BackendStatus.checking;
+        final statusColor = !isEnabled
+            ? Colors.white38
+            : isOnline
+                ? const Color(0xFF22C55E)
+                : const Color(0xFFEF4444);
+        final statusLabel = !isEnabled
+            ? 'DESHABILITADO'
+            : isChecking
+                ? 'COMPROBANDO...'
+                : isOnline
+                    ? 'ONLINE'
+                    : 'OFFLINE';
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E26),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isOnline
+                  ? const Color(0xFF22C55E).withValues(alpha: 0.35)
+                  : Colors.white.withValues(alpha: 0.08),
+              width: isOnline ? 1.5 : 1.0,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFF6B00).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.cloud_sync_rounded, color: Color(0xFFFF6B00), size: 20),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Backend de Scraping Centralizado',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                        ),
+                        Text(
+                          metrics.baseUrl.isNotEmpty ? metrics.baseUrl : BackendScraperService.instance.baseUrl,
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: statusColor.withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          statusLabel,
+                          style: TextStyle(color: statusColor, fontSize: 11, fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.04),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Latencia', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 10)),
+                          const SizedBox(height: 2),
+                          Text(
+                            metrics.pingMs != null ? '${metrics.pingMs} ms' : '--',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.04),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Proveedores', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 10)),
+                          const SizedBox(height: 2),
+                          Text(
+                            metrics.activeProviders > 0 ? '${metrics.activeProviders} activos' : '13-50+',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.04),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Éxitos', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 10)),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${metrics.successfulResolutions}',
+                            style: const TextStyle(color: Color(0xFF22C55E), fontWeight: FontWeight.bold, fontSize: 13),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    metrics.lastCheck != null
+                        ? 'Última verificación: ${_formatDate(metrics.lastCheck)}'
+                        : 'No verificado recientemente',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11),
+                  ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    icon: isChecking
+                        ? const SizedBox(
+                            width: 12,
+                            height: 12,
+                            child: CircularProgressIndicator(strokeWidth: 1.8, color: Color(0xFFFF6B00)),
+                          )
+                        : const Icon(Icons.speed_rounded, size: 14, color: Color(0xFFFF6B00)),
+                    label: const Text('Probar Ping', style: TextStyle(fontSize: 12, color: Color(0xFFFF6B00))),
+                    onPressed: isChecking
+                        ? null
+                        : () async {
+                            final ok = await BackendScraperService.instance.checkHealth(force: true);
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(ok
+                                      ? '✓ Backend respondió en ${BackendScraperService.instance.metrics.pingMs}ms'
+                                      : '✕ Backend no disponible en ${BackendScraperService.instance.baseUrl}'),
+                                  backgroundColor: ok ? const Color(0xFF22C55E) : const Color(0xFFEF4444),
+                                ),
+                              );
+                            }
+                          },
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
