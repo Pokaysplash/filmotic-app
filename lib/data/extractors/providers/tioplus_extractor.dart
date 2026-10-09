@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import '../../datasources/remote/tmdb/tmdb_metadata_service.dart';
 
 const _kTmdbApiKey = 'a2d9bbed370d9f678e34006f8750a5a5';
 const _kTmdbBase = 'https://api.themoviedb.org/3';
@@ -147,6 +148,24 @@ class TioplusService {
   // ─── TMDB (igual patrón que Cinecalidad) ────────────────────────────────
 
   static Future<_TmdbData> _getTmdbData(int tmdbId, String type) async {
+    final isMovie = type == 'movie';
+    try {
+      final meta = await TmdbMetadataService.instance.getMetadata(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+      );
+      if (meta != null && meta.title.isNotEmpty) {
+        final d = _TmdbData(id: tmdbId);
+        d.titles['latino'] = meta.title;
+        d.titles['castellano'] = meta.title;
+        if (meta.originalTitle != null && meta.originalTitle!.isNotEmpty) {
+          d.titles['ingles'] = meta.originalTitle!;
+        }
+        d.year = meta.year;
+        return d;
+      }
+    } catch (_) {}
+
     const languages = {
       'latino': 'es-MX',
       'castellano': 'es-ES',

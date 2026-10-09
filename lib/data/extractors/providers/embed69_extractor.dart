@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:crypto/crypto.dart';
 import 'package:encrypt/encrypt.dart' as enc;
+import '../../datasources/remote/tmdb/tmdb_metadata_service.dart';
 
 /// Servicio que scrapea enlaces desde SeriesKao / Xupalace (Embed69)
 class Embed69Service {
@@ -102,6 +103,17 @@ class Embed69Service {
   // ─── Obtener IMDb desde TMDB (robusto para movie y tv) ─────────────────
 
   static Future<String?> _getImdbFromTmdb(int tmdbId, String type) async {
+    // 0) Consultar servicio centralizado con deduplicación y caché
+    try {
+      final meta = await TmdbMetadataService.instance.getMetadata(
+        tmdbId: tmdbId,
+        isMovie: type == 'movie',
+      );
+      if (meta?.imdbId != null && meta!.imdbId!.isNotEmpty) {
+        return meta.imdbId;
+      }
+    } catch (_) {}
+
     // 1) Endpoint oficial external_ids
     var imdb = await _parseImdbFromTmdbResponse(
       '$_kTmdbBase/$type/$tmdbId/external_ids?api_key=$_kTmdbApiKey',
@@ -174,7 +186,7 @@ class Embed69Service {
 
       return null;
     } catch (e) {
-      _log('Excepción consultando $url: $e');
+      print('[Embed69Service] Excepción consultando $url: $e');
       return null;
     }
   }

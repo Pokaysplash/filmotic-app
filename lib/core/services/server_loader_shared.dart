@@ -1064,30 +1064,37 @@ class ServerLoader {
         (lower.contains('/bt/') && lower.contains('.mp4'));
 
     if (esDirecto) {
-      // Validar si el stream directo responde efectivamente
-      final validation = await ServerPreValidationService.instance.validateUrl(
-        url,
-        extraHeaders: _extractHeaders(srv),
-      );
-      stopwatch.stop();
-      if (validation.isValid) {
-        unawaited(AppDatabase.instance.saveServerPerformance(
-          srvName,
-          stopwatch.elapsedMilliseconds.clamp(10, 5000),
-        ));
-        unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
-        debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
-        return PlayableSource(
-          url: url,
-          headers: _extractHeaders(srv),
-          quality: srv['quality']?.toString() ??
-              srv['calidad']?.toString() ??
-              'Auto',
-          serverName: srvName,
-          idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
-          rawServer: srv,
+      final shouldPreValidate =
+          RemoteConfigService.instance.config.player.preValidateServersOnContentOpen;
+      if (shouldPreValidate) {
+        final validation = await ServerPreValidationService.instance.validateUrl(
+          url,
+          extraHeaders: _extractHeaders(srv),
         );
+        if (!validation.isValid) {
+          stopwatch.stop();
+          unawaited(SourceHealthService.instance.recordFailure(sourceId, 'Direct stream unreachable'));
+          return null;
+        }
       }
+
+      stopwatch.stop();
+      unawaited(AppDatabase.instance.saveServerPerformance(
+        srvName,
+        stopwatch.elapsedMilliseconds.clamp(10, 5000),
+      ));
+      unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+      debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
+      return PlayableSource(
+        url: url,
+        headers: _extractHeaders(srv),
+        quality: srv['quality']?.toString() ??
+            srv['calidad']?.toString() ??
+            'Auto',
+        serverName: srvName,
+        idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
+        rawServer: srv,
+      );
     }
 
     // 1. Intento nativo ultra-rápido (StreamWish, VidHide, VOE, Filemoon, Dood, etc.)

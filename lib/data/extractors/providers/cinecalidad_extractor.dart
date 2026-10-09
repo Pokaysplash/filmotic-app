@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import '../../datasources/remote/tmdb/tmdb_metadata_service.dart';
 
 /// Servidores permitidos (mismo filtro que el PHP original).
 const _kAllowedServers = ['Vimeos', 'Hlswish', 'voe', 'Videoapp'];
@@ -107,6 +108,24 @@ class CinecalidadService {
   // ─── TMDB ───────────────────────────────────────────────────────────────
 
   static Future<_TmdbData> _getTmdbData(int tmdbId, String type) async {
+    final isMovie = type == 'movie';
+    try {
+      final meta = await TmdbMetadataService.instance.getMetadata(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+      );
+      if (meta != null && meta.title.isNotEmpty) {
+        final d = _TmdbData(id: tmdbId);
+        d.titles['latino'] = meta.title;
+        d.titles['castellano'] = meta.title;
+        if (meta.originalTitle != null && meta.originalTitle!.isNotEmpty) {
+          d.titles['ingles'] = meta.originalTitle!;
+        }
+        d.year = meta.year;
+        return d;
+      }
+    } catch (_) {}
+
     const languages = {
       'latino': 'es-MX',
       'castellano': 'es-ES',

@@ -1,7 +1,7 @@
-// lib/servicio/cuevana.dart
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../datasources/remote/tmdb/tmdb_metadata_service.dart';
 
 /// Scraper nativo de Cuevana (wv3.cuevana3.eu).
 /// No usa APIs propias ni player.php: todo se hace en Dart.
@@ -94,18 +94,37 @@ class CuevanaService {
   // ─── TMDB ───────────────────────────────────────────────────────────────
 
   static Future<_TmdbInfo> _getTmdbInfo(int tmdbId, String mediaType) async {
-    final endpoint = mediaType == 'movie' ? 'movie' : 'tv';
+    final isMovie = mediaType == 'movie';
+    try {
+      final meta = await TmdbMetadataService.instance.getMetadata(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+      );
+      if (meta != null && meta.title.isNotEmpty) {
+        return _TmdbInfo(
+          id: tmdbId,
+          latino: meta.title,
+          castellano: meta.title,
+          ingles: meta.originalTitle ?? meta.title,
+          year: meta.year,
+        );
+      }
+    } catch (_) {}
+
+    final endpoint = isMovie ? 'movie' : 'tv';
 
     Future<Map<String, dynamic>?> fetchLang(String lang) async {
       try {
+        const key = _kTmdbKey;
+        final requestedUri = Uri.parse(
+          '$_kTmdbBase/$endpoint/$tmdbId?api_key=$key&language=$lang',
+        );
         final r = await http
             .get(
-              Uri.parse(
-                '$_kTmdbBase/$endpoint/$tmdbId?api_key=$_kTmdbKey&language=$lang',
-              ),
+              requestedUri,
               headers: {'Accept': 'application/json', 'User-Agent': _kUa},
             )
-            .timeout(const Duration(seconds: 12));
+            .timeout(const Duration(seconds: 10));
         if (r.statusCode != 200) return null;
         final data = jsonDecode(r.body);
         if (data is! Map<String, dynamic>) return null;
@@ -121,7 +140,7 @@ class CuevanaService {
     final en = await fetchLang('en-US');
 
     int? year;
-    final dateStr = mediaType == 'movie'
+    final dateStr = isMovie
         ? (es?['release_date'] ?? en?['release_date'])?.toString()
         : (es?['first_air_date'] ?? en?['first_air_date'])?.toString();
     if (dateStr != null && dateStr.length >= 4) {

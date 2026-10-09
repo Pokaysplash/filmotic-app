@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
+import '../../datasources/remote/tmdb/tmdb_metadata_service.dart';
 import 'package:uuid/uuid.dart';
 
 /// Servicio extractor oficial para Canela.TV (VOD de Películas y Series en Español).
@@ -112,7 +113,22 @@ class CanelaService {
   // ─── TMDB Info ─────────────────────────────────────────────────────────────
 
   static Future<_TmdbInfo> _getTmdbInfo(int tmdbId, String mediaType) async {
-    final endpoint = mediaType == 'movie' ? 'movie' : 'tv';
+    final isMovie = mediaType == 'movie';
+    try {
+      final meta = await TmdbMetadataService.instance.getMetadata(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+      );
+      if (meta != null && meta.title.isNotEmpty) {
+        final titles = <String>{meta.title};
+        if (meta.originalTitle != null && meta.originalTitle!.isNotEmpty) {
+          titles.add(meta.originalTitle!);
+        }
+        return _TmdbInfo(titles: titles.toList(), year: meta.year);
+      }
+    } catch (_) {}
+
+    final endpoint = isMovie ? 'movie' : 'tv';
 
     Future<Map<String, dynamic>?> fetchLang(String lang) async {
       try {
