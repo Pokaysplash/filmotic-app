@@ -7,6 +7,7 @@ import '../../../../data/scrapers/base/base_home_scraper.dart';
 import '../../../../data/scrapers/base/scraper_context.dart';
 import '../../../../data/scrapers/base/registry.dart';
 import '../../../../data/scrapers/base/buscador.dart';
+import '../../../../core/services/source_health_service.dart';
 import 'derivar.dart';
 const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
@@ -111,7 +112,7 @@ class _ServiciosPageState extends State<ServiciosPage>
   }
 
   // ── Carga listado ───────────────────────────────────────────────────────
-  Future<void> _load({bool reset = false}) async {
+  Future<void> _load({bool reset = false, bool isFallback = false}) async {
     if (reset) {
       _page = 1;
       _hasNext = false;
@@ -151,9 +152,28 @@ class _ServiciosPageState extends State<ServiciosPage>
 
       if (!mounted) return;
 
-      if (!result.ok) {
+      if (!result.ok || (reset && result.items.isEmpty)) {
+        if (reset && !isFallback) {
+          final listado = fuentesConListado;
+          final currentIndex = listado.indexWhere((f) => f.id == _servicio.id);
+          if (currentIndex >= 0 && currentIndex + 1 < listado.length) {
+            SourceHealthService.instance.recordFailure(
+              _servicio.id,
+              result.error ?? 'Lista vacía o caída',
+            );
+            _servicio = listado[currentIndex + 1];
+            if (_servicio.tipos.isNotEmpty && !_servicio.tipos.contains(_tipo)) {
+              _tipo = _servicio.tipos.first;
+            }
+            if (_genero.isNotEmpty && !_servicio.generos.contains(_genero)) {
+              _genero = '';
+            }
+            return await _load(reset: true, isFallback: true);
+          }
+        }
+
         setState(() {
-          _error = result.error ?? 'Error desconocido';
+          _error = result.error ?? 'No se pudieron cargar películas de ${_servicio.label}';
           _loading = false;
           _loadingMore = false;
           _loadMoreQueued = false;
@@ -161,6 +181,8 @@ class _ServiciosPageState extends State<ServiciosPage>
         });
         return;
       }
+
+      SourceHealthService.instance.recordSuccess(_servicio.id, 200);
 
       setState(() {
         if (reset) {
@@ -175,10 +197,26 @@ class _ServiciosPageState extends State<ServiciosPage>
         _loadMoreQueued = false;
         _error = null;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
+      if (reset && !isFallback) {
+        final listado = fuentesConListado;
+        final currentIndex = listado.indexWhere((f) => f.id == _servicio.id);
+        if (currentIndex >= 0 && currentIndex + 1 < listado.length) {
+          SourceHealthService.instance.recordFailure(_servicio.id, e.toString());
+          _servicio = listado[currentIndex + 1];
+          if (_servicio.tipos.isNotEmpty && !_servicio.tipos.contains(_tipo)) {
+            _tipo = _servicio.tipos.first;
+          }
+          if (_genero.isNotEmpty && !_servicio.generos.contains(_genero)) {
+            _genero = '';
+          }
+          return await _load(reset: true, isFallback: true);
+        }
+      }
+
       setState(() {
-        _error = 'Sin conexión o error de red';
+        _error = 'Sin conexión o error al conectar con ${_servicio.label}';
         _loading = false;
         _loadingMore = false;
         _loadMoreQueued = false;
@@ -610,24 +648,30 @@ class _ServiciosPageState extends State<ServiciosPage>
                       children: [
                         Padding(
                           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: _FilterChipButton(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            physics: const BouncingScrollPhysics(),
+                            child: Row(
+                              children: [
+                                _FilterChipButton(
+                                  label: _servicio.label,
+                                  icon: Icons.dns_rounded,
+                                  onTap: _showServicioSheet,
+                                ),
+                                const SizedBox(width: 8),
+                                _FilterChipButton(
                                   label: _tipoLabel,
                                   icon: Icons.movie_filter_rounded,
                                   onTap: _showTipoSheet,
                                 ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: _FilterChipButton(
+                                const SizedBox(width: 8),
+                                _FilterChipButton(
                                   label: _generoLabel,
                                   icon: Icons.category_rounded,
                                   onTap: _showGeneroSheet,
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                         Expanded(child: _buildListBody(bottomPad)),
@@ -736,24 +780,50 @@ class _ServiciosPageState extends State<ServiciosPage>
 
     if (_error != null) {
       return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _error!,
-              style: const TextStyle(color: Colors.white70, fontSize: 15),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 14),
-            ElevatedButton(
-              onPressed: () => _load(reset: true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: kAccentColor,
-                foregroundColor: Colors.white,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                color: Colors.white.withValues(alpha: 0.4),
+                size: 48,
               ),
-              child: const Text('Reintentar'),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                _error!,
+                style: const TextStyle(color: Colors.white70, fontSize: 14),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 12,
+                runSpacing: 10,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => _load(reset: true),
+                    icon: const Icon(Icons.refresh_rounded, size: 18),
+                    label: const Text('Reintentar'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kAccentColor,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _showServicioSheet,
+                    icon: const Icon(Icons.dns_rounded, size: 18),
+                    label: const Text('Cambiar fuente'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -855,27 +925,27 @@ class _FilterChipButton extends StatelessWidget {
         onTap: onTap,
         borderRadius: BorderRadius.circular(10),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
             border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
           ),
           child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               Icon(icon, size: 16, color: kAccentColor),
               const SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
+              const SizedBox(width: 4),
               const Icon(
                 Icons.keyboard_arrow_down_rounded,
                 color: Colors.white54,

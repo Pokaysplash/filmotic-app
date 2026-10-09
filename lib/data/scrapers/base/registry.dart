@@ -32,17 +32,61 @@ import '../../../core/services/source_health_service.dart';
 
 /// Todas las fuentes disponibles (listado + búsqueda) agrupadas por categoría.
 final List<Fuente> fuentesRegistry = [
-  // ── PelisPlusHD (WAVE 12.17 - Prioridad Alta) ─────────────────────────
+  // ── Cuevana (Películas y Series - WAVE 12.18 Prioridad Alta) ──────────
+  Fuente(
+    id: 'cuevana',
+    label: 'Cuevana',
+    category: 'movie',
+    language: 'es',
+    priority: 1,
+    tipos: CuevanaScraper.tiposDisponibles(),
+    generos: CuevanaScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return CuevanaScraper.fetch(
+        tipo: populares ? 'tendencias' : (genero == null || genero.isEmpty ? tipo : null),
+        genero: genero == null || genero.isEmpty ? null : genero,
+        page: page,
+      );
+    },
+    search: BuscadorScraper.searchCuevana,
+  ),
+
+  // ── PelisPlus (Películas y Series - WAVE 12.18 Prioridad Alta) ────────
+  Fuente(
+    id: 'pelisplus',
+    label: 'PelisPlus',
+    category: 'movie',
+    language: 'es',
+    priority: 1,
+    tipos: PelisPlusScraper.tiposDisponibles(),
+    generos: PelisPlusScraper.generos,
+    supportsPopulares: true,
+    hasListing: true,
+    hasSearch: true,
+    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
+      return PelisPlusScraper.fetch(
+        tipo: genero == null || genero.isEmpty ? tipo : null,
+        genero: genero == null || genero.isEmpty ? null : genero,
+        page: page,
+      );
+    },
+    search: BuscadorScraper.searchPelisPlus,
+  ),
+
+  // ── PelisPlusHD (WAVE 12.17 - Solo Búsqueda) ──────────────────────────
   Fuente(
     id: 'pelisplushd',
     label: 'PelisPlusHD',
     category: 'movie',
     language: 'es',
-    priority: 1,
+    priority: 2,
     tipos: const ['movie', 'tv'],
     generos: const ['Acción', 'Comedia', 'Drama', 'Terror', 'Ciencia Ficción'],
     supportsPopulares: true,
-    hasListing: true,
+    hasListing: false,
     hasSearch: true,
     fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
       return PelisPlusHdScraper.fetch(tipo: tipo, genero: genero, page: page);
@@ -60,17 +104,17 @@ final List<Fuente> fuentesRegistry = [
     },
   ),
 
-  // ── Cuevana3 (WAVE 12.17 - Prioridad Alta) ───────────────────────────
+  // ── Cuevana3 (WAVE 12.17 - Solo Búsqueda) ────────────────────────────
   Fuente(
     id: 'cuevana3',
     label: 'Cuevana3',
     category: 'movie',
     language: 'es',
-    priority: 1,
+    priority: 2,
     tipos: const ['movie', 'tv'],
     generos: const ['Acción', 'Estrenos', 'Comedia', 'Drama', 'Terror'],
     supportsPopulares: true,
-    hasListing: true,
+    hasListing: false,
     hasSearch: true,
     fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
       return Cuevana3Scraper.fetch(tipo: tipo, genero: genero, page: page);
@@ -113,48 +157,6 @@ final List<Fuente> fuentesRegistry = [
         imagen: i.poster,
       )).toList();
     },
-  ),
-
-  // ── Cuevana (Películas y Series) ──────────────────────────────────────
-  Fuente(
-    id: 'cuevana',
-    label: 'Cuevana',
-    category: 'movie',
-    language: 'es',
-    tipos: CuevanaScraper.tiposDisponibles(),
-    generos: CuevanaScraper.generos,
-    supportsPopulares: true,
-    hasListing: true,
-    hasSearch: true,
-    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
-      return CuevanaScraper.fetch(
-        tipo: populares ? 'tendencias' : (genero == null || genero.isEmpty ? tipo : null),
-        genero: genero == null || genero.isEmpty ? null : genero,
-        page: page,
-      );
-    },
-    search: BuscadorScraper.searchCuevana,
-  ),
-
-  // ── PelisPlus (Películas y Series) ───────────────────────────────────
-  Fuente(
-    id: 'pelisplus',
-    label: 'PelisPlus',
-    category: 'movie',
-    language: 'es',
-    tipos: PelisPlusScraper.tiposDisponibles(),
-    generos: PelisPlusScraper.generos,
-    supportsPopulares: true,
-    hasListing: true,
-    hasSearch: true,
-    fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
-      return PelisPlusScraper.fetch(
-        tipo: genero == null || genero.isEmpty ? tipo : null,
-        genero: genero == null || genero.isEmpty ? null : genero,
-        page: page,
-      );
-    },
-    search: BuscadorScraper.searchPelisPlus,
   ),
 
   // ── SeriesKao (Series) ───────────────────────────────────────────────

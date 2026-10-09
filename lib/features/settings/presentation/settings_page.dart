@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/constants/sources.dart';
@@ -720,7 +721,12 @@ class _ConfigPageState extends State<ConfigPage> {
         ),
       );
 
-      if (!mounted) return;
+      if (Platform.isAndroid) {
+        final installPerm = await Permission.requestInstallPackages.status;
+        if (!installPerm.isGranted) {
+          await Permission.requestInstallPackages.request();
+        }
+      }
 
       final result = await OpenFilex.open(
         filePath,

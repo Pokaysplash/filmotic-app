@@ -3,6 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/services/remote_config_service.dart';
@@ -143,6 +144,12 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
 
   Future<void> _installApk(String filePath) async {
     try {
+      if (Platform.isAndroid) {
+        final installPerm = await Permission.requestInstallPackages.status;
+        if (!installPerm.isGranted) {
+          await Permission.requestInstallPackages.request();
+        }
+      }
       await UpdateService.instance.markPendingUpdate(widget.appInfo.latestVersion);
       final result = await OpenFilex.open(
         filePath,

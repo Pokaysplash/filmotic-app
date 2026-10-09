@@ -618,7 +618,7 @@ class ServerLoader {
       }
 
       final result = await completer.future.timeout(
-        const Duration(seconds: 8),
+        const Duration(seconds: 15),
         onTimeout: () => null,
       );
       if (result != null) return result;
@@ -645,7 +645,7 @@ class ServerLoader {
     var resolved = false;
     var isStreamDone = false;
     int activeWorkers = 0;
-    const int maxParallel = 3;
+    const int maxParallel = 4;
     final totalStopwatch = Stopwatch()..start();
     int serversTestedCount = 0;
 
@@ -925,6 +925,21 @@ class ServerLoader {
         return aMatchesPreferred ? -1 : 1;
       }
 
+      // 0.05. Priorizar streams directos o ya resueltos (m3u8/mp4) para reproducción instantánea (<100ms)
+      final aUrl = (a['servidor_url'] ?? a['url'] ?? '').toString();
+      final bUrl = (b['servidor_url'] ?? b['url'] ?? '').toString();
+      final aIsDirect = (a['resolved_m3u8']?.toString().isNotEmpty == true) ||
+          a['verificado'] == true ||
+          aUrl.contains('.m3u8') ||
+          aUrl.contains('.mp4');
+      final bIsDirect = (b['resolved_m3u8']?.toString().isNotEmpty == true) ||
+          b['verificado'] == true ||
+          bUrl.contains('.m3u8') ||
+          bUrl.contains('.mp4');
+      if (aIsDirect != bIsDirect) {
+        return aIsDirect ? -1 : 1;
+      }
+
       // 0.1. Priorizar por estado de salud de la fuente (healthy > degraded > down)
       final aSrcId = SourceHealthService.normalizeSourceId(
         a['fuente_id']?.toString() ?? a['fuente']?.toString() ?? a['sitio']?.toString() ?? aName,
@@ -1007,18 +1022,11 @@ class ServerLoader {
     );
     final health = SourceHealthService.instance.getHealth(sourceId);
 
-    // Omitir fuentes marcadas como 'down' salvo que corresponda reintentarlas
-    if (health.healthStatus == HealthStatus.down &&
-        !SourceHealthService.instance.canRetryDownSource(sourceId)) {
-      debugPrint('[SourceHealth] $sourceId descartada: ${health.consecutiveFailures} fallos consecutivos');
-      return null;
-    }
-
     final stopwatch = Stopwatch()..start();
-    // Timeout diferenciado: 8s para healthy, 5s para degraded
+    // Timeout diferenciado: 8s para degraded, 12s para healthy/down
     final resolveTimeout = (health.healthStatus == HealthStatus.degraded)
-        ? const Duration(seconds: 5)
-        : const Duration(seconds: 8);
+        ? const Duration(seconds: 8)
+        : const Duration(seconds: 12);
 
     final already = srv['resolved_m3u8']?.toString();
     if (already != null && already.isNotEmpty) {
@@ -1086,6 +1094,7 @@ class ServerLoader {
     try {
       final native = await NativeResolvers.resolve(
         url,
+        serverHint: '$srvName ${srv['servidor'] ?? ''}',
         timeout: resolveTimeout,
       );
       if (native != null && native.url.isNotEmpty) {

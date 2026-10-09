@@ -28,9 +28,14 @@ class FilmoticAppInfo {
     final m = map ?? {};
     final minVer = (m['min_version'] ?? fallbackMinVersion).toString();
     final latestVer = (m['latest_version'] ?? minVer).toString();
-    final url = (m['update_url'] ??
-            'https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk')
-        .toString();
+    final rawUrl = (m['update_url'] ?? '').toString().trim();
+    final String url;
+    if (rawUrl.isEmpty || rawUrl.contains('/releases/latest/download/')) {
+      final tag = latestVer.startsWith('v') ? latestVer : 'v$latestVer';
+      url = 'https://github.com/Pokaysplash/filmotic-app/releases/download/$tag/filmotic.apk';
+    } else {
+      url = rawUrl;
+    }
     final msg = (m['update_message'] ??
             'Hay una nueva versión de Filmotic disponible. Actualiza para disfrutar de las últimas mejoras.')
         .toString();

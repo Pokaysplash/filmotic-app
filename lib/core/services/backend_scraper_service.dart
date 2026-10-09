@@ -181,6 +181,16 @@ class BackendScraperService {
   }) async {
     if (!isEnabled || tmdbId.isEmpty) return [];
 
+    final isLocalhost = baseUrl.contains('localhost') || baseUrl.contains('127.0.0.1');
+    // Si apunta a localhost y no está online verificado, no bloquear la reproducción
+    if (isLocalhost && metrics.status != BackendStatus.online) {
+      return [];
+    }
+
+    if (metrics.status == BackendStatus.offline) {
+      return [];
+    }
+
     final normType = (mediaType.toLowerCase().contains('tv') ||
             mediaType.toLowerCase().contains('serie'))
         ? 'series'
@@ -209,6 +219,7 @@ class BackendScraperService {
     ];
 
     List<Map<String, dynamic>> resolvedServers = [];
+    final fastTimeout = Duration(milliseconds: (config.timeoutSeconds * 1000).clamp(1500, 3500));
 
     for (final path in candidatePaths) {
       try {
@@ -224,7 +235,7 @@ class BackendScraperService {
               : Uri.parse('$baseUrl$path').replace(queryParameters: queryParams);
         }
 
-        final res = await http.get(uri).timeout(timeout);
+        final res = await http.get(uri).timeout(fastTimeout);
         if (res.statusCode == 200 && res.body.isNotEmpty) {
           final parsed = jsonDecode(res.body);
           resolvedServers = parseStreamsResponse(parsed);

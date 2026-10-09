@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -286,7 +287,12 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
         ),
       );
 
-      if (!mounted) return;
+      if (Platform.isAndroid) {
+        final installPerm = await Permission.requestInstallPackages.status;
+        if (!installPerm.isGranted) {
+          await Permission.requestInstallPackages.request();
+        }
+      }
 
       final result = await OpenFilex.open(
         filePath,

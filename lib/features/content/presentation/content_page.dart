@@ -773,15 +773,11 @@ class _PageContenidoState extends State<PageContenido>
 
     final resolvedSource = playable;
     if (resolvedSource == null || resolvedSource.url.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'No hay servidores disponibles para este episodio. Intenta más tarde.',
-          ),
-          backgroundColor: Color(0xFF1E1E24),
-          duration: Duration(seconds: 4),
-          behavior: SnackBarBehavior.floating,
-        ),
+      _showNoServersAvailablePrompt(
+        titulo: titulo,
+        isMovie: isMovie,
+        seasonNum: seasonNum,
+        episodeNum: episodeNum,
       );
       return;
     }
@@ -807,6 +803,132 @@ class _PageContenidoState extends State<PageContenido>
       _loadEpisodeProgress();
       _loadDownloadedState();
     }
+  }
+
+  void _showNoServersAvailablePrompt({
+    required String titulo,
+    required bool isMovie,
+    int? seasonNum,
+    int? episodeNum,
+  }) {
+    if (!mounted) return;
+
+    final cleanTitle = titulo
+        .replaceAll(RegExp(r'\s*\(\d{4}\)', caseSensitive: false), '')
+        .replaceAll(RegExp(r'\s*\[.*?\]', caseSensitive: false), '')
+        .trim();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+        decoration: const BoxDecoration(
+          color: Color(0xFF16161F),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          border: Border(top: BorderSide(color: Colors.white12, width: 1)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFF6B35).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.sensors_off_rounded,
+                  color: Color(0xFFFF6B35),
+                  size: 28,
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Sin servidores directos',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isMovie
+                    ? 'No se encontraron servidores automáticos para "$cleanTitle". Puedes buscarlo en el catálogo de fuentes alternativas.'
+                    : 'No se encontraron servidores automáticos para el episodio ${seasonNum != null && episodeNum != null ? 'T$seasonNum:E$episodeNum' : ''} de "$cleanTitle".',
+                style: const TextStyle(
+                  color: Colors.white70,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 22),
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFFF6B35),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    elevation: 3,
+                  ),
+                  icon: const Icon(Icons.travel_explore_rounded, size: 20),
+                  label: const Text(
+                    'Buscar en fuentes alternativas',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BuscarPage(initialQuery: cleanTitle),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                  ),
+                  icon: const Icon(Icons.refresh_rounded, size: 18),
+                  label: const Text('Reintentar búsqueda'),
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    _openServidores(temporada: seasonNum, capitulo: episodeNum);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   // ── Descargas ─────────────────────────────────────────────────────────────

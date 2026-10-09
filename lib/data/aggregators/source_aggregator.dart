@@ -29,6 +29,8 @@ import '../extractors/providers/canela_extractor.dart';
 import '../extractors/providers/animeflv_extractor.dart';
 import '../datasources/remote/sources/custom_api.dart';
 import '../extractors/hls/hls_extractor.dart';
+import '../extractors/providers/pelisplus_extractor.dart';
+import '../extractors/providers/vidsrc_extractor.dart';
 import '../scrapers/seriesflix_scraper.dart';
 import '../scrapers/cineby_scraper.dart';
 
@@ -68,21 +70,23 @@ extension FuenteSeleccionX on FuenteSeleccion {
 
 enum FuenteId {
   todos,
-  embed69,
-  poseidon,
+  pelisplus,
   cuevana,
-  unlimplay,
-  cinecalidad,
   tioplus,
+  seriesflix,
+  canela,
+  vidsrc,
+  embed69,
+  cineby,
+  animeflv,
+  cinecalidad,
+  poseidon,
+  unlimplay,
   fuegocine,
   pelispedia,
   seriesmetro,
   smartpelis,
   cinesrc,
-  canela,
-  animeflv,
-  seriesflix,
-  cineby,
   customapi, // APIs del usuario (códigos PHP ilimitados)
 }
 
@@ -91,6 +95,10 @@ extension FuenteIdX on FuenteId {
     switch (this) {
       case FuenteId.todos:
         return 'Todos';
+      case FuenteId.pelisplus:
+        return 'PelisPlus';
+      case FuenteId.vidsrc:
+        return 'VidSrc';
       case FuenteId.embed69:
         return 'Embed69';
       case FuenteId.poseidon:
@@ -130,6 +138,10 @@ extension FuenteIdX on FuenteId {
     switch (this) {
       case FuenteId.todos:
         return '';
+      case FuenteId.pelisplus:
+        return 'es_pelisplus';
+      case FuenteId.vidsrc:
+        return 'es_vidsrc';
       case FuenteId.embed69:
         return 'es_embed69';
       case FuenteId.poseidon:
@@ -169,6 +181,10 @@ extension FuenteIdX on FuenteId {
     switch (this) {
       case FuenteId.todos:
         return const Color(0xFFE50914);
+      case FuenteId.pelisplus:
+        return const Color(0xFF3B82F6);
+      case FuenteId.vidsrc:
+        return const Color(0xFF8B5CF6);
       case FuenteId.embed69:
         return const Color(0xFF3B82F6);
       case FuenteId.poseidon:
@@ -210,11 +226,13 @@ extension FuenteIdX on FuenteId {
 // ─────────────────────────────────────────────────────────────
 
 class FuentesConfig {
+  final bool pelisplusEnabled;
   final bool cuevanaEnabled;
   final bool unlimplayEnabled;
   final bool cinecalidadEnabled;
   final bool tioplusEnabled;
   final bool embed69Enabled;
+  final bool vidsrcEnabled;
   final bool poseidonEnabled;
   final bool fuegocineEnabled;
   final bool pelispediaEnabled;
@@ -237,11 +255,13 @@ class FuentesConfig {
   final int capitulosPrecarga;
 
   const FuentesConfig({
+    this.pelisplusEnabled = true,
     required this.cuevanaEnabled,
     required this.unlimplayEnabled,
     required this.cinecalidadEnabled,
     required this.tioplusEnabled,
     required this.embed69Enabled,
+    this.vidsrcEnabled = true,
     required this.poseidonEnabled,
     required this.fuegocineEnabled,
     required this.pelispediaEnabled,
@@ -276,11 +296,13 @@ class FuentesConfig {
     }
 
     return FuentesConfig(
-      cuevanaEnabled: prefs.getBool('cuevana_enabled') ?? false,
+      pelisplusEnabled: prefs.getBool('pelisplus_enabled') ?? true,
+      cuevanaEnabled: prefs.getBool('cuevana_enabled') ?? true,
       unlimplayEnabled: prefs.getBool('unlimplay_enabled') ?? false,
-      cinecalidadEnabled: prefs.getBool('cinecalidad_enabled') ?? false,
-      tioplusEnabled: prefs.getBool('tioplus_enabled') ?? false,
-      embed69Enabled: prefs.getBool('embed69_enabled') ?? false,
+      cinecalidadEnabled: prefs.getBool('cinecalidad_enabled') ?? true,
+      tioplusEnabled: prefs.getBool('tioplus_enabled') ?? true,
+      embed69Enabled: prefs.getBool('embed69_enabled') ?? true,
+      vidsrcEnabled: prefs.getBool('vidsrc_enabled') ?? true,
       poseidonEnabled: prefs.getBool('poseidon_enabled') ?? false,
       fuegocineEnabled: prefs.getBool('fuegocine_enabled') ?? false,
       pelispediaEnabled: prefs.getBool('pelispedia_enabled') ?? false,
@@ -309,22 +331,24 @@ class FuentesConfig {
 
   List<FuenteId> get fuentesActivas {
     final list = <FuenteId>[];
-    if (embed69Enabled) list.add(FuenteId.embed69);
-    if (poseidonEnabled) list.add(FuenteId.poseidon);
+    if (pelisplusEnabled) list.add(FuenteId.pelisplus);
     if (cuevanaEnabled) list.add(FuenteId.cuevana);
-    if (unlimplayEnabled) list.add(FuenteId.unlimplay);
-    if (cinecalidadEnabled) list.add(FuenteId.cinecalidad);
     if (tioplusEnabled) list.add(FuenteId.tioplus);
+    if (seriesflixEnabled) list.add(FuenteId.seriesflix);
+    if (embed69Enabled) list.add(FuenteId.embed69);
+    if (canelaEnabled) list.add(FuenteId.canela);
+    if (vidsrcEnabled) list.add(FuenteId.vidsrc);
+    if (animeflvEnabled) list.add(FuenteId.animeflv);
+    if (cinebyEnabled) list.add(FuenteId.cineby);
+    if (cinecalidadEnabled) list.add(FuenteId.cinecalidad);
+    if (poseidonEnabled) list.add(FuenteId.poseidon);
+    if (customApiEnabled) list.add(FuenteId.customapi);
+    if (unlimplayEnabled) list.add(FuenteId.unlimplay);
     if (fuegocineEnabled) list.add(FuenteId.fuegocine);
     if (pelispediaEnabled) list.add(FuenteId.pelispedia);
     if (seriesmetroEnabled) list.add(FuenteId.seriesmetro);
     if (smartpelisEnabled) list.add(FuenteId.smartpelis);
     if (cinesrcEnabled) list.add(FuenteId.cinesrc);
-    if (canelaEnabled) list.add(FuenteId.canela);
-    if (animeflvEnabled) list.add(FuenteId.animeflv);
-    if (seriesflixEnabled) list.add(FuenteId.seriesflix);
-    if (cinebyEnabled) list.add(FuenteId.cineby);
-    if (customApiEnabled) list.add(FuenteId.customapi);
     return list;
   }
 }
@@ -637,6 +661,26 @@ class MainFuentes {
 
     switch (fuente) {
       case FuenteId.todos:
+        break;
+      case FuenteId.pelisplus:
+        await for (final map in PelisPlusService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
+        break;
+      case FuenteId.vidsrc:
+        await for (final map in VidSrcService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
         break;
       case FuenteId.cuevana:
         await for (final s in CuevanaService.scrape(

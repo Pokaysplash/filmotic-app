@@ -31,7 +31,9 @@ String _posterUrl(dynamic raw) {
 }
 
 class BuscarPage extends StatefulWidget {
-  const BuscarPage({super.key});
+  final String? initialQuery;
+
+  const BuscarPage({super.key, this.initialQuery});
 
   @override
   State<BuscarPage> createState() => BuscarPageState();
@@ -80,7 +82,14 @@ class BuscarPageState extends State<BuscarPage>
   void initState() {
     super.initState();
     _discoverScroll.addListener(_onDiscoverScroll);
-    _loadDiscover(reset: true);
+    if (widget.initialQuery != null && widget.initialQuery!.trim().isNotEmpty) {
+      _controller.text = widget.initialQuery!.trim();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _doSearch(widget.initialQuery!.trim());
+      });
+    } else {
+      _loadDiscover(reset: true);
+    }
   }
 
   @override

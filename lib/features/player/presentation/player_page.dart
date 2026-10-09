@@ -28,6 +28,9 @@ import '../../../core/services/remote_config_service.dart';
 import '../../../core/services/server_loader_shared.dart';
 import '../../../core/services/source_health_service.dart';
 import '../../../data/scrapers/base/registry.dart';
+import '../../../data/scrapers/base/buscador.dart';
+import '../../discover/domain/mobile/derivar.dart';
+import '../../search/presentation/search_page.dart';
 
 class _SubtitleCue {
   final Duration start;
@@ -1205,57 +1208,61 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _showAllServersFailedDialog();
   }
 
+  String _cleanSearchQuery(String raw) {
+    var q = raw.trim();
+    if (q.isEmpty) return '';
+
+    // Quitar años entre paréntesis: (2024), (1999)
+    q = q.replaceAll(RegExp(r'\s*\(\d{4}\)', caseSensitive: false), '');
+    // Quitar calidad entre corchetes: [1080p], [4K], [Latino]
+    q = q.replaceAll(RegExp(r'\s*\[.*?\]', caseSensitive: false), '');
+    // Quitar patrones de temporada/capítulo
+    q = q.replaceAll(RegExp(r'\s*-\s*(T\d+:?E\d+|S\d+:?E\d+|\d+x\d+).*', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s*-\s*(Temporada|Capítulo|Capitulo|Episodio)\s*\d+.*', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s+(Temporada|Capítulo|Capitulo|Episodio)\s*\d+.*', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s+(T\d+:?E\d+|S\d+E\d+|\d+x\d+).*', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s*:\s*(Temporada|Capítulo|Capitulo|Episodio)\s*\d+.*', caseSensitive: false), '');
+    return q.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
   Future<void> _buscarEnTodasLasFuentesFallback() async {
-    final query = _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo;
-    if (query.trim().isEmpty) return;
+    final raw = _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo;
+    final query = _cleanSearchQuery(raw);
+    if (query.isEmpty) return;
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Buscando "$query" en todas las fuentes...'),
-          backgroundColor: const Color(0xFF1E1E24),
-          duration: const Duration(seconds: 4),
-        ),
-      );
-    }
+    if (!mounted || _isDisposing) return;
 
-    try {
-      final res = await buscarEnFuentes(q: query);
-      if (!mounted || _isDisposing) return;
-
-      final allItems = res.resultados.values.expand((list) => list).toList();
-      if (allItems.isNotEmpty) {
-        final first = allItems.first;
-        final id = first.tmdbId ?? query.hashCode.abs();
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => PageContenido(
-              idcontenido: id,
-              tmdbId: id,
-              mediaType: first.tipo.isNotEmpty ? first.tipo : _mediaType,
-              expectedTitle: first.titulo.isNotEmpty ? first.titulo : query,
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _FuentesAlternativasSheet(
+        query: query,
+        onSelectScraperItem: (item) {
+          Navigator.pop(ctx);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DerivarPage(
+                servicio: item.sitio,
+                url: item.url,
+                titulo: item.titulo,
+                tipo: item.tipo,
+              ),
             ),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se encontraron otras fuentes disponibles para este contenido.'),
-            backgroundColor: Color(0xFF1E1E24),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al buscar en fuentes: $e'),
-            backgroundColor: const Color(0xFF1E1E24),
-          ),
-        );
-      }
-    }
+          );
+        },
+        onOpenSearch: () {
+          Navigator.pop(ctx);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => BuscarPage(initialQuery: query),
+            ),
+          );
+        },
+      ),
+    );
   }
 
   void _showAllServersFailedDialog() {
@@ -1474,399 +1481,523 @@ class _PlayerScreenState extends State<PlayerScreen> {
             final activeLangServers = allForLang;
             final hasAnyVerified = activeLangServers.any((s) => verifiedKeys.contains(_serverKey(s)));
 
-            return SafeArea(
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.85,
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 40,
-                          height: 4,
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.white24,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
+            final isLandscape = MediaQuery.of(context).orientation == Orientation.landscape;
+            final sheetHeight = isLandscape
+                ? MediaQuery.of(context).size.height * 0.94
+                : MediaQuery.of(context).size.height * 0.85;
+
+            String formatLangLabel(String key) {
+              final l = key.toLowerCase();
+              if (l.contains('latino') || l == 'lat' || l == 'es_mx') {
+                return '🇲🇽 Español Latino';
+              } else if (l.contains('castellano') || l == 'es_es' || l == 'esp') {
+                return '🇪🇸 Castellano';
+              } else if (l.contains('sub') || l.contains('vos') || l.contains('ingles') || l.contains('inglés') || l == 'en_us') {
+                return '🇺🇸 Inglés Subtitulado';
+              }
+              return '🌐 $key';
+            }
+
+            Widget buildServerCard(Map<String, dynamic> srv, int idx) {
+              final quality = srv['quality']?.toString() ??
+                  srv['calidad']?.toString() ??
+                  'Auto';
+              final isCurrentServer = _activeUrl == srv['servidor_url'] ||
+                  _activeUrl == srv['resolved_m3u8'];
+              final isVerified = verifiedKeys.contains(_serverKey(srv));
+              final isSelected = selectedOptionServer == srv ||
+                  (selectedOptionServer == null && isCurrentServer);
+
+              final srcId = SourceHealthService.normalizeSourceId(
+                srv['fuente_id']?.toString() ??
+                    srv['fuente']?.toString() ??
+                    srv['sitio']?.toString() ??
+                    srv['servidor_nombre'] ??
+                    '',
+              );
+              final health = SourceHealthService.instance.getHealth(srcId);
+              final isHealthy = health.healthStatus == HealthStatus.healthy;
+              final isDegraded = health.healthStatus == HealthStatus.degraded;
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Material(
+                  color: isSelected
+                      ? const Color(0xFFFF6B35).withValues(alpha: 0.16)
+                      : const Color(0xFF1E1E26),
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      setModalState(() {
+                        selectedOptionServer = srv;
+                      });
+                      Navigator.pop(ctx);
+                      final isCurrent = _activeUrl == srv['servidor_url'] || _activeUrl == srv['resolved_m3u8'];
+                      if (!isCurrent) {
+                        _switchToServerLanguage([srv]);
+                      }
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFFFF6B35)
+                              : Colors.white.withValues(alpha: 0.08),
+                          width: isSelected ? 1.5 : 1.0,
                         ),
                       ),
-                      Row(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      child: Row(
                         children: [
-                          const Icon(Icons.language_rounded, color: Color(0xFFFF6B35), size: 24),
-                          const SizedBox(width: 10),
-                          const Expanded(
-                            child: Text(
-                              '🌐 Elegir idioma y calidad',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                              ),
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? const Color(0xFFFF6B35).withValues(alpha: 0.25)
+                                  : Colors.white.withValues(alpha: 0.06),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              isSelected ? Icons.play_arrow_rounded : Icons.hd_rounded,
+                              color: isSelected ? const Color(0xFFFF6B35) : Colors.white70,
+                              size: 20,
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 22),
-                            onPressed: () => Navigator.pop(ctx),
-                          ),
-                        ],
-                      ),
-                      ValueListenableBuilder<bool>(
-                        valueListenable: ServerPreValidationService.instance.isValidatingNotifier,
-                        builder: (context, isValidating, _) {
-                          if (!isValidating) return const SizedBox.shrink();
-                          return const Padding(
-                            padding: EdgeInsets.only(top: 4, bottom: 6),
-                            child: Row(
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                SizedBox(
-                                  width: 12,
-                                  height: 12,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6B35)),
-                                  ),
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Opción ${idx + 1}',
+                                      style: TextStyle(
+                                        color: isSelected ? const Color(0xFFFF6B35) : Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    if (isHealthy)
+                                      const Padding(
+                                        padding: EdgeInsets.only(left: 6),
+                                        child: Icon(
+                                          Icons.check_circle_rounded,
+                                          size: 13,
+                                          color: Color(0xFF22C55E),
+                                        ),
+                                      ),
+                                  ],
                                 ),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Verificando señales...',
-                                  style: TextStyle(
-                                    color: Colors.white60,
-                                    fontSize: 12,
-                                    fontStyle: FontStyle.italic,
-                                  ),
+                                const SizedBox(height: 3),
+                                Wrap(
+                                  spacing: 6,
+                                  runSpacing: 4,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: Text(
+                                        quality,
+                                        style: TextStyle(
+                                          color: isSelected ? Colors.white70 : Colors.white54,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    if (isVerified)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green.withValues(alpha: 0.2),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: Colors.greenAccent, width: 0.8),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.check_circle_rounded, size: 9, color: Colors.greenAccent),
+                                            SizedBox(width: 3),
+                                            Text(
+                                              'Verificado',
+                                              style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    if (isDegraded)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                        decoration: BoxDecoration(
+                                          color: Colors.orange.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(4),
+                                          border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5), width: 0.8),
+                                        ),
+                                        child: const Text(
+                                          'Lenta hoy',
+                                          style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    if (isCurrentServer)
+                                      const Text(
+                                        '• En reproducción',
+                                        style: TextStyle(color: Color(0xFFFF6B35), fontSize: 11, fontWeight: FontWeight.bold),
+                                      ),
+                                  ],
                                 ),
                               ],
                             ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 12),
-
-                      // 1. Selector de Idiomas con Banderas
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        physics: const BouncingScrollPhysics(),
-                        child: Row(
-                          children: byLang.entries.map((entry) {
-                            final isCur = entry.key == selectedLang;
-                            final count = entry.value.length;
-                            final l = entry.key.toLowerCase();
-                            String langLabel = '🌐 ${entry.key}';
-                            if (l.contains('latino') || l == 'lat' || l == 'es_mx') {
-                              langLabel = '🇲🇽 Español Latino';
-                            } else if (l.contains('castellano') || l == 'es_es' || l == 'esp') {
-                              langLabel = '🇪🇸 Castellano';
-                            } else if (l.contains('sub') || l.contains('vos') || l.contains('ingles') || l.contains('inglés') || l == 'en_us') {
-                              langLabel = '🇺🇸 Inglés Subtitulado';
-                            }
-
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: ChoiceChip(
-                                label: Text(
-                                  '$langLabel ($count)',
-                                  style: TextStyle(
-                                    color: isCur ? Colors.white : Colors.white70,
-                                    fontWeight: isCur ? FontWeight.bold : FontWeight.w500,
-                                    fontSize: 13,
-                                  ),
-                                ),
-                                selected: isCur,
-                                selectedColor: const Color(0xFFFF6B35),
-                                backgroundColor: const Color(0xFF22222B),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                  side: BorderSide(
-                                    color: isCur ? const Color(0xFFFF6B35) : Colors.white12,
-                                  ),
-                                ),
-                                onSelected: (_) {
-                                  setModalState(() {
-                                    selectedLang = entry.key;
-                                  });
-                                },
-                              ),
-                            );
-                          }).toList(),
-                        ),
-                      ),
-
-                      const SizedBox(height: 16),
-                      // 2. Opciones numeradas para el idioma seleccionado
-                      Row(
-                        children: [
-                          Text(
-                            'OPCIONES EN $selectedLang'.toUpperCase(),
-                            style: const TextStyle(
-                              color: Colors.white54,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.8,
-                            ),
                           ),
-                          const Spacer(),
-                          Text(
-                            '${activeLangServers.length} disponibles',
-                            style: const TextStyle(color: Colors.white38, fontSize: 11),
+                          const SizedBox(width: 8),
+                          Icon(
+                            isCurrentServer
+                                ? Icons.volume_up_rounded
+                                : Icons.play_circle_outline_rounded,
+                            color: isSelected ? const Color(0xFFFF6B35) : Colors.white38,
+                            size: 22,
                           ),
                         ],
                       ),
-                      const SizedBox(height: 8),
+                    ),
+                  ),
+                ),
+              );
+            }
 
-                      if (!hasAnyVerified && activeLangServers.isNotEmpty)
-                        Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.amber.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.amber.withValues(alpha: 0.3)),
-                          ),
-                          child: const Row(
-                            children: [
-                              Icon(Icons.info_outline, size: 13, color: Colors.amberAccent),
-                              SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  'Prueba otra opción si esta no carga de inmediato.',
-                                  style: TextStyle(color: Colors.amberAccent, fontSize: 12),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-
-                      Flexible(
-                        fit: FlexFit.loose,
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            minHeight: activeLangServers.isEmpty
-                                ? 50.0
-                                : (activeLangServers.length == 1
-                                    ? 80.0
-                                    : (activeLangServers.length == 2 ? 150.0 : 200.0)),
-                            maxHeight: MediaQuery.of(context).size.height * 0.50,
-                          ),
-                          child: activeLangServers.isEmpty
-                              ? Container(
-                                  padding: const EdgeInsets.all(24),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    'No hay opciones activas para $selectedLang',
-                                    style: const TextStyle(color: Colors.white38),
-                                  ),
-                                )
-                              : Scrollbar(
-                                  thumbVisibility: activeLangServers.length > 3,
-                                  child: ListView.builder(
-                                    shrinkWrap: true,
-                                    physics: const BouncingScrollPhysics(
-                                      parent: AlwaysScrollableScrollPhysics(),
-                                    ),
-                                    itemCount: activeLangServers.length,
-                                    itemBuilder: (ctx, idx) {
-                                      final srv = activeLangServers[idx];
-                                      final quality = srv['quality']?.toString() ??
-                                          srv['calidad']?.toString() ??
-                                          'Auto';
-                                      final isCurrentServer = _activeUrl == srv['servidor_url'] ||
-                                          _activeUrl == srv['resolved_m3u8'];
-                                      final isVerified = verifiedKeys.contains(_serverKey(srv));
-                                      final isSelected = selectedOptionServer == srv ||
-                                          (selectedOptionServer == null && isCurrentServer);
-
-                                      final srcId = SourceHealthService.normalizeSourceId(
-                                        srv['fuente_id']?.toString() ??
-                                            srv['fuente']?.toString() ??
-                                            srv['sitio']?.toString() ??
-                                            srv['servidor_nombre'] ??
-                                            '',
-                                      );
-                                      final health = SourceHealthService.instance.getHealth(srcId);
-                                      final isHealthy = health.healthStatus == HealthStatus.healthy;
-                                      final isDegraded = health.healthStatus == HealthStatus.degraded;
-
-                                      return Padding(
-                                        padding: const EdgeInsets.only(bottom: 8),
-                                        child: Material(
-                                          color: isSelected
-                                              ? const Color(0xFFFF6B35).withValues(alpha: 0.15)
-                                              : const Color(0xFF202020),
-                                          borderRadius: BorderRadius.circular(12),
-                                          child: ListTile(
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(12),
-                                              side: BorderSide(
-                                                color: isSelected
-                                                    ? const Color(0xFFFF6B35)
-                                                    : Colors.white.withValues(alpha: 0.08),
-                                                width: isSelected ? 1.5 : 1.0,
-                                              ),
-                                            ),
-                                            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                                            leading: Container(
-                                              width: 40,
-                                              height: 40,
-                                              decoration: BoxDecoration(
-                                                color: isSelected
-                                                    ? const Color(0xFFFF6B35).withValues(alpha: 0.25)
-                                                    : Colors.white.withValues(alpha: 0.05),
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: Icon(
-                                                isSelected ? Icons.play_arrow_rounded : Icons.hd_rounded,
-                                                color: isSelected ? const Color(0xFFFF6B35) : Colors.white70,
-                                                size: 22,
-                                              ),
-                                            ),
-                                            title: Row(
-                                              children: [
-                                                Text(
-                                                  'Opción ${idx + 1}',
-                                                  style: TextStyle(
-                                                    color: isSelected ? const Color(0xFFFF6B35) : Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 15,
-                                                  ),
-                                                ),
-                                                if (isHealthy)
-                                                  const Padding(
-                                                    padding: EdgeInsets.only(left: 6),
-                                                    child: Icon(
-                                                      Icons.check_circle_rounded,
-                                                      size: 14,
-                                                      color: Color(0xFF22C55E),
-                                                    ),
-                                                  ),
-                                              ],
-                                            ),
-                                            subtitle: Row(
-                                              children: [
-                                                Text(
-                                                  quality,
-                                                  style: TextStyle(
-                                                    color: isSelected ? Colors.white70 : Colors.white54,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                                ),
-                                                if (isVerified) ...[
-                                                  const SizedBox(width: 8),
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.green.withValues(alpha: 0.2),
-                                                      borderRadius: BorderRadius.circular(4),
-                                                      border: Border.all(color: Colors.greenAccent, width: 0.8),
-                                                    ),
-                                                    child: const Row(
-                                                      mainAxisSize: MainAxisSize.min,
-                                                      children: [
-                                                        Icon(Icons.check_circle_rounded, size: 10, color: Colors.greenAccent),
-                                                        SizedBox(width: 3),
-                                                        Text(
-                                                          'Verificado',
-                                                          style: TextStyle(color: Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.bold),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                                if (isDegraded) ...[
-                                                  const SizedBox(width: 8),
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: Colors.orange.withValues(alpha: 0.15),
-                                                      borderRadius: BorderRadius.circular(4),
-                                                      border: Border.all(color: Colors.orangeAccent.withValues(alpha: 0.5), width: 0.8),
-                                                    ),
-                                                    child: const Row(
-                                                      mainAxisSize: MainAxisSize.min,
-                                                      children: [
-                                                        Icon(Icons.warning_amber_rounded, size: 10, color: Colors.orangeAccent),
-                                                        SizedBox(width: 3),
-                                                        Text(
-                                                          'Esta fuente está lenta hoy',
-                                                          style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold),
-                                                        ),
-                                                      ],
-                                                    ),
-                                                  ),
-                                                ],
-                                                if (isCurrentServer) ...[
-                                                  const SizedBox(width: 8),
-                                                  const Text(
-                                                    '• En reproducción',
-                                                    style: TextStyle(color: Color(0xFFFF6B35), fontSize: 11, fontWeight: FontWeight.bold),
-                                                  ),
-                                                ],
-                                              ],
-                                            ),
-                                            trailing: Radio<Map<String, dynamic>>(
-                                              value: srv,
-                                              groupValue: selectedOptionServer ?? (isCurrentServer ? srv : (activeLangServers.isNotEmpty ? activeLangServers.first : null)),
-                                              activeColor: const Color(0xFFFF6B35),
-                                              onChanged: (val) {
-                                                setModalState(() {
-                                                  selectedOptionServer = val;
-                                                });
-                                              },
-                                            ),
-                                            onTap: () {
-                                              setModalState(() {
-                                                selectedOptionServer = srv;
-                                              });
-                                            },
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
+            return SafeArea(
+              child: Container(
+                height: sheetHeight,
+                decoration: const BoxDecoration(
+                  color: Color(0xFF14141B),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                  border: Border(top: BorderSide(color: Colors.white12, width: 1)),
+                ),
+                padding: EdgeInsets.symmetric(
+                  vertical: isLandscape ? 12 : 16,
+                  horizontal: isLandscape ? 20 : 16,
+                ),
+                child: Column(
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 38,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 10),
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
                         ),
                       ),
-                      if (activeLangServers.isNotEmpty) ...[
-                        const SizedBox(height: 12),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF6B35),
-                              foregroundColor: Colors.white,
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
+                    ),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFF6B35).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.tune_rounded, color: Color(0xFFFF6B35), size: 18),
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            'Idioma y Calidad',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 17,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.3,
                             ),
-                            icon: const Icon(Icons.play_arrow_rounded, size: 24),
-                            label: const Text(
-                              'Reproducir opción seleccionada',
-                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                            ),
-                            onPressed: () {
-                              final chosen = selectedOptionServer ??
-                                  (activeLangServers.any((s) => _activeUrl == s['servidor_url'] || _activeUrl == s['resolved_m3u8'])
-                                      ? activeLangServers.firstWhere((s) => _activeUrl == s['servidor_url'] || _activeUrl == s['resolved_m3u8'])
-                                      : activeLangServers.first);
-                              Navigator.pop(ctx);
-                              final isCurrent = _activeUrl == chosen['servidor_url'] || _activeUrl == chosen['resolved_m3u8'];
-                              if (!isCurrent) {
-                                _switchToServerLanguage([chosen]);
-                              }
-                            },
                           ),
                         ),
+                        ValueListenableBuilder<bool>(
+                          valueListenable: ServerPreValidationService.instance.isValidatingNotifier,
+                          builder: (context, isValidating, _) {
+                            if (!isValidating) return const SizedBox.shrink();
+                            return const Padding(
+                              padding: EdgeInsets.only(right: 8),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  SizedBox(
+                                    width: 12,
+                                    height: 12,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF6B35)),
+                                    ),
+                                  ),
+                                  SizedBox(width: 6),
+                                  Text(
+                                    'Verificando...',
+                                    style: TextStyle(
+                                      color: Colors.white60,
+                                      fontSize: 11,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 22),
+                          onPressed: () => Navigator.pop(ctx),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
                       ],
-                    ],
-                  ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // CUERPO DEL SELECTOR
+                    Expanded(
+                      child: isLandscape
+                          // LAYOUT HORIZONTAL (LANDSCAPE) - 2 COLUMNAS
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                // Columna 1: Idiomas disponibles
+                                SizedBox(
+                                  width: 260,
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'IDIOMAS',
+                                        style: TextStyle(
+                                          color: Colors.white54,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 0.8,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Expanded(
+                                        child: ListView(
+                                          physics: const BouncingScrollPhysics(),
+                                          children: byLang.entries.map((entry) {
+                                            final isCur = entry.key == selectedLang;
+                                            final count = entry.value.length;
+                                            final label = formatLangLabel(entry.key);
+
+                                            return Padding(
+                                              padding: const EdgeInsets.only(bottom: 8),
+                                              child: Material(
+                                                color: isCur
+                                                    ? const Color(0xFFFF6B35).withValues(alpha: 0.18)
+                                                    : const Color(0xFF1E1E26),
+                                                borderRadius: BorderRadius.circular(10),
+                                                child: InkWell(
+                                                  borderRadius: BorderRadius.circular(10),
+                                                  onTap: () {
+                                                    setModalState(() {
+                                                      selectedLang = entry.key;
+                                                    });
+                                                  },
+                                                  child: Container(
+                                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                                    decoration: BoxDecoration(
+                                                      borderRadius: BorderRadius.circular(10),
+                                                      border: Border.all(
+                                                        color: isCur ? const Color(0xFFFF6B35) : Colors.white10,
+                                                        width: isCur ? 1.5 : 1,
+                                                      ),
+                                                    ),
+                                                    child: Row(
+                                                      children: [
+                                                        Expanded(
+                                                          child: Text(
+                                                            label,
+                                                            style: TextStyle(
+                                                              color: isCur ? Colors.white : Colors.white70,
+                                                              fontWeight: isCur ? FontWeight.bold : FontWeight.w500,
+                                                              fontSize: 13,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        Container(
+                                                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                                                          decoration: BoxDecoration(
+                                                            color: isCur
+                                                                ? const Color(0xFFFF6B35)
+                                                                : Colors.white12,
+                                                            borderRadius: BorderRadius.circular(10),
+                                                          ),
+                                                          child: Text(
+                                                            '$count',
+                                                            style: const TextStyle(
+                                                              color: Colors.white,
+                                                              fontWeight: FontWeight.bold,
+                                                              fontSize: 11,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ),
+                                      if (!hasAnyVerified && activeLangServers.isNotEmpty)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 6),
+                                          child: Text(
+                                            '💡 Toca cualquier opción para cambiar y reproducir.',
+                                            style: TextStyle(
+                                              color: Colors.amber.shade300,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+
+                                const VerticalDivider(color: Colors.white12, width: 24),
+
+                                // Columna 2: Servidores / Opciones
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text(
+                                            'OPCIONES EN $selectedLang'.toUpperCase(),
+                                            style: const TextStyle(
+                                              color: Colors.white54,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              letterSpacing: 0.8,
+                                            ),
+                                          ),
+                                          const Spacer(),
+                                          Text(
+                                            '${activeLangServers.length} disponibles',
+                                            style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Expanded(
+                                        child: activeLangServers.isEmpty
+                                            ? const Center(
+                                                child: Text(
+                                                  'No hay opciones para este idioma',
+                                                  style: TextStyle(color: Colors.white38),
+                                                ),
+                                              )
+                                            : ListView.builder(
+                                                physics: const BouncingScrollPhysics(),
+                                                padding: const EdgeInsets.only(bottom: 12),
+                                                itemCount: activeLangServers.length,
+                                                itemBuilder: (ctx, idx) =>
+                                                    buildServerCard(activeLangServers[idx], idx),
+                                              ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            )
+                          // LAYOUT VERTICAL (PORTRAIT)
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  physics: const BouncingScrollPhysics(),
+                                  child: Row(
+                                    children: byLang.entries.map((entry) {
+                                      final isCur = entry.key == selectedLang;
+                                      final count = entry.value.length;
+                                      final label = formatLangLabel(entry.key);
+
+                                      return Padding(
+                                        padding: const EdgeInsets.only(right: 8),
+                                        child: ChoiceChip(
+                                          label: Text(
+                                            '$label ($count)',
+                                            style: TextStyle(
+                                              color: isCur ? Colors.white : Colors.white70,
+                                              fontWeight: isCur ? FontWeight.bold : FontWeight.w500,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          selected: isCur,
+                                          selectedColor: const Color(0xFFFF6B35),
+                                          backgroundColor: const Color(0xFF1E1E26),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(10),
+                                            side: BorderSide(
+                                              color: isCur ? const Color(0xFFFF6B35) : Colors.white12,
+                                            ),
+                                          ),
+                                          onSelected: (_) {
+                                            setModalState(() {
+                                              selectedLang = entry.key;
+                                            });
+                                          },
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Row(
+                                  children: [
+                                    Text(
+                                      'OPCIONES EN $selectedLang'.toUpperCase(),
+                                      style: const TextStyle(
+                                        color: Colors.white54,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 0.8,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    Text(
+                                      '${activeLangServers.length} disponibles',
+                                      style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Expanded(
+                                  child: activeLangServers.isEmpty
+                                      ? const Center(
+                                          child: Text(
+                                            'No hay opciones para este idioma',
+                                            style: TextStyle(color: Colors.white38),
+                                          ),
+                                        )
+                                      : ListView.builder(
+                                          physics: const BouncingScrollPhysics(),
+                                          padding: const EdgeInsets.only(bottom: 16),
+                                          itemCount: activeLangServers.length,
+                                          itemBuilder: (ctx, idx) =>
+                                              buildServerCard(activeLangServers[idx], idx),
+                                        ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ],
                 ),
               ),
             );
@@ -4716,6 +4847,332 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _FuentesAlternativasSheet extends StatefulWidget {
+  final String query;
+  final ValueChanged<BuscadorItem> onSelectScraperItem;
+  final VoidCallback onOpenSearch;
+
+  const _FuentesAlternativasSheet({
+    required this.query,
+    required this.onSelectScraperItem,
+    required this.onOpenSearch,
+  });
+
+  @override
+  State<_FuentesAlternativasSheet> createState() => _FuentesAlternativasSheetState();
+}
+
+class _FuentesAlternativasSheetState extends State<_FuentesAlternativasSheet> {
+  static const Color accentOrange = Color(0xFFFF6B35);
+  bool _loading = true;
+  List<BuscadorItem> _results = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    try {
+      final res = await buscarEnFuentes(q: widget.query);
+      if (!mounted) return;
+      final all = res.resultados.values.expand((list) => list).toList();
+      setState(() {
+        _loading = false;
+        _results = all;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _results = [];
+      });
+    }
+  }
+
+  Color _getSourceColor(String sitio) {
+    switch (sitio.toLowerCase()) {
+      case 'cuevana':
+      case 'cuevana3':
+        return const Color(0xFFFF6B35);
+      case 'pelisplus':
+      case 'pelisplushd':
+        return const Color(0xFF3B82F6);
+      case 'seriesflix':
+      case 'serieskao':
+        return const Color(0xFF8B5CF6);
+      case 'canelatv':
+        return const Color(0xFFEF4444);
+      case 'animeflv':
+      case 'animeflv_api':
+        return const Color(0xFF10B981);
+      default:
+        return const Color(0xFFF59E0B);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.sizeOf(context).height * 0.78,
+      ),
+      decoration: const BoxDecoration(
+        color: Color(0xFF16161E),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        border: Border(top: BorderSide(color: Colors.white12, width: 1)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 14),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Row(
+              children: [
+                const Icon(
+                  Icons.travel_explore_rounded,
+                  color: accentOrange,
+                  size: 24,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Fuentes alternativas',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Buscando "${widget.query}"',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white60,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close_rounded, color: Colors.white60),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (_loading)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 40),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(
+                        color: accentOrange,
+                        strokeWidth: 2.5,
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Buscando en Cuevana, PelisPlus, Seriesflix...',
+                        style: TextStyle(color: Colors.white70, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else if (_results.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.search_off_rounded,
+                        color: Colors.white38,
+                        size: 48,
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        'No encontramos servidores directos para "${widget.query}".',
+                        style: const TextStyle(color: Colors.white70, fontSize: 14),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: widget.onOpenSearch,
+                        icon: const Icon(Icons.search_rounded, size: 18),
+                        label: const Text('Abrir buscador general'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: accentOrange,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 20,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: _results.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  itemBuilder: (context, index) {
+                    final item = _results[index];
+                    final badgeColor = _getSourceColor(item.sitio);
+                    return Material(
+                      color: const Color(0xFF22222C),
+                      borderRadius: BorderRadius.circular(12),
+                      child: InkWell(
+                        onTap: () => widget.onSelectScraperItem(item),
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(8),
+                                child: item.imagen.isNotEmpty
+                                    ? CachedNetworkImage(
+                                        imageUrl: item.imagen,
+                                        width: 50,
+                                        height: 70,
+                                        fit: BoxFit.cover,
+                                        errorWidget: (_, __, ___) => Container(
+                                          width: 50,
+                                          height: 70,
+                                          color: Colors.white10,
+                                          child: const Icon(
+                                            Icons.movie_rounded,
+                                            color: Colors.white38,
+                                          ),
+                                        ),
+                                      )
+                                    : Container(
+                                        width: 50,
+                                        height: 70,
+                                        color: Colors.white10,
+                                        child: const Icon(
+                                          Icons.movie_rounded,
+                                          color: Colors.white38,
+                                        ),
+                                      ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.titulo,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 7,
+                                            vertical: 2,
+                                          ),
+                                          decoration: BoxDecoration(
+                                            color: badgeColor.withValues(alpha: 0.18),
+                                            borderRadius: BorderRadius.circular(6),
+                                            border: Border.all(
+                                              color: badgeColor.withValues(alpha: 0.5),
+                                              width: 1,
+                                            ),
+                                          ),
+                                          child: Text(
+                                            item.sitio.toUpperCase(),
+                                            style: TextStyle(
+                                              color: badgeColor,
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          item.tipo == 'tv' ? 'Serie' : 'Película',
+                                          style: const TextStyle(
+                                            color: Colors.white54,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        if (item.anio != null) ...[
+                                          const Text(
+                                            ' · ',
+                                            style: TextStyle(color: Colors.white38),
+                                          ),
+                                          Text(
+                                            '${item.anio}',
+                                            style: const TextStyle(
+                                              color: Colors.white54,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              const Icon(
+                                Icons.play_circle_fill_rounded,
+                                color: accentOrange,
+                                size: 30,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

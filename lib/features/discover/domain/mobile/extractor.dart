@@ -4,7 +4,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
-import 'package:shared_preferences/shared_preferences.dart';
 import 'player_screen.dart';
 class StreamResult {
   final String url;
@@ -62,13 +61,13 @@ class NativeResolvers {
     r"eval\(function\(p,a,c,k,e,[a-z]\)\{[\s\S]*?\}\s*\('([\s\S]+?)',\s*(\d+),\s*(\d+),\s*'([\s\S]+?)'\.split\('\|'\)",
   );
   static final RegExp _rePackerVidHide = RegExp(
-    r"eval\(function\(p,a,c,k,e,[rd]\)[\s\S]*?\.split\('\|'\)[^\)]*\)\)",
+    r"eval\(function\(p,a,c,k,e,[rd]\)[\s\S]*?\.split\('\|'\)\s*\)+",
   );
   static final RegExp _rePackerVidHideInner = RegExp(
-    r"eval\(function\(p,a,c,k,e,[rd]\)\{.*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)",
+    r"eval\(function\(p,a,c,k,e,[rd]\)\{[\s\S]*?\}\s*\('([\s\S]*?)',\s*(\d+),\s*(\d+),\s*'([\s\S]*?)'\.split\('\|'\)",
   );
 
-  static String detectServer(String url) {
+  static String detectServer(String url, {String? serverHint}) {
     final s = url.toLowerCase();
     if (_isMirror(s, _voeMirrors)) return 'voe';
     if (_isMirror(s, _streamwishMirrors) || s.contains('filelions')) {
@@ -86,6 +85,34 @@ class NativeResolvers {
     if (s.contains('ok.ru') || s.contains('okru')) return 'okru';
     if (s.contains('yourupload')) return 'yourupload';
     if (s.contains('vidsrc') || s.contains('moviesapi')) return 'vidsrc';
+
+    // Heurística basada en serverHint si el dominio no coincidió
+    if (serverHint != null && serverHint.isNotEmpty) {
+      final hint = serverHint.toLowerCase();
+      if (hint.contains('vidhide')) return 'vidhide';
+      if (hint.contains('streamwish') || hint.contains('wish')) return 'streamwish';
+      if (hint.contains('voe')) return 'voe';
+      if (hint.contains('dood')) return 'doodstream';
+      if (hint.contains('filemoon')) return 'filemoon';
+      if (hint.contains('goodstream')) return 'goodstream';
+      if (hint.contains('lulu')) return 'lulustream';
+      if (hint.contains('dropcdn')) return 'dropcdn';
+      if (hint.contains('okru') || hint.contains('ok.ru')) return 'okru';
+      if (hint.contains('yourupload')) return 'yourupload';
+    }
+
+    // Heurística por estructura de ruta embed común
+    final uri = Uri.tryParse(url);
+    if (uri != null) {
+      final path = uri.path.toLowerCase();
+      if (path.startsWith('/embed/') && path.length >= 10) {
+        return 'vidhide';
+      }
+      if ((path.startsWith('/e/') || path.startsWith('/f/')) && path.length >= 5) {
+        return 'streamwish';
+      }
+    }
+
     return 'unknown';
   }
 
@@ -116,6 +143,9 @@ class NativeResolvers {
     'wishembed',
     'wishfast',
     'hanerix',
+    'vibuxer',
+    'swishrv',
+    'flaswish',
   ];
   static const _filemoonMirrors = [
     'filemoon',
@@ -146,9 +176,14 @@ class NativeResolvers {
     'vedonm',
     'vidhidepro',
     'vidhidevip',
+    'vidhidepre',
     'masukestin',
     'vidoza',
     'supervideo',
+    'morencius',
+    'dramiyos',
+    'teniacites',
+    'streamhide',
   ];
   static const _doodMirrors = [
     'dood.li',
@@ -201,9 +236,10 @@ class NativeResolvers {
 
   static Future<StreamResult?> resolve(
     String url, {
+    String? serverHint,
     Duration timeout = const Duration(seconds: 8),
   }) async {
-    final server = detectServer(url);
+    final server = detectServer(url, serverHint: serverHint);
     try {
       switch (server) {
         case 'voe':
@@ -233,6 +269,7 @@ class NativeResolvers {
       return null;
     }
   }
+
 
   static Future<StreamResult?> _resolveYourUpload(String url) async {
     try {
@@ -452,71 +489,96 @@ class NativeResolvers {
   }
 
   static Future<StreamResult?> _resolveVidHide(String url) async {
-    final domain = Uri.parse(url).host;
-    final res = await http.get(
-      Uri.parse(url),
-      headers: {'User-Agent': _ua, 'Referer': 'https://$domain/'},
-    );
-    if (res.statusCode != 200) return null;
-    final html = res.body;
+    final rawId = url.split('/').last.replaceAll(RegExp(r'\.html$'), '');
+    final mirrors = [
+      'https://vidhidepre.com/v/$rawId',
+      'https://vidhidepro.com/v/$rawId',
+      'https://vidhidevip.com/v/$rawId',
+      url,
+    ];
 
-    String? finalUrl;
-    String quality = '1080p';
+    for (final mirror in mirrors) {
+      try {
+        final domain = Uri.parse(mirror).host;
+        final res = await http.get(
+          Uri.parse(mirror),
+          headers: {
+            'User-Agent': _ua,
+            'Referer': 'https://$domain/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'es-MX,es;q=0.9,en;q=0.8',
+            'Connection': 'close',
+          },
+        ).timeout(const Duration(milliseconds: 3500));
+        if (res.statusCode != 200) continue;
+        final html = res.body;
 
-    final packedMatch = _rePackerVidHide.firstMatch(html);
-    if (packedMatch != null) {
-      final unpacked = _unpackVidHide(packedMatch.group(0)!);
-      if (unpacked != null) {
-        final hls = RegExp(r'"hls[24]"\s*:\s*"([^"]+)"').firstMatch(unpacked);
-        if (hls != null) finalUrl = hls.group(1);
-        final label =
-            RegExp(
-              r'\{label\s*:\s*"([^"]+)"',
-              caseSensitive: false,
-            ).firstMatch(unpacked) ??
-            RegExp(
-              r'name\s*:\s*"([^"]+)"',
-              caseSensitive: false,
-            ).firstMatch(unpacked);
-        if (label != null) {
-          quality = label.group(1)!.toLowerCase().contains('p')
-              ? label.group(1)!
-              : '${label.group(1)}p';
+        String? finalUrl;
+        String quality = '1080p';
+
+        final targetScript = _rePackerVidHide.firstMatch(html)?.group(0) ?? html;
+        final unpacked = _unpackVidHide(targetScript);
+        if (unpacked != null) {
+          final hls = RegExp(r'"hls[0-9]?"\s*:\s*"([^"]+)"').firstMatch(unpacked);
+          if (hls != null) {
+            finalUrl = hls.group(1);
+          } else {
+            final anyM = _reM3u8Any.firstMatch(unpacked);
+            if (anyM != null) finalUrl = anyM.group(0);
+          }
+
+          final label =
+              RegExp(
+                r'\{label\s*:\s*"([^"]+)"',
+                caseSensitive: false,
+              ).firstMatch(unpacked) ??
+              RegExp(
+                r'name\s*:\s*"([^"]+)"',
+                caseSensitive: false,
+              ).firstMatch(unpacked);
+          if (label != null) {
+            quality = label.group(1)!.toLowerCase().contains('p')
+                ? label.group(1)!
+                : '${label.group(1)}p';
+          }
         }
-      }
-    }
 
-    if (finalUrl == null) {
-      final raw =
-          RegExp(r'"hls[24]"\s*:\s*"([^"]+)"').firstMatch(html) ??
-          _reFile.firstMatch(html) ??
-          RegExp(
-            '["\'](https?://[^"\']+?/stream/[^"\']+?\\.m3u8[^"\']*?)["\']',
-            caseSensitive: false,
-          ).firstMatch(html);
-      if (raw != null) finalUrl = raw.group(1);
-    }
+        if (finalUrl == null) {
+          final raw =
+              RegExp(r'"hls[0-9]?"\s*:\s*"([^"]+)"').firstMatch(html) ??
+              _reFile.firstMatch(html) ??
+              RegExp(
+                '["\'](https?://[^"\']+?/stream/[^"\']+?\\.m3u8[^"\']*?)["\']',
+                caseSensitive: false,
+              ).firstMatch(html);
+          if (raw != null) finalUrl = raw.group(1);
+        }
 
-    if (finalUrl == null) return null;
-    if (!finalUrl.startsWith('http')) {
-      finalUrl = '${Uri.parse(url).origin}$finalUrl';
-    }
-    if (!finalUrl.contains('referer=')) {
-      finalUrl += '${finalUrl.contains('?') ? '&' : '?'}referer=embed69.org';
-    }
+        if (finalUrl != null && finalUrl.isNotEmpty) {
+          if (!finalUrl.startsWith('http')) {
+            finalUrl = '${Uri.parse(mirror).origin}$finalUrl';
+          }
+          if (!finalUrl.contains('referer=')) {
+            finalUrl += '${finalUrl.contains('?') ? '&' : '?'}referer=embed69.org';
+          }
 
-    return StreamResult(
-      url: finalUrl,
-      quality: quality,
-      serverName: 'VidHide',
-      headers: {
-        'User-Agent': _ua,
-        'Referer': url.split('?').first,
-        'Origin': Uri.parse(url).origin,
-        'X-Requested-With': 'XMLHttpRequest',
-      },
-    );
+          return StreamResult(
+            url: finalUrl,
+            quality: quality,
+            serverName: 'VidHide',
+            headers: {
+              'User-Agent': _ua,
+              'Referer': mirror.split('?').first,
+              'Origin': Uri.parse(mirror).origin,
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+          );
+        }
+      } catch (_) {}
+    }
+    return null;
   }
+
 
   static Future<StreamResult?> _resolveGoodstream(String url) async {
     final res = await http.get(

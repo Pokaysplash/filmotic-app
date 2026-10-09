@@ -28,6 +28,8 @@ import '../../../../core/services/server_prevalidation_service.dart';
 import '../../../../core/services/remote_config_service.dart';
 import '../../../../core/services/audio_service.dart';
 import '../../../../data/scrapers/base/registry.dart';
+import '../../../../data/scrapers/base/buscador.dart';
+import '../../../discover/domain/mobile/derivar.dart';
 import '../../../live_tv/data/live_tv_service.dart';
 import '../../../live_tv/domain/channel.dart';
 import '../../../../core/services/cast_service.dart';
@@ -1953,60 +1955,48 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _showAllServersFailedDialog();
   }
 
+  String _cleanSearchQuery(String raw) {
+    var q = raw.trim();
+    if (q.isEmpty) return '';
+
+    q = q.replaceAll(RegExp(r'\s*\(\d{4}\)', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s*\[.*?\]', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s*-\s*(T\d+:?E\d+|S\d+:?E\d+|\d+x\d+).*', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s*-\s*(Temporada|Capítulo|Capitulo|Episodio)\s*\d+.*', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s+(Temporada|Capítulo|Capitulo|Episodio)\s*\d+.*', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s+(T\d+:?E\d+|S\d+E\d+|\d+x\d+).*', caseSensitive: false), '');
+    q = q.replaceAll(RegExp(r'\s*:\s*(Temporada|Capítulo|Capitulo|Episodio)\s*\d+.*', caseSensitive: false), '');
+    return q.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
   Future<void> _buscarEnTodasLasFuentesFallbackTv() async {
-    final query = _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo;
-    if (query.trim().isEmpty) return;
+    final raw = _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo;
+    final query = _cleanSearchQuery(raw);
+    if (query.isEmpty) return;
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Buscando "$query" en todas las fuentes...'),
-          backgroundColor: const Color(0xFF1E1E24),
-          duration: const Duration(seconds: 4),
-        ),
-      );
-    }
+    if (!mounted || _isDisposing) return;
 
-    try {
-      final res = await buscarEnFuentes(q: query);
-      if (!mounted || _isDisposing) return;
-
-      final allItems = res.resultados.values.expand((list) => list).toList();
-      if (allItems.isNotEmpty) {
-        final first = allItems.first;
-        final id = first.tmdbId ?? query.hashCode.abs();
-        final effectiveMediaType = first.tipo.isNotEmpty
-            ? first.tipo
-            : (widget.tipo.toLowerCase() == 'tv' ? 'tv' : 'movie');
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => PageContenido(
-              idcontenido: id,
-              tmdbId: id,
-              mediaType: effectiveMediaType,
-              expectedTitle: first.titulo.isNotEmpty ? first.titulo : query,
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => _TvFuentesAlternativasDialog(
+        query: query,
+        onSelectScraperItem: (item) {
+          Navigator.pop(ctx);
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => DerivarPage(
+                servicio: item.sitio,
+                url: item.url,
+                titulo: item.titulo,
+                tipo: item.tipo,
+              ),
             ),
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se encontraron otras fuentes disponibles para este contenido.'),
-            backgroundColor: Color(0xFF1E1E24),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error al buscar en fuentes: $e'),
-            backgroundColor: const Color(0xFF1E1E24),
-          ),
-        );
-      }
-    }
+          );
+        },
+      ),
+    );
   }
 
   void _showAllServersFailedDialog() {
@@ -6501,6 +6491,312 @@ class _PlayerScreenState extends State<PlayerScreen> {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _TvFuentesAlternativasDialog extends StatefulWidget {
+  final String query;
+  final ValueChanged<BuscadorItem> onSelectScraperItem;
+
+  const _TvFuentesAlternativasDialog({
+    required this.query,
+    required this.onSelectScraperItem,
+  });
+
+  @override
+  State<_TvFuentesAlternativasDialog> createState() => _TvFuentesAlternativasDialogState();
+}
+
+class _TvFuentesAlternativasDialogState extends State<_TvFuentesAlternativasDialog> {
+  static const Color accentOrange = Color(0xFFFF6B35);
+  bool _loading = true;
+  List<BuscadorItem> _results = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    try {
+      final res = await buscarEnFuentes(q: widget.query);
+      if (!mounted) return;
+      final all = res.resultados.values.expand((list) => list).toList();
+      setState(() {
+        _loading = false;
+        _results = all;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _results = [];
+      });
+    }
+  }
+
+  Color _getSourceColor(String sitio) {
+    switch (sitio.toLowerCase()) {
+      case 'cuevana':
+      case 'cuevana3':
+        return const Color(0xFFFF6B35);
+      case 'pelisplus':
+      case 'pelisplushd':
+        return const Color(0xFF3B82F6);
+      case 'seriesflix':
+      case 'serieskao':
+        return const Color(0xFF8B5CF6);
+      case 'canelatv':
+        return const Color(0xFFEF4444);
+      case 'animeflv':
+      case 'animeflv_api':
+        return const Color(0xFF10B981);
+      default:
+        return const Color(0xFFF59E0B);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF16161E),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: Colors.white12),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 600, maxHeight: 500),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.travel_explore_rounded,
+                    color: accentOrange,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Fuentes alternativas',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          'Buscando "${widget.query}" en todos los servidores',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white60,
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, color: Colors.white60),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              if (_loading)
+                const Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(
+                          color: accentOrange,
+                          strokeWidth: 3,
+                        ),
+                        SizedBox(height: 16),
+                        Text(
+                          'Buscando en Cuevana, PelisPlus, Seriesflix...',
+                          style: TextStyle(color: Colors.white70, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else if (_results.isEmpty)
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.search_off_rounded,
+                          color: Colors.white38,
+                          size: 54,
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          'No encontramos servidores directos para "${widget.query}".',
+                          style: const TextStyle(color: Colors.white70, fontSize: 16),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 20),
+                        ElevatedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: accentOrange,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
+                            ),
+                          ),
+                          child: const Text('Cerrar'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: _results.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final item = _results[index];
+                      final badgeColor = _getSourceColor(item.sitio);
+                      return Material(
+                        color: const Color(0xFF22222C),
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          autofocus: index == 0,
+                          onTap: () => widget.onSelectScraperItem(item),
+                          borderRadius: BorderRadius.circular(12),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Row(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: item.imagen.isNotEmpty
+                                      ? CachedNetworkImage(
+                                          imageUrl: item.imagen,
+                                          width: 50,
+                                          height: 70,
+                                          fit: BoxFit.cover,
+                                          errorWidget: (_, __, ___) => Container(
+                                            width: 50,
+                                            height: 70,
+                                            color: Colors.white10,
+                                            child: const Icon(
+                                              Icons.movie_rounded,
+                                              color: Colors.white38,
+                                            ),
+                                          ),
+                                        )
+                                      : Container(
+                                          width: 50,
+                                          height: 70,
+                                          color: Colors.white10,
+                                          child: const Icon(
+                                            Icons.movie_rounded,
+                                            color: Colors.white38,
+                                          ),
+                                        ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.titulo,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 8,
+                                              vertical: 3,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: badgeColor.withValues(alpha: 0.18),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(
+                                                color: badgeColor.withValues(alpha: 0.5),
+                                                width: 1,
+                                              ),
+                                            ),
+                                            child: Text(
+                                              item.sitio.toUpperCase(),
+                                              style: TextStyle(
+                                                color: badgeColor,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          Text(
+                                            item.tipo == 'tv' ? 'Serie' : 'Película',
+                                            style: const TextStyle(
+                                              color: Colors.white54,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          if (item.anio != null) ...[
+                                            const Text(
+                                              ' · ',
+                                              style: TextStyle(color: Colors.white38),
+                                            ),
+                                            Text(
+                                              '${item.anio}',
+                                              style: const TextStyle(
+                                                color: Colors.white54,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                const Icon(
+                                  Icons.play_circle_fill_rounded,
+                                  color: accentOrange,
+                                  size: 32,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

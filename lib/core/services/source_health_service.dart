@@ -86,7 +86,7 @@ class SourceHealthData {
     HealthStatus status;
     if (rel >= 0.7 && consecFails < 3) {
       status = HealthStatus.healthy;
-    } else if (rel < 0.3 || consecFails >= 5) {
+    } else if ((total >= 5 && rel < 0.3) || consecFails >= 5) {
       status = HealthStatus.down;
     } else {
       status = HealthStatus.degraded;
@@ -227,13 +227,13 @@ class SourceHealthService {
 
     HealthStatus status;
     int backoff = current.backoffMinutes;
-    if (rel < 0.3 || consecFails >= 5) {
+    if ((total >= 5 && rel < 0.3) || consecFails >= 5) {
       status = HealthStatus.down;
       if (consecFails % 3 == 0) {
         // Backoff exponencial con tope de 6 horas (360 minutos)
         backoff = (backoff * 2).clamp(30, 360);
       }
-    } else if (rel < 0.7 || consecFails >= 3) {
+    } else if ((total >= 3 && rel < 0.7) || consecFails >= 3) {
       status = HealthStatus.degraded;
     } else {
       status = HealthStatus.healthy;

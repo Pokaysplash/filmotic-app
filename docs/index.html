@@ -66,7 +66,7 @@
         </p>
 
         <div class="hero-actions">
-          <a href="https://github.com/Pokaysplash/filmotic-app/releases/latest/download/filmotic.apk" class="btn-primary" id="btn-download-apk">
+          <a href="https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.19/filmotic.apk" class="btn-primary" id="btn-download-apk">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
@@ -281,19 +281,19 @@
       let isBeta = true;
 
       try {
-        // 1. Intentar consultar la API de GitHub Releases
-        const ghRes = await fetch('https://api.github.com/repos/Pokaysplash/filmotic-app/releases/latest', {
+        // 1. Intentar consultar la lista completa de releases en GitHub (incluye betas y prereleases)
+        const ghRes = await fetch('https://api.github.com/repos/Pokaysplash/filmotic-app/releases?per_page=3', {
           headers: { 'Accept': 'application/vnd.github.v3+json' }
         });
         if (ghRes.ok) {
-          const ghData = await ghRes.json();
-          if (ghData.tag_name) {
-            detectedVersion = ghData.tag_name.replace(/^v/, '');
-            isBeta = detectedVersion.toLowerCase().includes('beta');
+          const releases = await ghRes.json();
+          if (Array.isArray(releases) && releases.length > 0 && releases[0].tag_name) {
+            detectedVersion = releases[0].tag_name.replace(/^v/, '');
+            isBeta = releases[0].prerelease || detectedVersion.toLowerCase().includes('beta');
           }
         } else {
-          // 2. Fallback a filmotic_config.json
-          const cfgRes = await fetch('https://raw.githubusercontent.com/Pokaysplash/filmotic-app/main/filmotic_config.json');
+          // 2. Fallback a filmotic_config.json con cache busting
+          const cfgRes = await fetch(`https://raw.githubusercontent.com/Pokaysplash/filmotic-app/main/filmotic_config.json?_t=${Date.now()}`);
           if (cfgRes.ok) {
             const cfgData = await cfgRes.json();
             if (cfgData && cfgData.app && cfgData.app.latest_version) {
@@ -318,6 +318,11 @@
       const btnLabel = document.getElementById('btn-download-label');
       if (btnLabel) {
         btnLabel.textContent = `Descargar APK Oficial (${vText})`;
+      }
+
+      const downloadBtn = document.getElementById('btn-download-apk');
+      if (downloadBtn) {
+        downloadBtn.href = `https://github.com/Pokaysplash/filmotic-app/releases/download/v${detectedVersion}/filmotic.apk`;
       }
 
       const footerVer = document.getElementById('footer-version');
