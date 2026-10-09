@@ -901,6 +901,7 @@ class MainFuentes {
     BuildContext context,
     String url, {
     Duration timeout = _kVerifyTimeout,
+    bool Function()? isCancelled,
   }) async {
     if (url.isEmpty) return null;
 
@@ -909,8 +910,11 @@ class MainFuentes {
       return cached.isEmpty ? null : cached;
     }
 
+    if (isCancelled?.call() == true) return null;
+
     await _VerifyGate.acquire();
     try {
+      if (isCancelled?.call() == true) return null;
       if (!context.mounted) return null;
       final m3u8 = await ExtractorHlsService.buscarFuente(
         context,

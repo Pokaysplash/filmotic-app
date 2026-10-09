@@ -72,7 +72,7 @@ class TmdbMetadataService {
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
         if (data is Map<String, dynamic> && data['success'] != false) {
-          unawaited(AppDatabase.instance.setTmdbCache(cacheKey, data));
+          unawaited(AppDatabase.instance.setTmdbCache(cacheKey, data).catchError((_) {}));
           final meta = _fromMap(tmdbId, mediaType, data);
           completer.complete(meta);
           return meta;

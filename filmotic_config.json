@@ -46,9 +46,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.19",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.19/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.19: Integración de arquitectura backend de scraping centralizada (CinePro / TMDB-Embed-API) con fallback automático y panel de telemetría.",
+    "latest_version": "1.0.0-beta.20",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.20/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.20: Corrección de timeout en resolución de servidores, y cancelación de background jobs.",
     "force_update": false,
     "is_beta": true
   },

@@ -575,45 +575,36 @@ class ServerLoader {
     List<Map<String, dynamic>> servers, {
     BuildContext? context,
     int maxParallel = 3,
+    Duration webViewBudget = const Duration(seconds: 25),
   }) async {
     if (servers.isEmpty) return null;
 
-    for (int i = 0; i < servers.length; i += maxParallel) {
-      final chunk = servers.sublist(i, (i + maxParallel).clamp(0, servers.length));
+    // Fase 1: resolución nativa (HTTP) en paralelo. No toca el WebView.
+    final nativeMisses = <Map<String, dynamic>>[];
+    final parallel = maxParallel < 4 ? 4 : maxParallel;
+
+    for (int i = 0; i < servers.length; i += parallel) {
+      final chunk = servers
+          .sublist(i, (i + parallel).clamp(0, servers.length))
+          .where((s) => !_isInvalid(s))
+          .toList();
+      if (chunk.isEmpty) continue;
+
       final completer = Completer<PlayableSource?>();
-      int pending = 0;
-      bool completed = false;
+      var pending = chunk.length;
 
-      final validServers = <Map<String, dynamic>>[];
       for (final srv in chunk) {
-        if (!_isInvalid(srv)) validServers.add(srv);
-      }
-
-      if (validServers.isEmpty) continue;
-      pending = validServers.length;
-
-      for (final srv in validServers) {
-        tryResolveServer(srv, context: context).then((playable) {
-          if (completed) return;
+        tryResolveServer(srv, context: context, allowWebView: false)
+            .catchError((_) => null)
+            .then((playable) {
+          if (completer.isCompleted) return;
           if (playable != null && playable.url.isNotEmpty) {
-            completed = true;
             completer.complete(playable);
-          } else {
-            markServerAsInvalid(srv);
-            pending--;
-            if (pending <= 0 && !completed) {
-              completed = true;
-              completer.complete(null);
-            }
+            return;
           }
-        }).catchError((_) {
-          if (completed) return;
-          markServerAsInvalid(srv);
+          nativeMisses.add(srv);
           pending--;
-          if (pending <= 0 && !completed) {
-            completed = true;
-            completer.complete(null);
-          }
+          if (pending <= 0) completer.complete(null);
         });
       }
 
@@ -622,6 +613,30 @@ class ServerLoader {
         onTimeout: () => null,
       );
       if (result != null) return result;
+    }
+
+    // Fase 2: fallback WebView, uno a uno (el extractor está serializado).
+    // Snapshot: callbacks nativos tardíos podrían seguir agregando a la lista.
+    final fallback = List<Map<String, dynamic>>.of(nativeMisses);
+    if (context == null || !context.mounted || fallback.isEmpty) {
+      for (final srv in fallback) {
+        markServerAsInvalid(srv);
+      }
+      return null;
+    }
+
+    _sortServersByPriority(fallback);
+    final budget = Stopwatch()..start();
+    for (final srv in fallback) {
+      if (budget.elapsed > webViewBudget) break;
+      if (!context.mounted) break;
+      final playable = await tryResolveServer(
+        srv,
+        context: context,
+        allowNative: false,
+      ).catchError((_) => null);
+      if (playable != null && playable.url.isNotEmpty) return playable;
+      markServerAsInvalid(srv);
     }
 
     return null;
@@ -640,12 +655,19 @@ class ServerLoader {
     final completer = Completer<PlayableSource?>();
     final collected = <Map<String, dynamic>>[];
     final seen = <String>{};
+    // Cola de resolución nativa (HTTP, paralelizable).
     final queue = <Map<String, dynamic>>[];
+    // Servidores que fallaron en nativo y requieren extractor WebView (serializado).
+    final webQueue = <Map<String, dynamic>>[];
     StreamSubscription<FuenteEvent>? sub;
     var resolved = false;
     var isStreamDone = false;
     int activeWorkers = 0;
-    const int maxParallel = 4;
+    var webWorkerRunning = false;
+    var webGraceElapsed = false;
+    const int maxParallel = 6;
+    // Tiempo que se le da a la fase nativa antes de empezar a usar WebView.
+    const webGrace = Duration(seconds: 6);
     final totalStopwatch = Stopwatch()..start();
     int serversTestedCount = 0;
 
@@ -656,11 +678,13 @@ class ServerLoader {
         statusNotifier.value = 'Probando múltiples servidores...';
       }
     });
+    Timer? webGraceTimer;
 
     void finish(PlayableSource? src) {
       if (resolved) return;
       resolved = true;
       feedbackTimer.cancel();
+      webGraceTimer?.cancel();
       sub?.cancel();
       totalStopwatch.stop();
 
@@ -677,27 +701,90 @@ class ServerLoader {
       if (!completer.isCompleted) completer.complete(src);
     }
 
+    Future<void> onWin(PlayableSource playable, Map<String, dynamic> srv, String phase) async {
+      if (resolved) return;
+      await _persistWin(
+        cacheKey: cacheKey,
+        contentId: contentId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+        playable: playable,
+        server: srv,
+        allKnown: collected,
+      );
+      debugPrint(
+        '[ServerLoader] Paralelo ganador ($phase) → ${playable.serverName} (${playable.idioma}) en ${totalStopwatch.elapsedMilliseconds}ms',
+      );
+      finish(playable);
+    }
+
+    bool nativeExhausted() => activeWorkers == 0 && queue.isEmpty && isStreamDone;
+
+    void checkAllDone() {
+      if (resolved) return;
+      if (nativeExhausted() && webQueue.isEmpty && !webWorkerRunning) {
+        finish(null);
+      }
+    }
+
+    // Worker WebView único: drena webQueue de uno en uno.
+    void pumpWebQueue() {
+      if (resolved || webWorkerRunning || webQueue.isEmpty) return;
+      if (context == null || !context.mounted) {
+        for (final s in webQueue) {
+          markServerAsInvalid(s);
+        }
+        webQueue.clear();
+        checkAllDone();
+        return;
+      }
+      // Solo arrancar cuando la fase nativa terminó o pasó el periodo de gracia.
+      if (!webGraceElapsed && !nativeExhausted()) return;
+
+      webWorkerRunning = true;
+      () async {
+        while (!resolved && webQueue.isNotEmpty) {
+          _sortServersByPriority(webQueue, preferredLang: preferred);
+          final srv = webQueue.removeAt(0);
+          if (_isInvalid(srv)) continue;
+          final playable = await tryResolveServer(
+            srv,
+            context: context,
+            allowNative: false,
+            isCancelled: () => resolved,
+          ).catchError((_) => null);
+          if (playable != null && playable.url.isNotEmpty) {
+            await onWin(playable, srv, 'webview');
+            break;
+          }
+          if (!resolved) markServerAsInvalid(srv);
+        }
+        webWorkerRunning = false;
+        checkAllDone();
+      }();
+    }
+
+    webGraceTimer = Timer(webGrace, () {
+      webGraceElapsed = true;
+      pumpWebQueue();
+    });
+
     Future<void> tryServer(Map<String, dynamic> srv) async {
       if (resolved) return;
       serversTestedCount++;
-      final playable = await tryResolveServer(srv, context: context);
-      if (playable != null && !resolved) {
-        await _persistWin(
-          cacheKey: cacheKey,
-          contentId: contentId,
-          isMovie: isMovie,
-          season: season,
-          episode: episode,
-          playable: playable,
-          server: srv,
-          allKnown: collected,
-        );
-        debugPrint(
-          '[ServerLoader] Paralelo ganador → ${playable.serverName} (${playable.idioma}) en ${totalStopwatch.elapsedMilliseconds}ms',
-        );
-        finish(playable);
+      final playable = await tryResolveServer(
+        srv,
+        context: context,
+        allowWebView: false,
+        isCancelled: () => resolved,
+      ).catchError((_) => null);
+      if (resolved) return;
+      if (playable != null && playable.url.isNotEmpty) {
+        await onWin(playable, srv, 'nativo');
       } else {
-        markServerAsInvalid(srv);
+        // No descartar todavía: pasa a la fase WebView.
+        webQueue.add(srv);
       }
     }
 
@@ -713,16 +800,14 @@ class ServerLoader {
           activeWorkers--;
           if (!resolved) {
             pumpQueue();
-            if (activeWorkers == 0 && queue.isEmpty && isStreamDone) {
-              finish(null);
-            }
+            pumpWebQueue();
+            checkAllDone();
           }
         });
       }
 
-      if (activeWorkers == 0 && queue.isEmpty && isStreamDone && !resolved) {
-        finish(null);
-      }
+      pumpWebQueue();
+      checkAllDone();
     }
 
     sub = _main
@@ -771,20 +856,23 @@ class ServerLoader {
       },
       onDone: () {
         isStreamDone = true;
-        if (queue.isEmpty && activeWorkers == 0) {
-          finish(null);
-        } else {
-          pumpQueue();
-        }
+        pumpQueue();
+        pumpWebQueue();
+        checkAllDone();
       },
       cancelOnError: false,
     );
 
     return completer.future.timeout(
-      const Duration(seconds: 40),
+      const Duration(seconds: 90),
       onTimeout: () {
-        feedbackTimer.cancel();
-        sub?.cancel();
+        debugPrint(
+          '[ServerLoader] Timeout global tras ${totalStopwatch.elapsedMilliseconds}ms '
+          '(pendientes nativo: ${queue.length + activeWorkers}, webview: ${webQueue.length})',
+        );
+        // Marcar como resuelto para que los workers en curso se detengan y no
+        // sigan ocupando el WebView en el siguiente intento.
+        finish(null);
         return null;
       },
     );
@@ -1002,11 +1090,23 @@ class ServerLoader {
     });
   }
 
+  /// Resuelve un servidor a un stream reproducible.
+  ///
+  /// - [allowNative]: intenta los resolvers HTTP nativos (rápidos, paralelizables).
+  /// - [allowWebView]: si el nativo falla, usa el extractor WebView. OJO: el
+  ///   extractor WebView está serializado (1 a la vez, ver `_VerifyGate`), así
+  ///   que nunca debe usarse desde varios workers en paralelo o bloquea toda la
+  ///   cola de resolución.
+  /// - [isCancelled]: si devuelve true, se aborta antes de ocupar el WebView.
   Future<PlayableSource?> tryResolveServer(
     Map<String, dynamic> srv, {
     BuildContext? context,
+    bool allowNative = true,
+    bool allowWebView = true,
+    bool Function()? isCancelled,
   }) async {
     if (_isInvalid(srv)) return null;
+    if (isCancelled?.call() == true) return null;
 
     final srvName = srv['fuente_label']?.toString() ??
         srv['servidor_nombre']?.toString() ??
@@ -1098,32 +1198,38 @@ class ServerLoader {
     }
 
     // 1. Intento nativo ultra-rápido (StreamWish, VidHide, VOE, Filemoon, Dood, etc.)
-    try {
-      final native = await NativeResolvers.resolve(
-        url,
-        serverHint: '$srvName ${srv['servidor'] ?? ''}',
-        timeout: resolveTimeout,
-      );
-      if (native != null && native.url.isNotEmpty) {
-        stopwatch.stop();
-        srv['resolved_m3u8'] = native.url;
-        srv['verificado'] = true;
-        unawaited(AppDatabase.instance.saveServerPerformance(
-          srvName,
-          stopwatch.elapsedMilliseconds.clamp(20, 5000),
-        ));
-        unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
-        debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
-        return PlayableSource(
-          url: native.url,
-          headers: {..._extractHeaders(srv), ...native.headers},
-          quality: native.quality,
-          serverName: srvName,
-          idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
-          rawServer: srv,
+    if (allowNative) {
+      try {
+        final native = await NativeResolvers.resolve(
+          url,
+          serverHint: '$srvName ${srv['servidor'] ?? ''}',
+          timeout: resolveTimeout,
         );
-      }
-    } catch (_) {}
+        if (native != null && native.url.isNotEmpty) {
+          stopwatch.stop();
+          srv['resolved_m3u8'] = native.url;
+          srv['verificado'] = true;
+          unawaited(AppDatabase.instance.saveServerPerformance(
+            srvName,
+            stopwatch.elapsedMilliseconds.clamp(20, 5000),
+          ));
+          unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+          debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
+          return PlayableSource(
+            url: native.url,
+            headers: {..._extractHeaders(srv), ...native.headers},
+            quality: native.quality,
+            serverName: srvName,
+            idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
+            rawServer: srv,
+          );
+        }
+      } catch (_) {}
+    }
+
+    // Fase solo-nativa: no registrar fallo, el servidor pasará a la fase WebView.
+    if (!allowWebView) return null;
+    if (isCancelled?.call() == true) return null;
 
     // 2. Si no resolvió nativamente y hay contexto disponible, probar con extractor WebView
     if (context != null && context.mounted) {
@@ -1132,6 +1238,7 @@ class ServerLoader {
           context,
           url,
           timeout: resolveTimeout,
+          isCancelled: isCancelled,
         );
         stopwatch.stop();
         if (m3u8 != null && m3u8.isNotEmpty) {
