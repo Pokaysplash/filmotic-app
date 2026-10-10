@@ -4,9 +4,8 @@ import '../services/update_service.dart';
 class VersionService {
   // ============================================
   // CONFIGURA AQUÍ LA VERSIÓN ACTUAL DE TU APP
-  // ============================================
-  static const String currentVersionName = "1.0.0-beta.22"; // version_aceptada
-  static const int currentVersionCode = 22; // version_code_aceptada
+  static const String currentVersionName = "1.0.0-beta.23"; // version_aceptada
+  static const int currentVersionCode = 23; // version_code_aceptada
 
   /// Obtiene la última versión configurada en RemoteConfig
   static Future<VersionInfo?> getLatestAnimeVersion() async {

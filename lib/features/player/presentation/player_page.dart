@@ -1153,8 +1153,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _startLoadingTimer();
     _consecutiveServerFailures++;
 
-    // Si van 3 o más fallos seguidos, mostrar diálogo de fallback visible
-    if (_consecutiveServerFailures >= 3) {
+    // Dar más margen de intentos fallidos antes de rendirnos (10 en lugar de 3)
+    if (_consecutiveServerFailures >= 10) {
       if (!mounted || _isDisposing) return;
       _stopLoadingTimer();
       setState(() {

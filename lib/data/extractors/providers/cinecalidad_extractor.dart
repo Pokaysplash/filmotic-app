@@ -9,7 +9,7 @@ const _kAllowedServers = ['Vimeos', 'Hlswish', 'voe', 'Videoapp'];
 
 const _kTmdbApiKey = 'a2d9bbed370d9f678e34006f8750a5a5';
 const _kTmdbBase = 'https://api.themoviedb.org/3';
-const _kCinecalidadBase = 'https://www.cinecalidad.am';
+const _kCinecalidadBase = 'https://www.cinecalidad.my';
 
 /// Modelo de servidor listo para [ServidoresModal].
 class CinecalidadServer {
@@ -187,25 +187,34 @@ class CinecalidadService {
     final candidates = <String>[];
 
     if (!isMovie) {
-      final base = '$_kCinecalidadBase/ver-el-episodio/';
+      final base = '$_kCinecalidadBase/episodio/';
+      final baseOld = '$_kCinecalidadBase/ver-el-episodio/';
       for (final title in titles.values) {
         final slug = _slugify(title);
         if (slug.isEmpty) continue;
-        candidates.add('$base$slug-${season}x$episode/');
-        candidates.add('$base$slug-${season}x$episode-$tmdbId/');
+        
+        candidates.add('$base$slug-${season}x$episode-online-descarga/');
+        
+        candidates.add('$baseOld$slug-${season}x$episode/');
+        candidates.add('$baseOld$slug-${season}x$episode-$tmdbId/');
         if (year != null) {
-          candidates.add('$base$slug-${season}x$episode-$year/');
+          candidates.add('$baseOld$slug-${season}x$episode-$year/');
         }
       }
     } else {
-      final base = '$_kCinecalidadBase/ver-pelicula/';
+      final base = '$_kCinecalidadBase/pelicula/';
+      final baseOld = '$_kCinecalidadBase/ver-pelicula/';
       for (final title in titles.values) {
         final slug = _slugify(title);
         if (slug.isEmpty) continue;
-        candidates.add('$base$slug/');
-        candidates.add('$base$slug-$tmdbId/');
+        
+        candidates.add('$base$slug-$year-online-descarga/');
+        candidates.add('$base$slug-online-descarga/');
+        
+        candidates.add('$baseOld$slug/');
+        candidates.add('$baseOld$slug-$tmdbId/');
         if (year != null) {
-          candidates.add('$base$slug-$year/');
+          candidates.add('$baseOld$slug-$year/');
         }
       }
     }
