@@ -8,7 +8,7 @@ import '../extractors/providers/cinecalidad_extractor.dart';
 
 class CinecalidadScraper {
   static const String baseApi = 'https://tmdb.allcalidad.re';
-  static const String webBase = 'https://www.cinecalidad.am';
+  static const String webBase = 'https://www.cinecalidad.my';
 
   static const List<String> generos = [
     'acción',

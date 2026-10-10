@@ -8,7 +8,7 @@ const _kAllowedServers = ['Vimeos', 'Hlswish'];
 
 const _kTmdbApiKey = 'a2d9bbed370d9f678e34006f8750a5a5';
 const _kTmdbBase = 'https://api.themoviedb.org/3';
-const _kCinecalidadBase = 'https://www.cinecalidad.am';
+const _kCinecalidadBase = 'https://www.cinecalidad.my';
 
 /// Modelo de servidor listo para [ServidoresModal].
 class CinecalidadServer {

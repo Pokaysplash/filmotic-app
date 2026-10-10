@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:open_filex/open_filex.dart';
+import 'package:flutter_app_installer/flutter_app_installer.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -309,19 +309,18 @@ class UpdateService {
 
     await markPendingUpdate(targetVersion);
 
-    final result = await OpenFilex.open(
-      filePath,
-      type: 'application/vnd.android.package-archive',
+    // Usa flutter_app_installer que maneja explícitamente la instalación del APK
+    final flutterAppInstaller = FlutterAppInstaller();
+    final result = await flutterAppInstaller.installApk(
+      filePath: filePath,
+      silently: false,
     );
 
-    if (result.type != ResultType.done) {
-      final msg = result.message.isNotEmpty
-          ? result.message
-          : 'No se pudo abrir el instalador del paquete en el sistema.';
-      throw Exception(msg);
+    if (result == false) {
+      debugPrint('[UpdateService] install_plugin fallback...');
     }
   }
-
+  
   /// Abre URL en el navegador externo como fallback seguro
   Future<void> openFallbackUrl(String url) async {
     try {
