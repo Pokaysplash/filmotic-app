@@ -138,6 +138,12 @@ class ServerLoader {
   static final ValueNotifier<String> statusNotifier = ValueNotifier<String>('');
 
   final Set<String> _invalidUrls = {};
+  int _requestId = 0;
+
+  void cancelCurrentRequests() {
+    _requestId++;
+    debugPrint('[ServerLoader] Canceladas solicitudes activas (requestId: $_requestId)');
+  }
 
   Future<void> _ensureLoaded() async {
     _prefs ??= await ServerLoaderPrefs.load();
@@ -661,6 +667,8 @@ class ServerLoader {
     final webQueue = <Map<String, dynamic>>[];
     StreamSubscription<FuenteEvent>? sub;
     var resolved = false;
+    final myId = ++_requestId;
+    bool isCancelled() => resolved || myId != _requestId;
     var isStreamDone = false;
     int activeWorkers = 0;
     var webWorkerRunning = false;
@@ -752,7 +760,7 @@ class ServerLoader {
             srv,
             context: context,
             allowNative: false,
-            isCancelled: () => resolved,
+            isCancelled: isCancelled,
           ).catchError((_) => null);
           if (playable != null && playable.url.isNotEmpty) {
             await onWin(playable, srv, 'webview');
@@ -777,7 +785,7 @@ class ServerLoader {
         srv,
         context: context,
         allowWebView: false,
-        isCancelled: () => resolved,
+        isCancelled: isCancelled,
       ).catchError((_) => null);
       if (resolved) return;
       if (playable != null && playable.url.isNotEmpty) {
@@ -1106,7 +1114,10 @@ class ServerLoader {
     bool Function()? isCancelled,
   }) async {
     if (_isInvalid(srv)) return null;
-    if (isCancelled?.call() == true) return null;
+    final myId = _requestId;
+    bool localCancelled() => isCancelled?.call() == true || myId != _requestId;
+
+    if (localCancelled()) return null;
 
     final srvName = srv['fuente_label']?.toString() ??
         srv['servidor_nombre']?.toString() ??
@@ -1229,7 +1240,7 @@ class ServerLoader {
 
     // Fase solo-nativa: no registrar fallo, el servidor pasará a la fase WebView.
     if (!allowWebView) return null;
-    if (isCancelled?.call() == true) return null;
+    if (localCancelled()) return null;
 
     // 2. Si no resolvió nativamente y hay contexto disponible, probar con extractor WebView
     if (context != null && context.mounted) {
@@ -1238,7 +1249,7 @@ class ServerLoader {
           context,
           url,
           timeout: resolveTimeout,
-          isCancelled: isCancelled,
+          isCancelled: localCancelled,
         );
         stopwatch.stop();
         if (m3u8 != null && m3u8.isNotEmpty) {

@@ -1,11 +1,12 @@
 import '../services/remote_config_service.dart';
+import '../services/update_service.dart';
 
 class VersionService {
   // ============================================
   // CONFIGURA AQUÍ LA VERSIÓN ACTUAL DE TU APP
   // ============================================
-  static const String currentVersionName = "1.0.0-beta.20"; // version_aceptada
-  static const int currentVersionCode = 20; // version_code_aceptada
+  static const String currentVersionName = "1.0.0-beta.22"; // version_aceptada
+  static const int currentVersionCode = 22; // version_code_aceptada
 
   /// Obtiene la última versión configurada en RemoteConfig
   static Future<VersionInfo?> getLatestAnimeVersion() async {
@@ -42,10 +43,11 @@ class VersionService {
 
   /// Verifica si se requiere actualización contra RemoteConfig
   static Future<UpdateStatus> checkForUpdate() async {
+    final currentVer = await UpdateService.instance.getInstalledVersion();
     final appConfig = RemoteConfigService.instance.config.app;
     final latestVer = appConfig.latestVersion;
-    final isMandatory = RemoteConfigService.instance.isMandatoryUpdateRequired(currentVersionName);
-    final isOptional = RemoteConfigService.instance.isOptionalUpdateAvailable(currentVersionName);
+    final isMandatory = RemoteConfigService.instance.isMandatoryUpdateRequired(currentVer);
+    final isOptional = RemoteConfigService.instance.isOptionalUpdateAvailable(currentVer);
     final needsUpdate = isMandatory || isOptional;
 
     final info = VersionInfo(
