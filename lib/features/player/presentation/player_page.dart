@@ -1143,6 +1143,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _tryNextServer({String? reason}) async {
     if (!mounted || _isDisposing) return;
 
+    _serverLoader.cancelCurrentRequests();
+
     setState(() {
       _isLoading = true;
       _errorMessage = '';
@@ -2073,6 +2075,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ? _langLabel(targetServers.first['idioma']?.toString() ?? '')
         : 'otro servidor';
 
+    _serverLoader.cancelCurrentRequests();
+
     setState(() {
       _isLoading = true;
       _errorMessage = '';
@@ -2086,7 +2090,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           final playable = await _serverLoader.tryResolveServer(
             targetServer,
             context: mounted ? context : null,
-          ).timeout(const Duration(seconds: 8));
+          ).timeout(const Duration(seconds: 25));
 
           if (playable != null && playable.url.isNotEmpty) {
             _activeUrl = playable.url;
@@ -3013,6 +3017,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _isDisposing = true;
+    _serverLoader.cancelCurrentRequests();
     _loadingLongTimer?.cancel();
     _vodWatchdogTimer?.cancel();
     _audioCheckTimer?.cancel();
