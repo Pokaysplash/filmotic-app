@@ -46,9 +46,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.22",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.22/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.22: Corrección del tiempo de espera para cambio de idiomas y estabilidad en servidores.",
+    "latest_version": "1.0.0-beta.23",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.23/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.23: Solución de Cinecalidad, auto-fallback ampliado a 10 servidores y solución definitiva a la actualización desde la aplicación.",
     "force_update": false,
     "is_beta": true
   },

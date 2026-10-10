@@ -1,5 +1,10 @@
+import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -197,6 +202,126 @@ class UpdateService {
     }
   }
 
+  /// Directorio idóneo para descargar el paquete de instalación
+  Future<Directory> getApkStorageDir() async {
+    if (Platform.isAndroid) {
+      try {
+        final extDirs = await getExternalCacheDirectories();
+        if (extDirs != null && extDirs.isNotEmpty) {
+          return extDirs.first;
+        }
+      } catch (_) {}
+      try {
+        final extDir = await getExternalStorageDirectory();
+        if (extDir != null) {
+          return extDir;
+        }
+      } catch (_) {}
+    }
+    return await getTemporaryDirectory();
+  }
+
+  /// Descarga el APK con validación estricta de código HTTP y verificación de integridad
+  Future<String> downloadApk({
+    required String url,
+    required void Function(int received, int total) onProgress,
+    CancelToken? cancelToken,
+  }) async {
+    final dir = await getApkStorageDir();
+    final filePath = '${dir.path}/filmotic_update.apk';
+    final file = File(filePath);
+    if (await file.exists()) {
+      try {
+        await file.delete();
+      } catch (_) {}
+    }
+
+    final dio = Dio();
+    final response = await dio.download(
+      url,
+      filePath,
+      cancelToken: cancelToken,
+      onReceiveProgress: onProgress,
+      options: Options(
+        responseType: ResponseType.bytes,
+        followRedirects: true,
+        maxRedirects: 10,
+        validateStatus: (status) => status != null && status >= 200 && status < 300,
+      ),
+    );
+
+    if (response.statusCode != null && (response.statusCode! < 200 || response.statusCode! >= 300)) {
+      throw Exception('El servidor respondió con código HTTP ${response.statusCode}');
+    }
+
+    if (!await file.exists()) {
+      throw Exception('El archivo descargado no se guardó correctamente.');
+    }
+
+    final length = await file.length();
+    if (length < 5 * 1024 * 1024) {
+      try {
+        await file.delete();
+      } catch (_) {}
+      throw Exception('El archivo descargado es demasiado pequeño o está incompleto (${(length / 1024).toStringAsFixed(1)} KB).');
+    }
+
+    // Verificar encabezado mágico APK (formato ZIP: PK\x03\x04 -> [0x50, 0x4B, 0x03, 0x04])
+    final headerBytes = await file.openRead(0, 4).first;
+    if (headerBytes.length < 4 ||
+        headerBytes[0] != 0x50 ||
+        headerBytes[1] != 0x4B ||
+        headerBytes[2] != 0x03 ||
+        headerBytes[3] != 0x04) {
+      try {
+        await file.delete();
+      } catch (_) {}
+      throw Exception('El archivo descargado está dañado o no es un paquete APK válido.');
+    }
+
+    return filePath;
+  }
+
+  /// Inicia el instalador nativo de Android solicitando los permisos requeridos
+  Future<void> installApk({
+    required String filePath,
+    required String targetVersion,
+  }) async {
+    if (!Platform.isAndroid) {
+      throw UnsupportedError('La instalación de APK solo es compatible con Android.');
+    }
+
+    final file = File(filePath);
+    if (!await file.exists()) {
+      throw Exception('El archivo de instalación no existe en $filePath');
+    }
+
+    // Verificar permiso para instalar aplicaciones desconocidas
+    final installPerm = await Permission.requestInstallPackages.status;
+    if (!installPerm.isGranted) {
+      final reqResult = await Permission.requestInstallPackages.request();
+      if (!reqResult.isGranted) {
+        throw Exception(
+          'Para continuar con la actualización, debes autorizar "Instalar apps desconocidas" para Filmotic en los Ajustes de Android.',
+        );
+      }
+    }
+
+    await markPendingUpdate(targetVersion);
+
+    final result = await OpenFilex.open(
+      filePath,
+      type: 'application/vnd.android.package-archive',
+    );
+
+    if (result.type != ResultType.done) {
+      final msg = result.message.isNotEmpty
+          ? result.message
+          : 'No se pudo abrir el instalador del paquete en el sistema.';
+      throw Exception(msg);
+    }
+  }
+
   /// Abre URL en el navegador externo como fallback seguro
   Future<void> openFallbackUrl(String url) async {
     try {
@@ -209,3 +334,4 @@ class UpdateService {
     }
   }
 }
+

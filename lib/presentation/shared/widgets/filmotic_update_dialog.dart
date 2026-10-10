@@ -1,9 +1,5 @@
 import 'dart:io';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../core/services/remote_config_service.dart';
@@ -93,20 +89,9 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
     if (mounted) setState(() => _attempts = updatedAttempts);
 
     try {
-      final dir = await getTemporaryDirectory();
-      final filePath = '${dir.path}/filmotic_update.apk';
-      final file = File(filePath);
-      if (await file.exists()) {
-        try {
-          await file.delete();
-        } catch (_) {}
-      }
-
-      final dio = Dio();
-      await dio.download(
-        url,
-        filePath,
-        onReceiveProgress: (received, total) {
+      final filePath = await UpdateService.instance.downloadApk(
+        url: url,
+        onProgress: (received, total) {
           if (!mounted) return;
           setState(() {
             _receivedBytes = received;
@@ -116,12 +101,6 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
             }
           });
         },
-        options: Options(
-          responseType: ResponseType.bytes,
-          followRedirects: true,
-          maxRedirects: 5,
-          validateStatus: (status) => status != null && status < 500,
-        ),
       );
 
       _cachedFilePath = filePath;
@@ -132,7 +111,8 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
       debugPrint('[FilmoticUpdate] Error descargando APK: $e');
       if (mounted) {
         setState(() {
-          _downloadError = 'Error de conexión durante la descarga: $e';
+          final errorMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+          _downloadError = errorMsg;
         });
       }
     } finally {
@@ -144,32 +124,16 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
 
   Future<void> _installApk(String filePath) async {
     try {
-      if (Platform.isAndroid) {
-        final installPerm = await Permission.requestInstallPackages.status;
-        if (!installPerm.isGranted) {
-          await Permission.requestInstallPackages.request();
-        }
-      }
-      await UpdateService.instance.markPendingUpdate(widget.appInfo.latestVersion);
-      final result = await OpenFilex.open(
-        filePath,
-        type: 'application/vnd.android.package-archive',
+      await UpdateService.instance.installApk(
+        filePath: filePath,
+        targetVersion: widget.appInfo.latestVersion,
       );
-
-      if (!mounted) return;
-
-      if (result.type != ResultType.done) {
-        setState(() {
-          _downloadError = result.message.isNotEmpty
-              ? result.message
-              : 'Para completar la actualización, activa el permiso "Instalar apps desconocidas" en Ajustes de Android.';
-        });
-      }
     } catch (e) {
       debugPrint('[FilmoticUpdate] Error ejecutando instalador: $e');
       if (mounted) {
         setState(() {
-          _downloadError = 'No se pudo iniciar el instalador de Android: $e';
+          final errorMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+          _downloadError = errorMsg;
         });
       }
     }

@@ -1,14 +1,11 @@
 import 'dart:io';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../tv_config_shared.dart';
 import '../../../../core/constants/versiones.dart'; // ← VersionService
+import '../../../../core/services/update_service.dart';
 
 class ActualizacionesTab extends StatefulWidget {
   final VoidCallback onRequestTabFocus;
@@ -182,50 +179,25 @@ class ActualizacionesTabState extends State<ActualizacionesTab>
     });
 
     try {
-      final dir = await getTemporaryDirectory();
-      final filePath = '${dir.path}/filmotic_update.apk';
-      final file = File(filePath);
-      if (await file.exists()) await file.delete();
-
-      final dio = Dio();
-      await dio.download(
-        url,
-        filePath,
-        onReceiveProgress: (received, total) {
+      final targetVer = _latestName ?? 'latest';
+      final filePath = await UpdateService.instance.downloadApk(
+        url: url,
+        onProgress: (received, total) {
           if (total > 0 && mounted) {
             setState(() => _downloadProgress = received / total);
           }
         },
-        options: Options(
-          responseType: ResponseType.bytes,
-          followRedirects: true,
-          validateStatus: (s) => s != null && s < 500,
-        ),
       );
 
-      if (Platform.isAndroid) {
-        final installPerm = await Permission.requestInstallPackages.status;
-        if (!installPerm.isGranted) {
-          await Permission.requestInstallPackages.request();
-        }
-      }
-
-      final result = await OpenFilex.open(
-        filePath,
-        type: 'application/vnd.android.package-archive',
+      await UpdateService.instance.installApk(
+        filePath: filePath,
+        targetVersion: targetVer,
       );
-
-      if (result.type != ResultType.done && mounted) {
-        setState(() {
-          _downloadError = result.message.isNotEmpty
-              ? result.message
-              : 'Activa “Instalar apps desconocidas” e inténtalo de nuevo.';
-        });
-      }
     } catch (e) {
-      debugPrint('Error descarga APK: $e');
+      debugPrint('Error descarga/instalación APK: $e');
       if (mounted) {
-        setState(() => _downloadError = 'Error al descargar: $e');
+        final errorMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        setState(() => _downloadError = errorMsg);
       }
     } finally {
       if (mounted) setState(() => _downloading = false);

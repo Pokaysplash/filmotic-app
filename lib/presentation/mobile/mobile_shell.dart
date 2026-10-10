@@ -2,13 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:ui';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -84,6 +80,8 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
 
   static const _prefAbiKey = 'apk_preferred_abi';
 
+  String? _latestVersionName;
+
   // B.6: Desactivar pantalla de descargas (ocultada para uso futuro)
   bool get _showDescargasTab => false;
 
@@ -126,6 +124,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
 
         setState(() {
           _updateAvailable = true;
+          _latestVersionName = v.versionAceptada;
           // Campos nuevos de arquitectura (ajusta nombres si tu modelo difiere)
           _urlArm64 = _readUrl(v, 'urlApkArm64', 'url_apk_arm64');
           _urlArmeabi = _readUrl(v, 'urlApkArmeabi', 'url_apk_armeabi');
@@ -266,50 +265,25 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
     });
 
     try {
-      final dir = await getTemporaryDirectory();
-      final filePath = '${dir.path}/filmotic_update.apk';
-      final file = File(filePath);
-      if (await file.exists()) await file.delete();
-
-      final dio = Dio();
-      await dio.download(
-        url,
-        filePath,
-        onReceiveProgress: (received, total) {
+      final targetVer = _latestVersionName ?? 'latest';
+      final filePath = await UpdateService.instance.downloadApk(
+        url: url,
+        onProgress: (received, total) {
           if (total > 0 && mounted) {
             setState(() => _downloadProgress = received / total);
           }
         },
-        options: Options(
-          responseType: ResponseType.bytes,
-          followRedirects: true,
-          validateStatus: (s) => s != null && s < 500,
-        ),
       );
 
-      if (Platform.isAndroid) {
-        final installPerm = await Permission.requestInstallPackages.status;
-        if (!installPerm.isGranted) {
-          await Permission.requestInstallPackages.request();
-        }
-      }
-
-      final result = await OpenFilex.open(
-        filePath,
-        type: 'application/vnd.android.package-archive',
+      await UpdateService.instance.installApk(
+        filePath: filePath,
+        targetVersion: targetVer,
       );
-
-      if (result.type != ResultType.done && mounted) {
-        setState(() {
-          _downloadError = result.message.isNotEmpty
-              ? result.message
-              : 'Activa “Instalar apps desconocidas” para esta app e inténtalo de nuevo.';
-        });
-      }
     } catch (e) {
-      debugPrint('Error descarga APK: $e');
+      debugPrint('Error descarga/instalación APK: $e');
       if (mounted) {
-        setState(() => _downloadError = 'Error al descargar: $e');
+        final errorMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+        setState(() => _downloadError = errorMsg);
       }
     } finally {
       if (mounted) setState(() => _downloading = false);
