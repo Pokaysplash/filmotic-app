@@ -32,10 +32,10 @@
       "tioanime",
       "animepahe",
       "gogoanime",
-      "animeav1"
+      "animeav1",
+      "cinecalidad"
     ],
     "disabled": [
-      "cinecalidad",
       "thanhdattoday",
       "telemundo"
     ]
@@ -46,9 +46,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.23",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.23/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.23: Solución de Cinecalidad, auto-fallback ampliado a 10 servidores y solución definitiva a la actualización desde la aplicación.",
+    "latest_version": "1.0.0-beta.24",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.24/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.24: Instalador nativo Android 13/14 (PackageInstaller), solución Cinecalidad y auto-fallback optimizado.",
     "force_update": false,
     "is_beta": true
   },
