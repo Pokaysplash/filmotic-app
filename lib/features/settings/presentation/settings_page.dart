@@ -977,6 +977,23 @@ class _ConfigPageState extends State<ConfigPage> {
                   ),
                 ),
               ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => _openDownload(downloadUrl),
+                    icon: const Icon(Icons.open_in_browser_rounded, size: 16),
+                    label: const Text('Descargar desde el navegador'),
+                    style: TextButton.styleFrom(
+                      foregroundColor: kAccentColor,
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                ),
+              ),
             ],
             if (_downloading) ...[
               Padding(
