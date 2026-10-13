@@ -8,10 +8,10 @@ import 'dart:async';
 import 'package:http/http.dart' as http;
 
 class VidSrcService {
-  static String _baseDom = 'https://vidsrc.me';
+  static String _baseDom = 'https://vidsrc.sh';
   static const String _ua =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
-  static const Duration _timeout = Duration(seconds: 18);
+  static const Duration _timeout = Duration(seconds: 14);
 
   static Stream<Map<String, dynamic>> scrape({
     required int tmdbId,
@@ -26,8 +26,26 @@ class VidSrcService {
       final seen = <String>{};
 
       for (final embedUrl in embedUrls) {
+        if (embedUrl.contains('multiembed.mov')) {
+          if (!seen.contains(embedUrl)) {
+            seen.add(embedUrl);
+            yield _map(
+              url: embedUrl,
+              name: 'MultiEmbed Sub',
+            );
+          }
+          continue;
+        }
+
         final html = await _fetch(embedUrl);
-        if (html == null || html.isEmpty) continue;
+        if (html == null || html.isEmpty) {
+          // Si el fetch falló pero la URL es un embed válido, emitir como iframe
+          if (!seen.contains(embedUrl)) {
+            seen.add(embedUrl);
+            yield _map(url: embedUrl, name: 'VidSrc Direct');
+          }
+          continue;
+        }
 
         _updateBaseDomFromHtml(html);
 
@@ -83,13 +101,13 @@ class VidSrcService {
       'servidor': name,
       'servidor_nombre': name,
       'server': 'VidSrc',
-      'idioma': 'en_US',
-      'language': 'en_US',
+      'idioma': 'sub',
+      'language': 'sub',
       'type': 'embed',
       'headers': {
         'User-Agent': _ua,
-        'Referer': 'https://vidsrc.me/',
-        'Origin': 'https://vidsrc.me',
+        'Referer': 'https://vidsrc.sh/',
+        'Origin': 'https://vidsrc.sh',
       },
       'provider': 'vidsrc',
     };
@@ -103,17 +121,17 @@ class VidSrcService {
   ) {
     if (isMovie) {
       return [
+        'https://vidsrc.sh/embed/movie/$tmdbId',
+        'https://vidsrc.net/embed/movie/$tmdbId',
+        'https://multiembed.mov/?video_id=$tmdbId&tmdb=1',
         'https://vidsrc.me/embed/movie/$tmdbId',
-        'https://vidsrc.me/embed/$tmdbId',
-        'https://vidsrc.to/embed/movie/$tmdbId',
-        'https://vidsrc.xyz/embed/movie/$tmdbId',
       ];
     }
     return [
+      'https://vidsrc.sh/embed/tv/$tmdbId/$season-$episode',
+      'https://vidsrc.net/embed/tv/$tmdbId/$season-$episode',
+      'https://multiembed.mov/?video_id=$tmdbId&tmdb=1&s=$season&e=$episode',
       'https://vidsrc.me/embed/tv/$tmdbId/$season-$episode',
-      'https://vidsrc.me/embed/$tmdbId/$season-$episode',
-      'https://vidsrc.to/embed/tv/$tmdbId/$season-$episode',
-      'https://vidsrc.xyz/embed/tv/$tmdbId/$season-$episode',
     ];
   }
 
@@ -238,7 +256,7 @@ class VidSrcService {
     try {
       final html = await _fetch(
         rcpUrl,
-        extraHeaders: {'Referer': 'https://vidsrc.me/'},
+        extraHeaders: {'Referer': '$_baseDom/'},
       );
       if (html == null) return null;
 
@@ -290,7 +308,7 @@ class VidSrcService {
               'Accept':
                   'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
               'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
-              'Referer': 'https://vidsrc.me/',
+              'Referer': 'https://vidsrc.sh/',
               ...?extraHeaders,
             },
           )

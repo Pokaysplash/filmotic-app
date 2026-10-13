@@ -797,14 +797,16 @@ class MainFuentes {
         }
         break;
       case FuenteId.canela:
-        await for (final s in CanelaService.scrape(
-          tmdbId: tmdbId,
-          isMovie: isMovie,
-          season: season,
-          episode: episode,
-        )) {
-          yield s.toModalMap();
-        }
+        try {
+          await for (final s in CanelaService.scrape(
+            tmdbId: tmdbId,
+            isMovie: isMovie,
+            season: season,
+            episode: episode,
+          )) {
+            yield s.toModalMap();
+          }
+        } catch (_) {}
         break;
       case FuenteId.animeflv:
         await for (final s in AnimeFlvService.scrape(

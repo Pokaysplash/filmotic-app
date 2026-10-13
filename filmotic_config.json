@@ -46,9 +46,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.24",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.24/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.24: Instalador nativo Android 13/14 (PackageInstaller), solución Cinecalidad y auto-fallback optimizado.",
+    "latest_version": "1.0.0-beta.25",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.25/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.25: Corrección de cambio de episodios en series, nuevos servidores subtitulados (VOS), actualización en estrenos recientes y soporte completo de servidores de Anime y Novelas.",
     "force_update": false,
     "is_beta": true
   },

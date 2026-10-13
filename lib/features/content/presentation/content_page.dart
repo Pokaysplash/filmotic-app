@@ -280,11 +280,15 @@ class _PageContenidoState extends State<PageContenido>
     }
   }
 
-  void _preResolveServers() {
+  void _preResolveServers({int? seasonOverride, int? episodeOverride}) {
     try {
       final isMovie = _resolvedMediaType != 'tv';
-      final season = isMovie ? 0 : 1;
-      final episode = isMovie ? 0 : 1;
+      final season = isMovie
+          ? 0
+          : (seasonOverride ?? (_progress?['temporada'] as int?) ?? 1);
+      final episode = isMovie
+          ? 0
+          : (episodeOverride ?? (_progress?['capitulo'] as int?) ?? 1);
       ServerLoader().preResolve(
         contentId: _resolvedTmdbId,
         isMovie: isMovie,
@@ -360,6 +364,9 @@ class _PageContenidoState extends State<PageContenido>
 
       if (mounted) {
         setState(() => _progress = best);
+        if (best != null) {
+          _preResolveServers();
+        }
       }
     } catch (_) {}
   }

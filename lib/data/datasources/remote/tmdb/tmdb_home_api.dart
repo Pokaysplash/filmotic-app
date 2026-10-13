@@ -175,11 +175,12 @@ class TmdbHomeService {
     required bool isMovie,
     bool isNovela = false,
     bool isAnime = false,
+    bool isRecent = false,
   }) {
-    final minVotes = (isNovela || isAnime)
+    final minVotes = (isNovela || isAnime || isRecent)
         ? 3
         : (isMovie ? _minVoteCountMovies : _minVoteCountTv);
-    final minPop = (isNovela || isAnime) ? 3.0 : _minPopularity;
+    final minPop = (isNovela || isAnime || isRecent) ? 2.0 : _minPopularity;
 
     return items.where((item) {
       // 1) Debe tener póster
@@ -586,14 +587,24 @@ class TmdbHomeService {
         language: language,
         max: _targetPerSection + 10,
       );
+      final now = DateTime.now();
+      final sixMonthsAgo = now.subtract(const Duration(days: 180));
+      final stampNow =
+          '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+      final stampPast =
+          '${sixMonthsAgo.year.toString().padLeft(4, '0')}-${sixMonthsAgo.month.toString().padLeft(2, '0')}-${sixMonthsAgo.day.toString().padLeft(2, '0')}';
+
       futures['recent_discover_movies'] = _listResultsMultiPage(
         '/discover/movie',
         query: {
-          ..._baseDiscover(prefs, isMovie: true),
+          'include_adult': prefs.allowAdult ? 'true' : 'false',
+          'primary_release_date.gte': stampPast,
+          'primary_release_date.lte': stampNow,
           'sort_by': 'primary_release_date.desc',
+          'vote_count.gte': '5',
         },
         language: language,
-        max: _targetPerSection + 10,
+        max: _targetPerSection + 15,
       );
     }
 
@@ -631,13 +642,13 @@ class TmdbHomeService {
         'sort_by': 'popularity.desc',
         'with_genres': '10766',
         'with_original_language': 'es|tr|pt',
-        'vote_count.gte': '3',
+        'vote_count.gte': '2',
         if (!prefs.showUnreleased)
           'first_air_date.lte':
               '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
       },
       language: language,
-      max: _targetPerSection + 10,
+      max: 40,
     );
 
     // Anime (Animación 16 japonesa popular)
@@ -648,13 +659,13 @@ class TmdbHomeService {
         'sort_by': 'popularity.desc',
         'with_genres': '16',
         'with_original_language': 'ja',
-        'vote_count.gte': '3',
+        'vote_count.gte': '2',
         if (!prefs.showUnreleased)
           'first_air_date.lte':
               '${DateTime.now().year}-${DateTime.now().month.toString().padLeft(2, '0')}-${DateTime.now().day.toString().padLeft(2, '0')}',
       },
       language: language,
-      max: _targetPerSection + 10,
+      max: 40,
     );
 
     final keys = futures.keys.toList();
@@ -670,12 +681,19 @@ class TmdbHomeService {
       required bool isMovie,
       bool isNovela = false,
       bool isAnime = false,
+      bool isRecent = false,
       int minItems = 4,
       bool withLogos = true,
     }) async {
       if (raw == null || raw.isEmpty) return null;
-      final filtered = _applyFilters(raw, prefs,
-          isMovie: isMovie, isNovela: isNovela, isAnime: isAnime);
+      final filtered = _applyFilters(
+        raw,
+        prefs,
+        isMovie: isMovie,
+        isNovela: isNovela,
+        isAnime: isAnime,
+        isRecent: isRecent,
+      );
       if (filtered.length < minItems) return null;
 
       var mapped = filtered
@@ -738,8 +756,8 @@ class TmdbHomeService {
 
     if (prefs.homeLatest) {
       final latestRaw = <Map<String, dynamic>>[
-        ...?rawMap['now_playing'],
         ...?rawMap['recent_discover_movies'],
+        ...?rawMap['now_playing'],
       ];
       final seen = <int>{};
       final deduped = <Map<String, dynamic>>[];
@@ -750,17 +768,36 @@ class TmdbHomeService {
           deduped.add(m);
         }
       }
+      deduped.sort((a, b) {
+        final da = a['release_date']?.toString() ??
+            a['first_air_date']?.toString() ??
+            '';
+        final db = b['release_date']?.toString() ??
+            b['first_air_date']?.toString() ??
+            '';
+        return db.compareTo(da);
+      });
       final latest = await section(
         'Últimos estrenos - Películas',
         deduped,
         isMovie: true,
+        isRecent: true,
       );
       if (latest != null) data['recent_movies'] = latest;
 
+      final recentTvRaw = <Map<String, dynamic>>[
+        ...?rawMap['on_the_air'],
+      ];
+      recentTvRaw.sort((a, b) {
+        final da = a['first_air_date']?.toString() ?? '';
+        final db = b['first_air_date']?.toString() ?? '';
+        return db.compareTo(da);
+      });
       final recentTv = await section(
         'Últimos estrenos - Series',
-        rawMap['on_the_air'],
+        recentTvRaw,
         isMovie: false,
+        isRecent: true,
       );
       if (recentTv != null) data['recent_tv'] = recentTv;
     }

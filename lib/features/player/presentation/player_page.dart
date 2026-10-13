@@ -488,7 +488,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (widget.isLive) {
       _initializePlayer();
     } else {
-      _initializePlayer();
+      if (widget.videoUrl.isEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && !_isDisposing) _initializePlayer();
+        });
+      } else {
+        _initializePlayer();
+      }
       _loadApiData().then((_) {
         if (mounted && !_isDisposing) {
           _loadSubtitles();
@@ -854,6 +860,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _activeHeaders = headers;
         _fallbackServers = [];
         _fallbackIndex = 0;
+        unawaited(_prepareFallbackServers(passed));
         await _startControllerWithUrl(passed, headers);
         return;
       }
@@ -1049,6 +1056,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (_fallbackIndex < _fallbackServers.length) {
               _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
             }
+            _serverLoader.markUrlAsInvalid(_activeUrl);
+            _serverLoader.invalidateEpisodeWin(
+              contentId: _resolvedId,
+              isMovie: _mediaType != 'tv',
+              season: widget.temporada ?? 0,
+              episode: widget.capitulo ?? 0,
+            );
             _tryNextServer(reason: 'El servidor tardó más de 8s en iniciar reproducción');
           }
         });
@@ -1135,6 +1149,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final cur = _fallbackServers[_fallbackIndex];
         _serverLoader.markServerAsInvalid(cur);
       }
+      _serverLoader.markUrlAsInvalid(url);
+      _serverLoader.invalidateEpisodeWin(
+        contentId: _resolvedId,
+        isMovie: _mediaType != 'tv',
+        season: widget.temporada ?? 0,
+        episode: widget.capitulo ?? 0,
+      );
       await _tryNextServer(reason: e.toString());
     }
   }

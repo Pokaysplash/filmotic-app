@@ -10,6 +10,9 @@ import 'dart:convert';
 import 'package:html/parser.dart' as parser;
 import 'package:http/http.dart' as http;
 
+import '../../scrapers/jkanime_scraper.dart';
+import '../../scrapers/tioanime_scraper.dart';
+
 class AnimeFlvServer {
   final String serverName;
   final String url;
@@ -78,43 +81,107 @@ class AnimeFlvService {
       );
       if (titles.isEmpty) return;
 
-      // 2. Buscar URL del episodio o película en AnimeFLV
-      final episodeUrl = await _findEpisodeUrl(
-        titles: titles,
-        isMovie: isMovie,
-        season: season,
-        episode: episode,
-      );
-      if (episodeUrl == null || episodeUrl.isEmpty) return;
-
-      // 3. Descargar HTML de la página del episodio
-      final html = await _fetchHtml(episodeUrl);
-      if (html == null || html.isEmpty) return;
-
-      // 4. Extraer servidores de video (data-src Base64, iframes, scripts)
-      final servers = _extractServers(html: html, episodeUrl: episodeUrl);
-      if (servers.isEmpty) return;
-
       final seen = <String>{};
-      for (final s in servers) {
-        final url = s['url']?.toString().trim() ?? '';
-        if (url.isEmpty || seen.contains(url)) continue;
-        seen.add(url);
+      final epNum = isMovie ? 1 : episode;
 
-        final name = s['name']?.toString() ?? 'Online';
-        final idioma = s['idioma']?.toString() ?? 'SUB';
+      // 2. Intentar TioAnime (catálogo muy completo y con enlaces directos Voe, Mega, Okru, YourUpload, etc.)
+      for (final t in titles) {
+        try {
+          final results = await TioAnimeScraper.search(t);
+          for (final item in results) {
+            final slug = item.url
+                .replaceAll('https://tioanime.com/anime/', '')
+                .replaceAll('/', '')
+                .trim();
+            if (slug.isEmpty) continue;
+            final epUrl = 'https://tioanime.com/ver/$slug-$epNum';
+            final sList = await TioAnimeScraper.fetchServers(url: epUrl);
+            for (final s in sList) {
+              final sUrl = s.url.trim();
+              if (sUrl.isEmpty || seen.contains(sUrl)) continue;
+              seen.add(sUrl);
+              yield AnimeFlvServer(
+                serverName: s.nombre,
+                url: sUrl,
+                calidad: s.calidad ?? 'HD',
+                idioma: s.idioma == 'latino' ? 'es_MX' : 'SUB',
+                tmdbId: tmdbId,
+                season: isMovie ? 0 : season,
+                episode: isMovie ? 1 : episode,
+              );
+            }
+            if (seen.isNotEmpty) break;
+          }
+        } catch (_) {}
+        if (seen.isNotEmpty) break;
+      }
 
-        yield AnimeFlvServer(
-          serverName: name,
-          url: url,
-          calidad: 'HD',
-          idioma: idioma,
-          tmdbId: tmdbId,
-          season: isMovie ? 0 : season,
-          episode: isMovie ? 1 : episode,
+      // 3. Intentar JKAnime si TioAnime no obtuvo servidores
+      if (seen.isEmpty) {
+        for (final t in titles) {
+          try {
+            final results = await JKAnimeScraper.search(t);
+            for (final item in results) {
+              final slug = item.url
+                  .replaceAll('https://jkanime.net/', '')
+                  .replaceAll('/', '')
+                  .trim();
+              if (slug.isEmpty) continue;
+              final epUrl = 'https://jkanime.net/$slug/$epNum/';
+              final sList = await JKAnimeScraper.fetchServers(url: epUrl);
+              for (final s in sList) {
+                final sUrl = s.url.trim();
+                if (sUrl.isEmpty || seen.contains(sUrl)) continue;
+                seen.add(sUrl);
+                yield AnimeFlvServer(
+                  serverName: s.nombre,
+                  url: sUrl,
+                  calidad: s.calidad ?? 'HD',
+                  idioma: s.idioma == 'latino' ? 'es_MX' : 'SUB',
+                  tmdbId: tmdbId,
+                  season: isMovie ? 0 : season,
+                  episode: isMovie ? 1 : episode,
+                );
+              }
+              if (seen.isNotEmpty) break;
+            }
+          } catch (_) {}
+          if (seen.isNotEmpty) break;
+        }
+      }
+
+      // 4. Fallback a AnimeFLV original
+      if (seen.isEmpty) {
+        final episodeUrl = await _findEpisodeUrl(
+          titles: titles,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
         );
+        if (episodeUrl != null && episodeUrl.isNotEmpty) {
+          final html = await _fetchHtml(episodeUrl);
+          if (html != null && html.isNotEmpty) {
+            final servers = _extractServers(html: html, episodeUrl: episodeUrl);
+            for (final s in servers) {
+              final url = s['url']?.toString().trim() ?? '';
+              if (url.isEmpty || seen.contains(url)) continue;
+              seen.add(url);
 
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+              final name = s['name']?.toString() ?? 'Online';
+              final idioma = s['idioma']?.toString() ?? 'SUB';
+
+              yield AnimeFlvServer(
+                serverName: name,
+                url: url,
+                calidad: 'HD',
+                idioma: idioma,
+                tmdbId: tmdbId,
+                season: isMovie ? 0 : season,
+                episode: isMovie ? 1 : episode,
+              );
+            }
+          }
+        }
       }
     } catch (_) {
       // Silencioso: el agregador maneja fallbacks entre fuentes

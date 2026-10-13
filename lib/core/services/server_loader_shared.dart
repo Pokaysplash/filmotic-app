@@ -130,9 +130,57 @@ class ServerLoader {
   ServerLoaderPrefs? _prefs;
   FuentesConfig? _fuentesConfig;
 
-  static const Duration _cacheATtl = Duration(minutes: 60);
+  static const Duration _cacheATtl = Duration(minutes: 25);
   static const String _kCacheAPrefix = 'srv_opt_';
   static const String _kCacheBPrefix = 'srv_valid_';
+
+  /// Los m3u8 resueltos suelen ir firmados y caducan: solo se reutilizan
+  /// durante esta ventana; después se vuelve a resolver desde el embed.
+  static const Duration _resolvedMaxAge = Duration(minutes: 20);
+
+  static void stampResolved(Map<String, dynamic> srv, String m3u8) {
+    srv['resolved_m3u8'] = m3u8;
+    srv['verificado'] = true;
+    srv['resolved_at'] = DateTime.now().millisecondsSinceEpoch;
+  }
+
+  /// Devuelve el m3u8 resuelto si sigue siendo fresco. Si el servidor no tiene
+  /// embed de respaldo (solo m3u8), se devuelve igualmente.
+  static String? freshResolved(Map<String, dynamic> srv) {
+    final m3u8 = srv['resolved_m3u8']?.toString() ?? '';
+    if (m3u8.isEmpty) return null;
+    final embed = srv['servidor_url']?.toString() ?? '';
+    if (embed.isEmpty || embed == m3u8) return m3u8;
+    final ts = srv['resolved_at'];
+    final at = ts is int ? ts : int.tryParse('$ts');
+    if (at == null) return null;
+    final age = DateTime.now().millisecondsSinceEpoch - at;
+    return age <= _resolvedMaxAge.inMilliseconds ? m3u8 : null;
+  }
+
+  /// Purga el ganador cacheado de un episodio/película (cuando su enlace falló
+  /// en el reproductor) para que el siguiente intento resuelva de nuevo.
+  Future<void> invalidateEpisodeWin({
+    required int contentId,
+    required bool isMovie,
+    int season = 0,
+    int episode = 0,
+  }) async {
+    final s = isMovie ? 0 : season;
+    final e = isMovie ? 0 : episode;
+    try {
+      await AppDatabase.instance.deleteSuccessfulServer(
+        contentId: contentId,
+        season: s,
+        episode: e,
+      );
+      final p = await SharedPreferences.getInstance();
+      final prefix = '$_kCacheAPrefix${contentId}_${s}_${e}_';
+      for (final k in p.getKeys().where((k) => k.startsWith(prefix)).toList()) {
+        await p.remove(k);
+      }
+    } catch (_) {}
+  }
 
   /// Notificador reactivo del estado de conexión para feedback en UI
   static final ValueNotifier<String> statusNotifier = ValueNotifier<String>('');
@@ -301,7 +349,8 @@ class ServerLoader {
       );
       if (cachedWin != null && cachedWin['url'] != null) {
         final winUrl = cachedWin['url'].toString();
-        final isBlacklisted = await AppDatabase.instance.isServerBlacklisted(winUrl);
+        final isBlacklisted = await AppDatabase.instance.isServerBlacklisted(winUrl) ||
+            _invalidUrls.contains(winUrl);
         if (!isBlacklisted && winUrl.isNotEmpty) {
           debugPrint('[ServerLoader] Hit Caché Sembast Win → ${cachedWin['server_name'] ?? 'Server'}');
           return PlayableSource(
@@ -394,7 +443,7 @@ class ServerLoader {
     );
   }
 
-    void markServerAsInvalid(Map<String, dynamic> server) {
+  void markServerAsInvalid(Map<String, dynamic> server) {
     final url = server['servidor_url']?.toString() ??
         server['resolved_m3u8']?.toString() ??
         '';
@@ -402,6 +451,19 @@ class ServerLoader {
       _invalidUrls.add(url);
       AppDatabase.instance.blacklistServer(url, ttl: const Duration(minutes: 30));
     }
+    // El m3u8 concreto que falló tampoco debe volver a servirse desde caché.
+    final m3u8 = server['resolved_m3u8']?.toString() ?? '';
+    if (m3u8.isNotEmpty && m3u8 != url) {
+      _invalidUrls.add(m3u8);
+      AppDatabase.instance.blacklistServer(m3u8, ttl: const Duration(minutes: 30));
+    }
+  }
+
+  /// Marca como inválida una URL reproducible concreta (m3u8/mp4).
+  void markUrlAsInvalid(String url) {
+    if (url.isEmpty) return;
+    _invalidUrls.add(url);
+    AppDatabase.instance.blacklistServer(url, ttl: const Duration(minutes: 30));
   }
 
   bool _isInvalid(Map<String, dynamic> server) {
@@ -740,9 +802,8 @@ class ServerLoader {
     void pumpWebQueue() {
       if (resolved || webWorkerRunning || webQueue.isEmpty) return;
       if (context == null || !context.mounted) {
-        for (final s in webQueue) {
-          markServerAsInvalid(s);
-        }
+        // No marcar servidores como inválidos: la falta de contexto montado
+        // no es culpa del servidor. Simplemente limpiamos la cola webview.
         webQueue.clear();
         checkAllDone();
         return;
@@ -834,8 +895,7 @@ class ServerLoader {
 
         final map = Map<String, dynamic>.from(event.servidor!);
         if (event.resolvedM3u8 != null && event.resolvedM3u8!.isNotEmpty) {
-          map['resolved_m3u8'] = event.resolvedM3u8;
-          map['verificado'] = true;
+          stampResolved(map, event.resolvedM3u8!);
         }
 
         final url = map['servidor_url']?.toString() ??
@@ -1024,12 +1084,10 @@ class ServerLoader {
       // 0.05. Priorizar streams directos o ya resueltos (m3u8/mp4) para reproducción instantánea (<100ms)
       final aUrl = (a['servidor_url'] ?? a['url'] ?? '').toString();
       final bUrl = (b['servidor_url'] ?? b['url'] ?? '').toString();
-      final aIsDirect = (a['resolved_m3u8']?.toString().isNotEmpty == true) ||
-          a['verificado'] == true ||
+      final aIsDirect = freshResolved(a) != null ||
           aUrl.contains('.m3u8') ||
           aUrl.contains('.mp4');
-      final bIsDirect = (b['resolved_m3u8']?.toString().isNotEmpty == true) ||
-          b['verificado'] == true ||
+      final bIsDirect = freshResolved(b) != null ||
           bUrl.contains('.m3u8') ||
           bUrl.contains('.mp4');
       if (aIsDirect != bIsDirect) {
@@ -1139,7 +1197,9 @@ class ServerLoader {
         ? const Duration(seconds: 8)
         : const Duration(seconds: 12);
 
-    final already = srv['resolved_m3u8']?.toString();
+    final fresh = freshResolved(srv);
+    final already =
+        (fresh != null && !_invalidUrls.contains(fresh)) ? fresh : null;
     if (already != null && already.isNotEmpty) {
       stopwatch.stop();
       unawaited(AppDatabase.instance.saveServerPerformance(
@@ -1218,8 +1278,7 @@ class ServerLoader {
         );
         if (native != null && native.url.isNotEmpty) {
           stopwatch.stop();
-          srv['resolved_m3u8'] = native.url;
-          srv['verificado'] = true;
+          stampResolved(srv, native.url);
           unawaited(AppDatabase.instance.saveServerPerformance(
             srvName,
             stopwatch.elapsedMilliseconds.clamp(20, 5000),
@@ -1253,8 +1312,7 @@ class ServerLoader {
         );
         stopwatch.stop();
         if (m3u8 != null && m3u8.isNotEmpty) {
-          srv['resolved_m3u8'] = m3u8;
-          srv['verificado'] = true;
+          stampResolved(srv, m3u8);
           unawaited(AppDatabase.instance.saveServerPerformance(
             srvName,
             stopwatch.elapsedMilliseconds.clamp(50, 7000),

@@ -742,6 +742,19 @@ class AppDatabase {
     }
   }
 
+  /// Elimina el servidor ganador cacheado (p.ej. cuando su m3u8 ya expiró).
+  Future<void> deleteSuccessfulServer({
+    required int contentId,
+    required int season,
+    required int episode,
+  }) async {
+    if (contentId <= 0) return;
+    try {
+      final db = await database;
+      await _serverWinCacheStore.record('${contentId}_${season}_$episode').delete(db);
+    } catch (_) {}
+  }
+
   /// Guarda y actualiza la media móvil del tiempo de respuesta por servidor
   Future<void> saveServerPerformance(String serverKey, int responseMs) async {
     final cleanKey = serverKey.trim().toLowerCase();

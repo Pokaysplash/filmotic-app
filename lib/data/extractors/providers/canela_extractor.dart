@@ -47,67 +47,57 @@ class CanelaService {
     int season = 1,
     int episode = 1,
   }) async* {
-    if (tmdbId <= 0) {
-      throw Exception('tmdbId inválido');
-    }
+    if (tmdbId <= 0) return;
 
-    final tmdb = await _getTmdbInfo(tmdbId, isMovie ? 'movie' : 'tv');
-    if (tmdb.titles.isEmpty) {
-      throw Exception('No se obtuvo información de TMDB');
-    }
+    try {
+      final tmdb = await _getTmdbInfo(tmdbId, isMovie ? 'movie' : 'tv');
+      if (tmdb.titles.isEmpty) return;
 
-    // 1. Buscar en Canela por título en español y original
-    final match = await _searchCanela(
-      titles: tmdb.titles,
-      year: tmdb.year,
-      isMovie: isMovie,
-    );
-
-    if (match == null) {
-      throw Exception('No se encontró contenido coincidente en Canela.TV');
-    }
-
-    String contentId;
-    String catalogType;
-
-    if (isMovie) {
-      contentId = match.slug.isNotEmpty ? match.slug : match.id;
-      catalogType = 'movie';
-    } else {
-      // Para series: buscar la temporada y el episodio correspondiente
-      final epInfo = await _findEpisode(
-        seriesId: match.id,
-        seasonNum: season,
-        episodeNum: episode,
+      // 1. Buscar en Canela por título en español y original
+      final match = await _searchCanela(
+        titles: tmdb.titles,
+        year: tmdb.year,
+        isMovie: isMovie,
       );
-      if (epInfo == null) {
-        throw Exception(
-          'Episodio S${season}E$episode no encontrado en Canela.TV',
+
+      if (match == null) return;
+
+      String contentId;
+      String catalogType;
+
+      if (isMovie) {
+        contentId = match.slug.isNotEmpty ? match.slug : match.id;
+        catalogType = 'movie';
+      } else {
+        // Para series: buscar la temporada y el episodio correspondiente
+        final epInfo = await _findEpisode(
+          seriesId: match.id,
+          seasonNum: season,
+          episodeNum: episode,
         );
+        if (epInfo == null) return;
+        contentId = epInfo.slug.isNotEmpty ? epInfo.slug : epInfo.id;
+        catalogType = 'tvepisode';
       }
-      contentId = epInfo.slug.isNotEmpty ? epInfo.slug : epInfo.id;
-      catalogType = 'tvepisode';
-    }
 
-    // 2. Obtener la URL de reproducción HLS master.m3u8 mediante el flujo de autorización
-    final streamUrl = await _authorizePlayback(
-      contentId: contentId,
-      catalogType: catalogType,
-    );
+      // 2. Obtener la URL de reproducción HLS master.m3u8 mediante el flujo de autorización
+      final streamUrl = await _authorizePlayback(
+        contentId: contentId,
+        catalogType: catalogType,
+      );
 
-    if (streamUrl == null || streamUrl.isEmpty) {
-      throw Exception('No se pudo generar el stream de reproducción');
-    }
+      if (streamUrl == null || streamUrl.isEmpty) return;
 
-    yield CanelaServer(
-      serverName: 'Directo HD',
-      url: streamUrl,
-      calidad: '1080p',
-      idioma: 'LAT',
-      tmdbId: tmdbId,
-      season: isMovie ? 0 : season,
-      episode: isMovie ? 0 : episode,
-    );
+      yield CanelaServer(
+        serverName: 'Directo HD',
+        url: streamUrl,
+        calidad: '1080p',
+        idioma: 'LAT',
+        tmdbId: tmdbId,
+        season: isMovie ? 0 : season,
+        episode: isMovie ? 0 : episode,
+      );
+    } catch (_) {}
   }
 
   // ─── TMDB Info ─────────────────────────────────────────────────────────────
