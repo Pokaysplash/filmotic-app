@@ -111,8 +111,7 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
       debugPrint('[FilmoticUpdate] Error descargando APK: $e');
       if (mounted) {
         setState(() {
-          final errorMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
-          _downloadError = errorMsg;
+          _downloadError = UpdateService.formatUserFriendlyError(e);
         });
       }
     } finally {
@@ -132,8 +131,7 @@ class _FilmoticUpdateDialogState extends State<FilmoticUpdateDialog> {
       debugPrint('[FilmoticUpdate] Error ejecutando instalador: $e');
       if (mounted) {
         setState(() {
-          final errorMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
-          _downloadError = errorMsg;
+          _downloadError = UpdateService.formatUserFriendlyError(e);
         });
       }
     }

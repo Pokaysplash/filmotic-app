@@ -1,7 +1,10 @@
 import 'dart:io';
+import 'package:android_intent_plus/android_intent.dart';
+import 'package:android_intent_plus/flag.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_app_installer/flutter_app_installer.dart';
+import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -246,7 +249,7 @@ class UpdateService {
         responseType: ResponseType.bytes,
         followRedirects: true,
         maxRedirects: 10,
-        validateStatus: (status) => status != null && status >= 200 && status < 300,
+        validateStatus: (status) => status != null && status >= 200 && status < 400,
       ),
     );
 
@@ -282,8 +285,48 @@ class UpdateService {
     return filePath;
   }
 
-  /// Inicia el instalador nativo de Android solicitando los permisos requeridos
-  Future<void> installApk({
+  /// Formatea errores para presentarlos de manera amigable y limpia al usuario
+  static String formatUserFriendlyError(dynamic error) {
+    if (error == null) return 'Error desconocido al actualizar';
+    if (error is DioException) {
+      if (error.type == DioExceptionType.connectionTimeout ||
+          error.type == DioExceptionType.receiveTimeout ||
+          error.type == DioExceptionType.sendTimeout) {
+        return 'Tiempo de espera agotado al descargar. Verifica tu conexión a internet.';
+      }
+      if (error.type == DioExceptionType.connectionError) {
+        return 'No se pudo conectar con el servidor de descargas. Comprueba tu conexión.';
+      }
+      final code = error.response?.statusCode;
+      if (code != null) {
+        return 'El servidor de descargas respondió con error ($code). Intenta más tarde.';
+      }
+      return 'Error de conexión al descargar el paquete de instalación.';
+    }
+
+    final raw = error.toString();
+    var clean = raw
+        .replaceFirst(RegExp(r'^(Exception|PlatformException\([^)]*\)):\s*'), '')
+        .trim();
+
+    if (clean.contains('REQUEST_INSTALL_PACKAGES') ||
+        clean.contains('Instalar apps desconocidas')) {
+      return 'Para instalar la actualización, autoriza "Instalar apps desconocidas" para Filmotic en los Ajustes de Android o usa la opción del navegador.';
+    }
+
+    if (clean.length > 160) {
+      return 'No se pudo completar la instalación automática. Puedes descargarla e instalarla desde el navegador.';
+    }
+
+    return clean;
+  }
+
+  /// Inicia el instalador nativo de Android con estrategia resiliente en cascada:
+  /// 1. Solicitud previa segura de permiso REQUEST_INSTALL_PACKAGES (sin abortar)
+  /// 2. flutter_app_installer (FileProvider .fileProvider)
+  /// 3. OpenFilex (FileProvider propio e independiente)
+  /// 4. AndroidIntent (intent ACTION_VIEW directo)
+  Future<bool> installApk({
     required String filePath,
     required String targetVersion,
   }) async {
@@ -293,32 +336,71 @@ class UpdateService {
 
     final file = File(filePath);
     if (!await file.exists()) {
-      throw Exception('El archivo de instalación no existe en $filePath');
+      throw Exception('El archivo de instalación no fue encontrado en el almacenamiento.');
     }
 
-    // Verificar permiso para instalar aplicaciones desconocidas
-    final installPerm = await Permission.requestInstallPackages.status;
-    if (!installPerm.isGranted) {
-      final reqResult = await Permission.requestInstallPackages.request();
-      if (!reqResult.isGranted) {
-        throw Exception(
-          'Para continuar con la actualización, debes autorizar "Instalar apps desconocidas" para Filmotic en los Ajustes de Android.',
-        );
+    // 1. Manejo preventivo del permiso para instalar paquetes desconocidos
+    try {
+      final installPerm = await Permission.requestInstallPackages.status;
+      if (!installPerm.isGranted) {
+        debugPrint('[UpdateService] Permiso REQUEST_INSTALL_PACKAGES pendiente. Solicitando...');
+        await Permission.requestInstallPackages.request();
       }
+    } catch (e) {
+      debugPrint('[UpdateService] Solicitud de permiso REQUEST_INSTALL_PACKAGES omitida: $e');
     }
 
     await markPendingUpdate(targetVersion);
 
-    // Usa flutter_app_installer que maneja explícitamente la instalación del APK
-    final flutterAppInstaller = FlutterAppInstaller();
-    final result = await flutterAppInstaller.installApk(
-      filePath: filePath,
-      silently: false,
-    );
-
-    if (result == false) {
-      debugPrint('[UpdateService] install_plugin fallback...');
+    // 2. Intento 1: flutter_app_installer
+    try {
+      final flutterAppInstaller = FlutterAppInstaller();
+      final result = await flutterAppInstaller.installApk(
+        filePath: filePath,
+        silently: false,
+      );
+      if (result == true) {
+        debugPrint('[UpdateService] Instalador iniciado con flutter_app_installer.');
+        return true;
+      }
+    } catch (e) {
+      debugPrint('[UpdateService] Falló flutter_app_installer: $e. Intentando OpenFilex...');
     }
+
+    // 3. Intento 2: OpenFilex (altamente compatible en Android TV y móviles)
+    try {
+      final openResult = await OpenFilex.open(
+        filePath,
+        type: 'application/vnd.android.package-archive',
+      );
+      debugPrint('[UpdateService] OpenFilex resultado: ${openResult.type} - ${openResult.message}');
+      if (openResult.type == ResultType.done) {
+        return true;
+      }
+    } catch (e) {
+      debugPrint('[UpdateService] Falló OpenFilex: $e. Intentando AndroidIntent directo...');
+    }
+
+    // 4. Intento 3: AndroidIntent directo con ACTION_VIEW
+    try {
+      final intent = AndroidIntent(
+        action: 'android.intent.action.VIEW',
+        data: Uri.file(filePath).toString(),
+        type: 'application/vnd.android.package-archive',
+        flags: const [
+          Flag.FLAG_ACTIVITY_NEW_TASK,
+          Flag.FLAG_GRANT_READ_URI_PERMISSION,
+        ],
+      );
+      await intent.launch();
+      return true;
+    } catch (e) {
+      debugPrint('[UpdateService] Falló AndroidIntent directo: $e');
+    }
+
+    throw Exception(
+      'No se pudo abrir el instalador del paquete en tu dispositivo. Puedes autorizar "Instalar apps desconocidas" en Ajustes o descargar el APK desde el navegador.',
+    );
   }
   
   /// Abre URL en el navegador externo como fallback seguro
