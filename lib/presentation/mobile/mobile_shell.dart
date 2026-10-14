@@ -282,8 +282,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
     } catch (e) {
       debugPrint('Error descarga/instalación APK: $e');
       if (mounted) {
-        final errorMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
-        setState(() => _downloadError = errorMsg);
+        setState(() => _downloadError = UpdateService.formatUserFriendlyError(e));
       }
     } finally {
       if (mounted) setState(() => _downloading = false);
@@ -850,7 +849,41 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
                     _downloadError!,
                     style: const TextStyle(
                       color: Color(0xFFFF6B6B),
-                      fontSize: 11,
+                      fontSize: 11.5,
+                      height: 1.3,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: InkWell(
+                      onTap: () {
+                        final u = _downloadUrl?.trim();
+                        if (u != null && u.isNotEmpty) {
+                          _openUrlFallback(u);
+                        } else {
+                          _openUrlFallback('https://github.com/Pokaysplash/filmotic-app/releases/tag/v1.0.0-beta.26');
+                        }
+                      },
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: const [
+                            Icon(Icons.open_in_browser_rounded, size: 15, color: _kAccentColor),
+                            SizedBox(width: 5),
+                            Text(
+                              'Descargar desde el navegador',
+                              style: TextStyle(
+                                color: _kAccentColor,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                decoration: TextDecoration.underline,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ],

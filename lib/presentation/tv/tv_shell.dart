@@ -281,8 +281,7 @@ class _MainHomeState extends State<MainHome> {
     } catch (e) {
       debugPrint('Error descarga/instalación APK: $e');
       if (mounted) {
-        final errorMsg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
-        setState(() => _downloadError = errorMsg);
+        setState(() => _downloadError = UpdateService.formatUserFriendlyError(e));
       }
     } finally {
       if (mounted) setState(() => _downloading = false);

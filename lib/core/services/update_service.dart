@@ -233,89 +233,140 @@ class UpdateService {
     final dir = await getApkStorageDir();
     final filePath = '${dir.path}/filmotic_update.apk';
     final file = File(filePath);
-    if (await file.exists()) {
-      try {
-        await file.delete();
-      } catch (_) {}
-    }
 
-    final dio = Dio();
-    final response = await dio.download(
-      url,
-      filePath,
-      cancelToken: cancelToken,
-      onReceiveProgress: onProgress,
-      options: Options(
-        responseType: ResponseType.bytes,
-        followRedirects: true,
-        maxRedirects: 10,
-        validateStatus: (status) => status != null && status >= 200 && status < 400,
+    final dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 35),
+        receiveTimeout: const Duration(minutes: 6),
       ),
     );
 
-    if (response.statusCode != null && (response.statusCode! < 200 || response.statusCode! >= 300)) {
-      throw Exception('El servidor respondió con código HTTP ${response.statusCode}');
-    }
+    const int maxRetries = 4;
+    Object? lastError;
 
-    if (!await file.exists()) {
-      throw Exception('El archivo descargado no se guardó correctamente.');
-    }
-
-    final length = await file.length();
-    if (length < 5 * 1024 * 1024) {
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        int existingLength = 0;
+        if (await file.exists()) {
+          existingLength = await file.length();
+        }
+
+        final isResume = existingLength > 0;
+        final headers = isResume ? {'Range': 'bytes=$existingLength-'} : null;
+
+        debugPrint('[UpdateService] Descargando APK (Intento $attempt/$maxRetries, bytes previos: $existingLength)...');
+
+        final response = await dio.download(
+          url,
+          filePath,
+          cancelToken: cancelToken,
+          deleteOnError: false, // ¡Conserva los bytes descargados si la red fluctúa!
+          fileAccessMode: isResume ? FileAccessMode.append : FileAccessMode.write,
+          onReceiveProgress: (received, total) {
+            final fullTotal = total > 0 ? (total + (isResume ? existingLength : 0)) : -1;
+            final fullReceived = received + (isResume ? existingLength : 0);
+            onProgress(fullReceived, fullTotal);
+          },
+          options: Options(
+            responseType: ResponseType.bytes,
+            followRedirects: true,
+            maxRedirects: 10,
+            headers: headers,
+            validateStatus: (status) =>
+                status != null && ((status >= 200 && status < 400) || status == 416),
+          ),
+        );
+
+        if (response.statusCode == 416) {
+          debugPrint('[UpdateService] Código 416: El archivo ya estaba completo.');
+        }
+
+        // Validar si el archivo ya quedó completo e íntegro
+        if (await file.exists()) {
+          final len = await file.length();
+          if (len >= 5 * 1024 * 1024) {
+            final headerBytes = await file.openRead(0, 4).first;
+            if (headerBytes.length >= 4 &&
+                headerBytes[0] == 0x50 &&
+                headerBytes[1] == 0x4B &&
+                headerBytes[2] == 0x03 &&
+                headerBytes[3] == 0x04) {
+              debugPrint('[UpdateService] APK descargado con éxito y verificado ($len bytes).');
+              return filePath;
+            }
+          }
+        }
+      } catch (e) {
+        lastError = e;
+        debugPrint('[UpdateService] Fallo temporal en intento $attempt: $e');
+        if (attempt == maxRetries) break;
+        // Espera breve para dar tiempo a que la conexión móvil se estabilice
+        await Future.delayed(Duration(seconds: attempt * 2));
+      }
+    }
+
+    // Comprobación final si el archivo ya fue descargado completamente
+    if (await file.exists()) {
+      try {
+        final length = await file.length();
+        if (length >= 5 * 1024 * 1024) {
+          final headerBytes = await file.openRead(0, 4).first;
+          if (headerBytes.length >= 4 &&
+              headerBytes[0] == 0x50 &&
+              headerBytes[1] == 0x4B &&
+              headerBytes[2] == 0x03 &&
+              headerBytes[3] == 0x04) {
+            return filePath;
+          }
+        }
         await file.delete();
       } catch (_) {}
-      throw Exception('El archivo descargado es demasiado pequeño o está incompleto (${(length / 1024).toStringAsFixed(1)} KB).');
     }
 
-    // Verificar encabezado mágico APK (formato ZIP: PK\x03\x04 -> [0x50, 0x4B, 0x03, 0x04])
-    final headerBytes = await file.openRead(0, 4).first;
-    if (headerBytes.length < 4 ||
-        headerBytes[0] != 0x50 ||
-        headerBytes[1] != 0x4B ||
-        headerBytes[2] != 0x03 ||
-        headerBytes[3] != 0x04) {
-      try {
-        await file.delete();
-      } catch (_) {}
-      throw Exception('El archivo descargado está dañado o no es un paquete APK válido.');
+    if (lastError != null) {
+      throw lastError;
     }
-
-    return filePath;
+    throw Exception('La conexión se interrumpió antes de completar la descarga.');
   }
 
   /// Formatea errores para presentarlos de manera amigable y limpia al usuario
   static String formatUserFriendlyError(dynamic error) {
     if (error == null) return 'Error desconocido al actualizar';
-    if (error is DioException) {
-      if (error.type == DioExceptionType.connectionTimeout ||
-          error.type == DioExceptionType.receiveTimeout ||
-          error.type == DioExceptionType.sendTimeout) {
-        return 'Tiempo de espera agotado al descargar. Verifica tu conexión a internet.';
-      }
-      if (error.type == DioExceptionType.connectionError) {
-        return 'No se pudo conectar con el servidor de descargas. Comprueba tu conexión.';
-      }
-      final code = error.response?.statusCode;
-      if (code != null) {
-        return 'El servidor de descargas respondió con error ($code). Intenta más tarde.';
-      }
-      return 'Error de conexión al descargar el paquete de instalación.';
+    final errStr = error.toString().toLowerCase();
+
+    if (errStr.contains('connection closed') ||
+        errStr.contains('connection reset') ||
+        errStr.contains('socketexception') ||
+        errStr.contains('httpexception') ||
+        (error is DioException &&
+            (error.type == DioExceptionType.connectionError ||
+             error.type == DioExceptionType.connectionTimeout ||
+             error.type == DioExceptionType.receiveTimeout ||
+             error.type == DioExceptionType.sendTimeout ||
+             error.type == DioExceptionType.unknown))) {
+      return 'La conexión a internet se interrumpió durante la descarga.';
     }
 
-    final raw = error.toString();
-    var clean = raw
-        .replaceFirst(RegExp(r'^(Exception|PlatformException\([^)]*\)):\s*'), '')
+    if (error is DioException) {
+      final code = error.response?.statusCode;
+      if (code != null) {
+        return 'El servidor de descargas respondió con error ($code).';
+      }
+      return 'Error de conexión al descargar la actualización.';
+    }
+
+    var clean = error
+        .toString()
+        .replaceFirst(RegExp(r'^(Exception|PlatformException\([^)]*\)|DioException\s*\[[^\]]*\]):\s*'), '')
         .trim();
 
     if (clean.contains('REQUEST_INSTALL_PACKAGES') ||
         clean.contains('Instalar apps desconocidas')) {
-      return 'Para instalar la actualización, autoriza "Instalar apps desconocidas" para Filmotic en los Ajustes de Android o usa la opción del navegador.';
+      return 'Para instalar la actualización, autoriza "Instalar apps desconocidas" para Filmotic en los Ajustes de Android.';
     }
 
-    if (clean.length > 160) {
-      return 'No se pudo completar la instalación automática. Puedes descargarla e instalarla desde el navegador.';
+    if (clean.length > 110) {
+      return 'No se pudo completar la instalación automática.';
     }
 
     return clean;
