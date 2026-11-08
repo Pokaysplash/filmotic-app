@@ -862,7 +862,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
                         if (u != null && u.isNotEmpty) {
                           _openUrlFallback(u);
                         } else {
-                          _openUrlFallback('https://github.com/Pokaysplash/filmotic-app/releases/tag/v1.0.0-beta.26');
+                          _openUrlFallback('https://github.com/Pokaysplash/filmotic-app/releases/tag/v1.0.0-beta.27');
                         }
                       },
                       child: Padding(

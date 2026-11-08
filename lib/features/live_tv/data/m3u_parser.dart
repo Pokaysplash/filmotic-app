@@ -53,11 +53,27 @@ class M3UParser {
           final groupKey = _normalizeChannelKey(channel.id, channel.name, channel.country);
           if (channelMap.containsKey(groupKey)) {
             final existing = channelMap[groupKey]!;
+            final existingIsLowPrio = existing.streamUrl.contains('myultratv.com:8080');
+            final newIsLowPrio = line.contains('myultratv.com:8080');
+
+            String primaryUrl = existing.streamUrl;
             final alts = List<String>.from(existing.alternateUrls);
-            if (line != existing.streamUrl && !alts.contains(line)) {
-              alts.add(line);
+
+            if (existingIsLowPrio && !newIsLowPrio) {
+              // Promover señal verificada/directa a principal sin perder las existentes
+              primaryUrl = line;
+              alts.remove(line);
+              if (!alts.contains(existing.streamUrl)) {
+                alts.insert(0, existing.streamUrl);
+              }
+            } else {
+              if (line != primaryUrl && !alts.contains(line)) {
+                alts.add(line);
+              }
             }
+
             channelMap[groupKey] = existing.copyWith(
+              streamUrl: primaryUrl,
               alternateUrls: alts,
               isHD: existing.isHD || channel.isHD,
               logo: existing.logo ?? channel.logo,
@@ -73,21 +89,37 @@ class M3UParser {
     return M3UParseResult(channels: channelMap.values.toList(), epgUrl: epgUrl);
   }
 
+  static String canonicalChannelName(String rawName) {
+    var clean = rawName
+        .toLowerCase()
+        // Quitar sufijos de opción: »1«, ⁽ᵒᵖ¹⁾, (op1), etc.
+        .replaceAll(RegExp(r'»\s*\d+\s*«'), '')
+        .replaceAll(RegExp(r'[⁽\(]\s*op[c]?\.?\s*\d+\s*[⁾\)]'), '')
+        .replaceAll(RegExp(r'[⁽ᵒᵖ¹²³⁴⁵⁶⁷⁸⁹⁰]+'), '')
+        // Quitar prefijos de categoría/país comunes: "CL• ", "COL• ", "C/S• ", "ES:", "*ARG_HD:", "PR | "
+        .replaceAll(RegExp(r'^\*?[a-z0-9/_\-]{2,12}\s*[•:|]\s*'), '')
+        .replaceAll(RegExp(r'^[a-z\s]{2,15}\s+\|\s+'), '')
+        // Quitar paréntesis, corchetes y etiquetas de calidad
+        .replaceAll(RegExp(r'\([^)]*\)'), '')
+        .replaceAll(RegExp(r'\[[^\]]*\]'), '')
+        .replaceAll(RegExp(r'[ᴴᴰᶠˢ⁴ᵏ]+'), '')
+        .replaceAll(RegExp(r'\b(2160p|1080p|720p|576p|480p|360p|uhd|fhd|hd|sd|4k)\b'), '')
+        .replaceAll(RegExp(r'[^a-z0-9áéíóúñ]+'), ' ')
+        .trim();
+    return clean;
+  }
+
   static String _normalizeChannelKey(String tvgId, String name, String? country) {
+    final clean = canonicalChannelName(name);
+    final ctry = (country ?? '').toLowerCase().trim();
+    if (clean.isNotEmpty) {
+      return ctry.isNotEmpty ? '${clean}_$ctry' : clean;
+    }
     if (tvgId.isNotEmpty && tvgId.contains('@')) {
       final base = tvgId.split('@').first.toLowerCase();
       if (base.isNotEmpty) return base;
     }
-    if (tvgId.isNotEmpty && !tvgId.contains(':')) {
-      return tvgId.toLowerCase();
-    }
-    final clean = name
-        .toLowerCase()
-        .replaceAll(RegExp(r'\([^)]*\)'), '')
-        .replaceAll(RegExp(r'\[[^\]]*\]'), '')
-        .replaceAll(RegExp(r'\b(1080p|720p|576p|480p|360p|hd|fhd|sd|4k)\b'), '')
-        .trim();
-    return '${clean}_${(country ?? '').toLowerCase()}';
+    return tvgId.toLowerCase();
   }
 
   static LiveChannel? _buildChannel(String extInf, String streamUrl, String sourceUrl) {
@@ -111,11 +143,21 @@ class M3UParser {
         name = attrs['tvg-name']!;
       }
 
+      // Limpiar sufijos de número de señal repetida (ej. »1«, »2«, ⁽ᵒᵖ¹⁾) para agrupar limpiamente
+      name = name
+          .replaceAll(RegExp(r'\s*»\s*\d+\s*«\s*'), '')
+          .replaceAll(RegExp(r'\s*[⁽ᵒᵖ¹²³⁴⁵⁶⁷⁸⁹⁰]+\s*'), '')
+          .trim();
+
       if (name.isEmpty) name = 'Canal en Vivo';
 
-      String tvgId = attrs['tvg-id'] ?? attrs['tvg-name'] ?? '';
+      String tvgId = attrs['tvg-id'] ?? '';
       if (tvgId.isEmpty) {
-        tvgId = md5.convert(utf8.encode('$name:$streamUrl')).toString();
+        final canon = canonicalChannelName(name);
+        final ctry = (attrs['tvg-country'] ?? '').toLowerCase().trim();
+        tvgId = canon.isNotEmpty
+            ? (ctry.isNotEmpty ? '${canon}_$ctry' : canon)
+            : md5.convert(utf8.encode('$name:$streamUrl')).toString();
       }
 
       final logo = attrs['tvg-logo'];

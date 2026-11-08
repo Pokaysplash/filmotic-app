@@ -46,9 +46,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.26",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.26/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.26: Corrección definitiva del instalador de actualizaciones nativas, nuevos servidores subtitulados (VOS), reproducción continua entre episodios y catálogo renovado.",
+    "latest_version": "1.0.0-beta.27",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.27/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.27: Transmisión a TV (Cast/DLNA) fluida sin cortes ni activación molesta del reproductor, canales en vivo más estables con señales de respaldo automáticas y más opciones de servidores e idiomas en películas y series.",
     "force_update": false,
     "is_beta": true
   },

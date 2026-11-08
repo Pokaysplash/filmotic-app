@@ -160,7 +160,13 @@ def normalize_name(name):
 
 def deduplicate(channels, config_out):
     grouped = {}
+    seen_urls = set()
     for ch in channels:
+        url = (ch.get('url') or '').strip()
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+
         tvg_id = (ch.get('tvg_id') or '').strip().lower()
         norm_name = normalize_name(ch.get('name', ''))
         
@@ -169,7 +175,7 @@ def deduplicate(channels, config_out):
         elif norm_name:
             key = f"name:{norm_name}"
         else:
-            key = f"url:{ch.get('url', '')}"
+            key = f"url:{url}"
             
         if key not in grouped:
             grouped[key] = []
@@ -184,29 +190,39 @@ def deduplicate(channels, config_out):
             return (prio_contenido, prio_fuente, hd_pref)
             
         group.sort(key=sort_key)
-        unique.append(group[0])
+        # Conservar hasta 3 señales candidatas por canal para tener respaldo real
+        unique.extend(group[:3])
         
     return unique
 
-# 6. Verificación con Timeout Estricto
+# 6. Verificación con Timeout Estricto y Validación de Contenido M3U8
 async def _check_single(channel, client, timeout_val):
     url = channel['url']
     h_timeout = httpx.Timeout(timeout_val, connect=timeout_val, read=timeout_val, write=timeout_val, pool=timeout_val)
     
-    # 1. Intentar HEAD (rápido)
+    # Verificar con GET parcial para confirmar que devuelva contenido real (> 0 bytes) y no página de error
     try:
-        response = await client.head(url, timeout=h_timeout, follow_redirects=True)
-        if response.status_code < 400 or response.status_code in (401, 403):
-            channel['is_valid'] = True
-            return channel
-    except Exception:
-        pass
-
-    # 2. Fallback a GET byte-range
-    try:
-        headers = {'Range': 'bytes=0-512'}
+        headers = {'Range': 'bytes=0-1024'}
         response = await client.get(url, headers=headers, timeout=h_timeout, follow_redirects=True)
-        if response.status_code < 400 or response.status_code in (401, 403):
+        if 200 <= response.status_code < 400:
+            content_len = response.headers.get('content-length')
+            if content_len is not None and content_len.isdigit() and int(content_len) == 0:
+                channel['is_valid'] = False
+                return channel
+            body = response.content or b''
+            if len(body) == 0:
+                channel['is_valid'] = False
+                return channel
+            ct = (response.headers.get('content-type') or '').lower()
+            is_m3u8 = '.m3u8' in url.lower() or 'mpegurl' in ct
+            if is_m3u8 or 'text/html' in ct:
+                sample = body[:512].decode('utf-8', errors='ignore').lstrip().lower()
+                if sample.startswith('<!doctype html') or sample.startswith('<html'):
+                    channel['is_valid'] = False
+                    return channel
+                if is_m3u8 and '#extm3u' not in sample and '#ext-x-' not in sample:
+                    channel['is_valid'] = False
+                    return channel
             channel['is_valid'] = True
             return channel
     except Exception:
@@ -266,10 +282,23 @@ def ordenar_por_prioridad(channels):
     """
     return sorted(channels, key=lambda c: (clasificar_canal(c), c.get('name', '').lower()))
 
-# 8. Generar M3U maestro
-def generate_m3u(channels, output_path):
+# 8. Generar M3U maestro (preservando sección principal si existe el marcador de respaldo)
+def generate_m3u(channels, output_path, preserve_before_backup_marker=False):
+    prefix_content = None
+    backup_marker = '# --- CANALES DE RESPALDO (FILMOTIC BACKUP) ---'
+    if preserve_before_backup_marker and output_path.exists():
+        try:
+            existing_text = output_path.read_text(encoding='utf-8', errors='ignore')
+            if backup_marker in existing_text:
+                prefix_content = existing_text.split(backup_marker)[0].rstrip() + f'\n\n{backup_marker}\n'
+        except Exception:
+            prefix_content = None
+
     with open(output_path, 'w', encoding='utf-8') as f:
-        f.write('#EXTM3U x-tvg-url="https://iptv-org.github.io/epg/guides/es/guia.tv.epg.xml"\n')
+        if prefix_content:
+            f.write(prefix_content)
+        else:
+            f.write('#EXTM3U x-tvg-url="https://iptv-org.github.io/epg/guides/es/guia.tv.epg.xml"\n')
         
         for ch in channels:
             extinf = '#EXTINF:-1'
@@ -360,10 +389,10 @@ async def main():
         output_path = output_dir / 'filmotic_playlist.m3u'
         generate_m3u(valid_channels, output_path)
         
-        # Guardar también en docs/ si existe
+        # Guardar también en docs/ si existe (preservando canales principales)
         docs_path = script_dir.parent / 'docs' / 'filmotic_playlist.m3u'
         if docs_path.parent.exists():
-            generate_m3u(valid_channels, docs_path)
+            generate_m3u(valid_channels, docs_path, preserve_before_backup_marker=True)
         
         print(f"\n✅ Listo. Archivo generado en: {output_path}", flush=True)
         print(f"   Canales finales en playlist: {len(valid_channels)}", flush=True)

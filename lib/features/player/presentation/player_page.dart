@@ -31,6 +31,7 @@ import '../../../data/scrapers/base/registry.dart';
 import '../../../data/scrapers/base/buscador.dart';
 import '../../discover/domain/mobile/derivar.dart';
 import '../../search/presentation/search_page.dart';
+import '../../live_tv/data/live_tv_service.dart';
 
 class _SubtitleCue {
   final Duration start;
@@ -850,17 +851,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final liveList = (widget.isLive && widget.liveStreams != null && widget.liveStreams!.isNotEmpty)
           ? widget.liveStreams!
           : null;
+      if (widget.isLive && liveList != null && liveList.length > 1) {
+        _currentLiveIndex = await LiveTvService.instance.findFirstWorkingStreamIndex(
+          liveList,
+          startIndex: _currentLiveIndex,
+        );
+      }
       final passed = (liveList != null && _currentLiveIndex < liveList.length)
           ? liveList[_currentLiveIndex].trim()
           : widget.videoUrl.trim();
-      if (passed.isNotEmpty && _isDirectStreamUrl(passed)) {
-        // Directo al reproductor: NO resolvePlayable, NO getServers
+      if (passed.isNotEmpty && (widget.isLive || _isDirectStreamUrl(passed))) {
+        // Directo al reproductor: NO resolvePlayable, NO getServers en Live TV
         debugPrint('Player: m3u8/directo recibido → play inmediato ($passed)');
         _activeUrl = passed;
         _activeHeaders = headers;
         _fallbackServers = [];
         _fallbackIndex = 0;
-        unawaited(_prepareFallbackServers(passed));
+        if (!widget.isLive) {
+          unawaited(_prepareFallbackServers(passed));
+        }
         await _startControllerWithUrl(passed, headers);
         return;
       }
@@ -1043,6 +1052,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!widget.isLive) {
         _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
           if (!mounted || _isDisposing || widget.isLive) return;
+          final castState = CastService.instance.state;
+          if (castState == CastState.casting || castState == CastState.connected) {
+            return;
+          }
           final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
           final playing = _controllerReady && _controller.value.isPlaying;
           final hasError = _controllerReady && _controller.value.hasError;
@@ -1070,6 +1083,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
         // ── Watchdog de 8 segundos para Live TV ──────────────────────────────
         _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
           if (!mounted || _isDisposing || !widget.isLive) return;
+          final castState = CastService.instance.state;
+          if (castState == CastState.casting || castState == CastState.connected) {
+            return;
+          }
           final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
           final isBlackScreen = _controllerReady && (_controller.value.size == Size.zero || _controller.value.size.width == 0);
           final hasNoProgress = pos == 0 && !_controller.value.isBuffering;
@@ -1111,9 +1128,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _stopLoadingTimer();
       debugPrint('Error al reproducir URL: $e');
       if (widget.isLive) {
+        LiveTvService.instance.markStreamUrlStatus(url, false);
         final streams = widget.liveStreams ?? [widget.videoUrl];
         if (_currentLiveIndex + 1 < streams.length) {
-          _currentLiveIndex++;
+          final nextIdx = await LiveTvService.instance.findFirstWorkingStreamIndex(
+            streams,
+            startIndex: _currentLiveIndex + 1,
+          );
+          _currentLiveIndex = nextIdx >= _currentLiveIndex + 1 ? nextIdx : _currentLiveIndex + 1;
           final nextStream = streams[_currentLiveIndex];
           debugPrint('[Live] Señal previa falló. Conectando a opción ${_currentLiveIndex + 1}/${streams.length}: $nextStream');
           if (mounted && !_isDisposing) {
@@ -2129,6 +2151,33 @@ class _PlayerScreenState extends State<PlayerScreen> {
               hasAudio: targetServer['sin_audio'] != true && targetServer['has_audio'] != false,
             );
 
+            final castState = CastService.instance.state;
+            final isCastingNow = castState == CastState.casting || castState == CastState.connected;
+            if (isCastingNow) {
+              _vodWatchdogTimer?.cancel();
+              _vodWatchdogTimer = null;
+              _audioCheckTimer?.cancel();
+              _stopLoadingTimer();
+              if (_controllerReady && _controller.value.isPlaying) {
+                await _controller.pause();
+              }
+              await CastService.instance.castMedia(
+                playable.url,
+                title: _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
+                posterUrl: _backdropUrl,
+                headers: playable.headers,
+                startPosition: targetPosition,
+                duration: _totalDuration,
+              );
+              if (mounted) {
+                setState(() {
+                  _isLoading = false;
+                  _switchingLangOverlay = null;
+                });
+              }
+              return;
+            }
+
             await _startControllerWithUrl(playable.url, playable.headers);
             if (_controllerReady) {
               await _controller.seekTo(targetPosition);
@@ -2438,6 +2487,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _videoListener() {
     if (!mounted || _isDisposing) return;
 
+    final castState = CastService.instance.state;
+    if (castState == CastState.casting || castState == CastState.connected) {
+      return;
+    }
+
     final value = _controller.value;
 
     // ── Detección inmediata de fallo en el player ───────────────────────
@@ -2599,10 +2653,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _cancelReconnectTolerance(recovered: true);
       } else if (!newBuffering) {
         _bufferingStartTime = null;
+        _reconnectTimer?.cancel();
+        _reconnectTimer = null;
       }
     }
-    if (newPlaying && _isReconnecting) {
-      // Si volvió a reproducir, cancelar overlay de reconexión
+    if (newPlaying && !newBuffering && _isReconnecting) {
+      // Si volvió a reproducir y terminó de cargar buffer, cancelar overlay de reconexión
       _cancelReconnectTolerance(recovered: true);
     }
     if (newDuration != _totalDuration) {
@@ -3213,12 +3269,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
       title: title,
       posterUrl: poster,
       headers: _activeHeaders,
+      startPosition: _currentPosition,
+      duration: _totalDuration,
       onCastStarted: () {
-        // Pausar reproducción local para evitar duplicidad de audio
-        if (_controllerReady && _isPlaying) {
+        // Pausar reproducción local y detener timers/watchdogs locales mientras se transmite al TV
+        _vodWatchdogTimer?.cancel();
+        _vodWatchdogTimer = null;
+        _audioCheckTimer?.cancel();
+        _stopLoadingTimer();
+        _cancelReconnectTolerance(recovered: false);
+        if (_controllerReady && _controller.value.isPlaying) {
           _controller.pause();
         }
-        if (mounted) setState(() {});
+        if (mounted) {
+          setState(() {
+            _isPlaying = false;
+            _isBuffering = false;
+            _isSwitchingServerNotice = false;
+          });
+        }
       },
       onSelectServerForDlna: () => _showAudioLanguageSelector(forCasting: true),
       onResumeLocal: () {

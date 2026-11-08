@@ -36,6 +36,10 @@ class DlnaCastingOverlay extends StatefulWidget {
 class _DlnaCastingOverlayState extends State<DlnaCastingOverlay> {
   final CastService _castService = CastService.instance;
   late Duration _position;
+  late Duration _duration;
+  bool _isDraggingSlider = false;
+  StreamSubscription<Duration>? _posSub;
+  StreamSubscription<Duration>? _durSub;
 
   // Reconexión automática
   bool _isReconnecting = false;
@@ -58,7 +62,12 @@ class _DlnaCastingOverlayState extends State<DlnaCastingOverlay> {
   @override
   void initState() {
     super.initState();
-    _position = widget.currentPosition;
+    _position = _castService.position > Duration.zero
+        ? _castService.position
+        : widget.currentPosition;
+    _duration = _castService.duration > Duration.zero
+        ? _castService.duration
+        : widget.totalDuration;
     _lastDeviceUdn = _castService.connectedDevice?.udn.value;
     _lastDeviceName = _castService.connectedDevice?.friendlyName ?? 'Dispositivo DLNA';
 
@@ -70,6 +79,18 @@ class _DlnaCastingOverlayState extends State<DlnaCastingOverlay> {
     _backFocusNode = FocusNode(debugLabel: 'cast_back');
 
     _castService.stateNotifier.addListener(_handleCastStateChanged);
+    _posSub = _castService.positionStream.listen((pos) {
+      if (!mounted || _isDraggingSlider) return;
+      if ((pos.inSeconds - _position.inSeconds).abs() >= 1) {
+        setState(() => _position = pos);
+      }
+    });
+    _durSub = _castService.durationStream.listen((dur) {
+      if (!mounted || dur <= Duration.zero) return;
+      if (dur != _duration) {
+        setState(() => _duration = dur);
+      }
+    });
 
     if (widget.isTv) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -81,8 +102,13 @@ class _DlnaCastingOverlayState extends State<DlnaCastingOverlay> {
   @override
   void didUpdateWidget(covariant DlnaCastingOverlay oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.currentPosition != oldWidget.currentPosition) {
+    if (!_isDraggingSlider &&
+        _castService.position == Duration.zero &&
+        widget.currentPosition != oldWidget.currentPosition) {
       _position = widget.currentPosition;
+    }
+    if (_duration <= Duration.zero && widget.totalDuration > Duration.zero) {
+      _duration = widget.totalDuration;
     }
   }
 
@@ -153,6 +179,8 @@ class _DlnaCastingOverlayState extends State<DlnaCastingOverlay> {
   void dispose() {
     _castService.stateNotifier.removeListener(_handleCastStateChanged);
     _reconnectTimer?.cancel();
+    _posSub?.cancel();
+    _durSub?.cancel();
     _playPauseFocusNode.dispose();
     _rewindFocusNode.dispose();
     _forwardFocusNode.dispose();
@@ -353,7 +381,7 @@ class _DlnaCastingOverlayState extends State<DlnaCastingOverlay> {
                     ],
 
                     // Barra de progreso remota
-                    if (widget.totalDuration > Duration.zero) ...[
+                    if (_duration > Duration.zero) ...[
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
                         child: Column(
@@ -369,15 +397,22 @@ class _DlnaCastingOverlayState extends State<DlnaCastingOverlay> {
                               ),
                               child: Slider(
                                 min: 0.0,
-                                max: widget.totalDuration.inMilliseconds.toDouble(),
+                                max: _duration.inMilliseconds.toDouble(),
                                 value: _position.inMilliseconds
                                     .toDouble()
-                                    .clamp(0.0, widget.totalDuration.inMilliseconds.toDouble()),
+                                    .clamp(0.0, _duration.inMilliseconds.toDouble()),
+                                onChangeStart: (_) {
+                                  setState(() => _isDraggingSlider = true);
+                                },
                                 onChanged: (value) {
                                   setState(() => _position = Duration(milliseconds: value.toInt()));
                                 },
                                 onChangeEnd: (value) {
                                   final newPos = Duration(milliseconds: value.toInt());
+                                  setState(() {
+                                    _isDraggingSlider = false;
+                                    _position = newPos;
+                                  });
                                   widget.onSeek(newPos);
                                   _castService.seek(newPos);
                                 },
@@ -393,7 +428,7 @@ class _DlnaCastingOverlayState extends State<DlnaCastingOverlay> {
                                     style: const TextStyle(color: Colors.white60, fontSize: 12),
                                   ),
                                   Text(
-                                    _formatDuration(widget.totalDuration),
+                                    _formatDuration(_duration),
                                     style: const TextStyle(color: Colors.white60, fontSize: 12),
                                   ),
                                 ],
@@ -477,7 +512,7 @@ class _DlnaCastingOverlayState extends State<DlnaCastingOverlay> {
                             tooltip: 'Adelantar 10 segundos',
                             onPressed: () {
                               final newPos = _position + const Duration(seconds: 10);
-                              final target = newPos > widget.totalDuration ? widget.totalDuration : newPos;
+                              final target = (_duration > Duration.zero && newPos > _duration) ? _duration : newPos;
                               setState(() => _position = target);
                               widget.onSeek(target);
                               _castService.seek(target);

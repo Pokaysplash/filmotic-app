@@ -315,7 +315,7 @@ class FuentesConfig {
       cinebyEnabled: prefs.getBool('cineby_enabled') ?? true,
       customApiEnabled: prefs.getBool('custom_api_enabled') ?? false,
       verificarServidores: prefs.getBool('verificar_servidores') ?? true,
-      unServidorPorIdioma: prefs.getBool('un_servidor_por_idioma') ?? true,
+      unServidorPorIdioma: prefs.getBool('un_servidor_por_idioma') ?? false,
       mostrarServidoresEnPlayer:
           prefs.getBool('mostrar_servidores_player') ?? true,
       idiomaPredEnabled:
@@ -1019,10 +1019,9 @@ class MainFuentes {
             map['season'] = isMovie ? 0 : season;
             map['episode'] = isMovie ? 0 : episode;
 
-            if (unPorIdioma) {
-              final idioma = map['idioma'] as String;
-              if (idiomasDeEstaFuente.contains(idioma)) continue;
-              idiomasDeEstaFuente.add(idioma);
+            final idioma = map['idioma'] as String;
+            if (unPorIdioma && verificar && idiomasDeEstaFuente.contains(idioma)) {
+              continue;
             }
 
             if (verificar &&
@@ -1032,6 +1031,9 @@ class MainFuentes {
               verifiedAttempts++;
               final m3u8 = await verificarConExtractor(context, url);
               if (m3u8 != null && m3u8.isNotEmpty) {
+                if (unPorIdioma) {
+                  idiomasDeEstaFuente.add(idioma);
+                }
                 map['resolved_m3u8'] = m3u8;
                 map['verificado'] = true;
                 count++;

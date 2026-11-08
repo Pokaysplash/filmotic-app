@@ -828,6 +828,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!mounted || _isDisposing) return;
     final state = CastService.instance.state;
     if (state == CastState.casting || state == CastState.connected) {
+      _vodWatchdogTimer?.cancel();
+      _vodWatchdogTimer = null;
+      _audioCheckTimer?.cancel();
+      _stopLoadingTimer();
+      _cancelReconnectTolerance(recovered: false);
       if (_controllerReady && _controller.value.isPlaying) {
         _controller.pause();
       }
@@ -1642,18 +1647,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ? widget.liveStreams!
           : null;
       String? url;
-      if (widget.videoUrl.trim().isNotEmpty) {
-        url = widget.videoUrl.trim();
-        if (liveList != null) {
-          final idx = liveList.indexOf(url);
+      if (widget.isLive && liveList != null && liveList.isNotEmpty) {
+        if (widget.videoUrl.trim().isNotEmpty) {
+          final idx = liveList.indexOf(widget.videoUrl.trim());
           if (idx >= 0) _currentLiveIndex = idx;
         }
+        if (liveList.length > 1) {
+          _currentLiveIndex = await LiveTvService.instance.findFirstWorkingStreamIndex(
+            liveList,
+            startIndex: _currentLiveIndex,
+          );
+        }
+        url = liveList[_currentLiveIndex].trim();
+      } else if (widget.videoUrl.trim().isNotEmpty) {
+        url = widget.videoUrl.trim();
       } else if (liveList != null && _currentLiveIndex < liveList.length) {
         url = liveList[_currentLiveIndex].trim();
       }
       Map<String, String> headers = {};
 
-      if (url == null || url.isEmpty) {
+      if (!widget.isLive && (url == null || url.isEmpty)) {
         final playable = await _serverLoader.resolvePlayable(
           contentId: widget.tmdbId ?? widget.idcontenido,
           isMovie: widget.tipo.toLowerCase() != 'tv',
@@ -1667,30 +1680,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (playable.idioma.isNotEmpty) {
             _idioma = playable.idioma.toUpperCase();
           }
+          if (playable.rawServer.isNotEmpty) {
+            _fallbackServers = [playable.rawServer];
+          }
         }
       }
 
-      try {
-        final servers = await _serverLoader.getServers(
-          contentId: widget.tmdbId ?? widget.idcontenido,
-          isMovie: widget.tipo.toLowerCase() != 'tv',
-          season: widget.temporada ?? 0,
-          episode: widget.capitulo ?? 0,
-          context: mounted ? context : null,
-        );
-        _fallbackServers = servers;
-        _fallbackIndex = 0;
-        if (url != null) {
-          final idxS = servers.indexWhere((s) {
-            final u =
-                s['resolved_m3u8']?.toString() ??
-                s['servidor_url']?.toString() ??
-                '';
-            return u == url;
-          });
-          if (idxS >= 0) _fallbackIndex = idxS;
+      if (!widget.isLive) {
+        if (url != null && url.isNotEmpty) {
+          unawaited(_prepareFallbackServersTv(url));
+        } else {
+          await _prepareFallbackServersTv(url);
         }
-      } catch (_) {}
+      }
 
       if (url == null || url.isEmpty) {
         if (!mounted || _isDisposing) return;
@@ -1710,6 +1712,31 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } finally {
       _isResolving = false;
     }
+  }
+
+  Future<void> _prepareFallbackServersTv(String? currentUrl) async {
+    if (widget.isLive) return;
+    try {
+      final servers = await _serverLoader.getServers(
+        contentId: widget.tmdbId ?? widget.idcontenido,
+        isMovie: widget.tipo.toLowerCase() != 'tv',
+        season: widget.temporada ?? 0,
+        episode: widget.capitulo ?? 0,
+        context: mounted ? context : null,
+      );
+      _fallbackServers = servers;
+      _fallbackIndex = 0;
+      if (currentUrl != null) {
+        final idxS = servers.indexWhere((s) {
+          final u =
+              s['resolved_m3u8']?.toString() ??
+              s['servidor_url']?.toString() ??
+              '';
+          return u == currentUrl;
+        });
+        if (idxS >= 0) _fallbackIndex = idxS;
+      }
+    } catch (_) {}
   }
 
   Future<void> _startControllerWithUrl(
@@ -1815,6 +1842,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!widget.isLive) {
         _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
           if (!mounted || _isDisposing || widget.isLive) return;
+          final castState = CastService.instance.state;
+          if (castState == CastState.casting || castState == CastState.connected) {
+            return;
+          }
           final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
           final playing = _controllerReady && _controller.value.isPlaying;
           final hasError = _controllerReady && _controller.value.hasError;
@@ -1841,6 +1872,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       } else {
         _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
           if (!mounted || _isDisposing || !widget.isLive) return;
+          final castState = CastService.instance.state;
+          if (castState == CastState.casting || castState == CastState.connected) {
+            return;
+          }
           final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
           final isBlackScreen = _controllerReady && (_controller.value.size == Size.zero || _controller.value.size.width == 0);
           final hasNoProgress = pos == 0 && !_controller.value.isBuffering;
@@ -1879,11 +1914,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _stopLoadingTimer();
       debugPrint('Error al reproducir URL TV: $e');
       if (widget.isLive) {
+        LiveTvService.instance.markStreamUrlStatus(url, false);
         final streams = _liveStreams.isNotEmpty
             ? _liveStreams
             : (widget.liveStreams ?? [widget.videoUrl]);
         if (_currentLiveIndex + 1 < streams.length) {
-          _currentLiveIndex++;
+          final nextIdx = await LiveTvService.instance.findFirstWorkingStreamIndex(
+            streams,
+            startIndex: _currentLiveIndex + 1,
+          );
+          _currentLiveIndex = nextIdx >= _currentLiveIndex + 1 ? nextIdx : _currentLiveIndex + 1;
           final nextStream = streams[_currentLiveIndex];
           debugPrint('[Live TV] Señal falló, probando alternativa ${_currentLiveIndex + 1}/${streams.length}: $nextStream');
           await _startControllerWithUrl(nextStream, headers);
@@ -1931,8 +1971,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _startLoadingTimer();
     _consecutiveServerFailures++;
 
-    // Si van 3 o más fallos seguidos, mostrar diálogo de fallback visible
-    if (_consecutiveServerFailures >= 3) {
+    // Dar más margen de intentos fallidos antes de rendirnos (10 en lugar de 3)
+    if (_consecutiveServerFailures >= 10) {
       if (!mounted || _isDisposing) return;
       _stopLoadingTimer();
       setState(() {
@@ -1945,6 +1985,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
       _showAllServersFailedDialog();
       return;
+    }
+
+    if (_fallbackServers.isEmpty) {
+      await _prepareFallbackServersTv(_activeUrl);
+      _fallbackIndex = -1;
     }
 
     _fallbackIndex++;
@@ -2172,6 +2217,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _videoListener() {
     if (!mounted || _isDisposing) return;
 
+    final castState = CastService.instance.state;
+    if (castState == CastState.casting || castState == CastState.connected) {
+      return;
+    }
+
     final value = _controller.value;
 
     // ── Detección inmediata de fallo en el player ───────────────────────
@@ -2348,9 +2398,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _cancelReconnectTolerance(recovered: true);
       } else if (!newBuffering) {
         _bufferingStartTime = null;
+        _reconnectTimer?.cancel();
+        _reconnectTimer = null;
       }
     }
-    if (newPlaying && _isReconnecting) {
+    if (newPlaying && !newBuffering && _isReconnecting) {
       _cancelReconnectTolerance(recovered: true);
     }
     if (newDuration != _totalDuration) {
@@ -2548,12 +2600,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
       streams = [ch.streamUrl.toString()];
     }
 
+    int startIdx = 0;
+    if (streams.length > 1) {
+      startIdx = await LiveTvService.instance.findFirstWorkingStreamIndex(streams, startIndex: 0);
+    }
+
+    if (!mounted || _isDisposing) return;
+
     setState(() {
       _currentChannelIndex = index;
       _currentChannelName = ch.name?.toString() ?? 'Canal';
       _currentChannelLogo = ch.logo?.toString();
       _liveStreams = streams;
-      _currentLiveIndex = 0;
+      _currentLiveIndex = startIdx;
       _fitToastLabel = '${_currentChannelIndex + 1}. $_currentChannelName';
     });
 
@@ -2562,7 +2621,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (mounted) setState(() => _fitToastLabel = null);
     });
 
-    final activeUrl = streams.isNotEmpty ? streams[0] : (ch.streamUrl?.toString() ?? '');
+    final activeUrl = streams.isNotEmpty ? streams[startIdx] : (ch.streamUrl?.toString() ?? '');
     if (activeUrl.isNotEmpty) {
       await _startControllerWithUrl(activeUrl, {});
     } else {

@@ -14,7 +14,7 @@ class LiveTvService {
   LiveTvService._internal();
 
   static const int _kTtlMillis = 24 * 60 * 60 * 1000; // 24h
-  static const String _kCacheVersion = 'v4_xtream_';
+  static const String _kCacheVersion = 'v5_verified_';
   String? lastEpgUrl;
 
   /// Carga canales aplicando filtros y caché Sembast.
@@ -62,11 +62,11 @@ class LiveTvService {
         rawBody = await rootBundle.loadString('assets/filmotic_playlist.m3u');
       } catch (_) {}
 
-      // Si existe una lista remota válida y completa en customM3uUrl (> 500KB)
+      // Si existe una lista remota válida y completa en customM3uUrl (> 50KB)
       if (config.customM3uUrl.isNotEmpty) {
         try {
           final mainRes = await http.get(Uri.parse(config.customM3uUrl)).timeout(const Duration(seconds: 10));
-          if (mainRes.statusCode == 200 && mainRes.bodyBytes.length > 500000) {
+          if (mainRes.statusCode == 200 && mainRes.bodyBytes.length > 50000) {
             rawBody = utf8.decode(mainRes.bodyBytes);
             effectiveSource = config.customM3uUrl;
           }
@@ -95,34 +95,47 @@ class LiveTvService {
 
         var channels = parseResult.channels;
 
-        // Descargar streams adicionales si usamos iptv-org
+        // Enriquecer con streams por país de iptv-org (agrega señales de respaldo y canales faltantes)
         final isCountry = country != null && country.isNotEmpty && country != 'ALL';
-        if (isCountry && config.sourcePriority != 'filmotic_master') {
-          final streamsUrl = 'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/${country.toLowerCase()}.m3u';
-          try {
-            final streamsRes = await http.get(Uri.parse(streamsUrl)).timeout(const Duration(seconds: 10));
-            if (streamsRes.statusCode == 200) {
-              final streamsBody = utf8.decode(streamsRes.bodyBytes);
-              final streamsResult = M3UParser.parse(streamsBody, streamsUrl);
-              channels = _mergeAlternateStreams(channels, streamsResult.channels);
-            }
-          } catch (_) {}
+        if (isCountry) {
+          final countryUrls = [
+            'https://iptv-org.github.io/iptv/countries/${country.toLowerCase()}.m3u',
+            'https://raw.githubusercontent.com/iptv-org/iptv/master/streams/${country.toLowerCase()}.m3u',
+          ];
+          for (final streamsUrl in countryUrls) {
+            if (streamsUrl == effectiveSource) continue;
+            try {
+              final streamsRes = await http.get(Uri.parse(streamsUrl)).timeout(const Duration(seconds: 8));
+              if (streamsRes.statusCode == 200) {
+                final streamsBody = utf8.decode(streamsRes.bodyBytes);
+                final streamsResult = M3UParser.parse(streamsBody, streamsUrl);
+                final withCountry = streamsResult.channels.map((c) {
+                  return (c.country == null || c.country!.isEmpty)
+                      ? c.copyWith(country: country.toUpperCase())
+                      : c;
+                }).toList();
+                channels = _mergeAlternateStreams(channels, withCountry);
+              }
+            } catch (_) {}
+          }
         }
 
-        // Si se especificó una categoría temática y usamos iptv-org
+        // Si se especificó una categoría temática, enriquecer con iptv-org
         final hasGroup = group != null && group.isNotEmpty && group != 'ALL';
-        if (hasGroup && config.sourcePriority != 'filmotic_master') {
+        if (hasGroup) {
           final catUrl = 'https://iptv-org.github.io/iptv/categories/${group.toLowerCase()}.m3u';
-          if (catUrl != fallbackUrl) {
+          if (catUrl != effectiveSource) {
             try {
-              final catRes = await http.get(Uri.parse(catUrl)).timeout(const Duration(seconds: 10));
+              final catRes = await http.get(Uri.parse(catUrl)).timeout(const Duration(seconds: 8));
               if (catRes.statusCode == 200) {
                 final catBody = utf8.decode(catRes.bodyBytes);
                 final catResult = M3UParser.parse(catBody, catUrl);
                 final esCatChannels = catResult.channels.where((c) {
                   final lang = (c.language ?? '').toLowerCase();
                   final nm = c.name.toLowerCase();
-                  return lang == 'spa' || lang == 'es' || nm.contains('esp') || nm.contains('spanish');
+                  final ctry = (c.country ?? '').toUpperCase();
+                  return lang == 'spa' || lang == 'es' || nm.contains('esp') || nm.contains('spanish') ||
+                         ['CO', 'MX', 'AR', 'ES', 'CL', 'PE', 'VE', 'EC', 'UY', 'PY', 'BO'].contains(ctry);
                 }).toList();
                 channels = _mergeAlternateStreams(channels, esCatChannels);
               }
@@ -260,24 +273,107 @@ class LiveTvService {
   }
 
   final Map<String, bool> _channelHealth = {};
+  final Map<String, bool> _streamUrlHealth = {};
 
-  /// Verifica la disponibilidad de un stream con timeout corto (2.5s)
+  /// Verifica la disponibilidad real de un stream (descarta respuestas vacías de 0 bytes o páginas HTML de error)
   Future<bool> probeChannel(String streamUrl) async {
+    final clean = streamUrl.trim();
+    if (clean.isEmpty) return false;
+    if (_streamUrlHealth.containsKey(clean)) {
+      return _streamUrlHealth[clean]!;
+    }
     try {
-      final uri = Uri.parse(streamUrl);
+      final uri = Uri.parse(clean);
       final client = http.Client();
       try {
         final req = http.Request('GET', uri)
           ..headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          ..headers['Range'] = 'bytes=0-512';
+          ..headers['Accept'] = '*/*'
+          ..headers['Range'] = 'bytes=0-1024';
         final streamed = await client.send(req).timeout(const Duration(milliseconds: 2500));
         final status = streamed.statusCode;
-        return (status >= 200 && status < 400);
+        if (status < 200 || status >= 400) {
+          _streamUrlHealth[clean] = false;
+          return false;
+        }
+        if (streamed.contentLength != null && streamed.contentLength! == 0) {
+          _streamUrlHealth[clean] = false;
+          return false;
+        }
+
+        // Leer los primeros bytes para confirmar que no sea un stream muerto de 0 bytes ni HTML de error
+        final bytes = <int>[];
+        await for (final chunk in streamed.stream.timeout(const Duration(milliseconds: 2000))) {
+          bytes.addAll(chunk);
+          if (bytes.length >= 256) break;
+        }
+        if (bytes.isEmpty) {
+          _streamUrlHealth[clean] = false;
+          return false;
+        }
+
+        final contentType = (streamed.headers['content-type'] ?? '').toLowerCase();
+        final isM3u8 = clean.toLowerCase().contains('.m3u8') || contentType.contains('mpegurl');
+        if (isM3u8 || contentType.contains('text/html')) {
+          final sample = utf8.decode(bytes, allowMalformed: true).trimLeft().toLowerCase();
+          if (sample.startsWith('<!doctype html') || sample.startsWith('<html') || sample.startsWith('error')) {
+            _streamUrlHealth[clean] = false;
+            return false;
+          }
+          if (isM3u8 && !sample.contains('#extm3u') && !sample.contains('#ext-x-')) {
+            _streamUrlHealth[clean] = false;
+            return false;
+          }
+        }
+
+        _streamUrlHealth[clean] = true;
+        return true;
       } finally {
         client.close();
       }
     } catch (_) {
+      _streamUrlHealth[clean] = false;
       return false;
+    }
+  }
+
+  /// Encuentra rápidamente el índice de la primera señal activa de un canal (saltando señales de 0 bytes o caídas)
+  Future<int> findFirstWorkingStreamIndex(List<String> streams, {int startIndex = 0}) async {
+    if (streams.length <= 1) return 0;
+    final safeStart = startIndex.clamp(0, streams.length - 1);
+
+    // Probar hasta 4 señales candidatas en paralelo para respuesta instantánea (< 500ms)
+    final candidates = <int>[];
+    for (int offset = 0; offset < streams.length && candidates.length < 4; offset++) {
+      final idx = (safeStart + offset) % streams.length;
+      final url = streams[idx].trim();
+      if (url.isEmpty) continue;
+      if (_streamUrlHealth[url] == false) continue;
+      if (_streamUrlHealth[url] == true) return idx;
+      candidates.add(idx);
+    }
+
+    if (candidates.isEmpty) return safeStart;
+
+    try {
+      final results = await Future.wait(
+        candidates.map((idx) => probeChannel(streams[idx])),
+      ).timeout(const Duration(milliseconds: 2400), onTimeout: () => List.filled(candidates.length, false));
+
+      for (int i = 0; i < candidates.length; i++) {
+        if (results[i]) {
+          return candidates[i];
+        }
+      }
+    } catch (_) {}
+
+    return safeStart;
+  }
+
+  void markStreamUrlStatus(String streamUrl, bool isOnline) {
+    final clean = streamUrl.trim();
+    if (clean.isNotEmpty) {
+      _streamUrlHealth[clean] = isOnline;
     }
   }
 
@@ -297,7 +393,11 @@ class LiveTvService {
       final chunk = toTest.sublist(i, (i + 4 < toTest.length) ? i + 4 : toTest.length);
       await Future.wait(chunk.map((ch) async {
         if (_channelHealth.containsKey(ch.id)) return;
-        final ok = await probeChannel(ch.streamUrl);
+        bool ok = await probeChannel(ch.streamUrl);
+        if (!ok && ch.allStreamUrls.length > 1) {
+          final workingIdx = await findFirstWorkingStreamIndex(ch.allStreamUrls, startIndex: 1);
+          ok = _streamUrlHealth[ch.allStreamUrls[workingIdx].trim()] == true;
+        }
         _channelHealth[ch.id] = ok;
       }));
       onProgress();
@@ -534,28 +634,52 @@ class LiveTvService {
     }
   }
 
-  /// Combina streams alternativos descargados de la lista general
+  /// Combina streams alternativos descargados de la lista general y agrega canales nuevos
   List<LiveChannel> _mergeAlternateStreams(List<LiveChannel> base, List<LiveChannel> extras) {
     final map = <String, LiveChannel>{};
     for (final c in base) {
-      final key = c.name.toLowerCase().replaceAll(RegExp(r'\([^)]*\)'), '').trim();
-      map[key] = c;
+      final key = M3UParser.canonicalChannelName(c.name);
+      final effKey = key.isNotEmpty ? key : c.name.toLowerCase().trim();
+      map[effKey] = c;
     }
 
     for (final extra in extras) {
-      final key = extra.name.toLowerCase().replaceAll(RegExp(r'\([^)]*\)'), '').trim();
-      if (map.containsKey(key)) {
-        final existing = map[key]!;
-        final combined = List<String>.from(existing.alternateUrls);
-        for (final u in extra.allStreamUrls) {
-          if (u != existing.streamUrl && !combined.contains(u)) {
-            combined.add(u);
+      if (extra.name.contains('[Geo-blocked]')) continue;
+      final key = M3UParser.canonicalChannelName(extra.name);
+      final effKey = key.isNotEmpty ? key : extra.name.toLowerCase().trim();
+      if (map.containsKey(effKey)) {
+        final existing = map[effKey]!;
+        final existingIsLowPrio = existing.streamUrl.contains('myultratv.com:8080');
+        final extraIsLowPrio = extra.streamUrl.contains('myultratv.com:8080');
+
+        String primaryUrl = existing.streamUrl;
+        final combined = <String>[];
+
+        if (existingIsLowPrio && !extraIsLowPrio && extra.streamUrl.isNotEmpty) {
+          primaryUrl = extra.streamUrl;
+          for (final u in extra.alternateUrls) {
+            if (u != primaryUrl && !combined.contains(u)) combined.add(u);
+          }
+          for (final u in existing.allStreamUrls) {
+            if (u != primaryUrl && !combined.contains(u)) combined.add(u);
+          }
+        } else {
+          combined.addAll(existing.alternateUrls);
+          for (final u in extra.allStreamUrls) {
+            if (u != primaryUrl && !combined.contains(u)) {
+              combined.add(u);
+            }
           }
         }
-        map[key] = existing.copyWith(
+
+        map[effKey] = existing.copyWith(
+          streamUrl: primaryUrl,
           alternateUrls: combined,
           isHD: existing.isHD || extra.isHD,
+          logo: existing.logo ?? extra.logo,
         );
+      } else {
+        map[effKey] = extra;
       }
     }
     return map.values.toList();
@@ -566,20 +690,21 @@ class LiveTvService {
     final available = channels.where((c) => !c.name.contains('[Geo-blocked]')).toList();
 
     final featured = RemoteConfigService.instance.config.liveTv.featuredChannels;
-    if (featured.isEmpty) return available;
-
     final featuredSet = featured.map((e) => e.toLowerCase()).toSet();
     final featuredList = <LiveChannel>[];
+    final verifiedList = <LiveChannel>[];
     final regularList = <LiveChannel>[];
 
     for (final ch in available) {
-      if (featuredSet.any((f) => ch.name.toLowerCase().contains(f))) {
+      if (featuredSet.isNotEmpty && featuredSet.any((f) => ch.name.toLowerCase().contains(f))) {
         featuredList.add(ch);
+      } else if (!ch.streamUrl.contains('myultratv.com:8080')) {
+        verifiedList.add(ch);
       } else {
         regularList.add(ch);
       }
     }
 
-    return [...featuredList, ...regularList];
+    return [...featuredList, ...verifiedList, ...regularList];
   }
 }

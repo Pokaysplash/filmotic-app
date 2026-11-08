@@ -606,7 +606,8 @@ class ServerLoader {
 
     _sortServersByPriority(collected);
 
-    for (final code in order) {
+    final effectiveOrder = [...order, 'Desconocido'];
+    for (final code in effectiveOrder) {
       final forLang = collected.where((srv) {
         final idioma = MainFuentes.normalizeIdioma(srv['idioma']?.toString());
         return idioma == code && !_isInvalid(srv);
@@ -996,11 +997,17 @@ class ServerLoader {
     List<Map<String, dynamic>> all,
     String preferred,
   ) {
-    final order = _prefs?.idiomaFallbackOrder ?? ['es_MX', 'es_ES', 'en_US'];
+    final baseOrder = _prefs?.idiomaFallbackOrder ?? ['es_MX', 'es_ES', 'en_US'];
+    final order = <String>[
+      preferred,
+      ...baseOrder.where((c) => c != preferred),
+      'Desconocido',
+    ];
     final result = <Map<String, dynamic>>[];
     final seen = <String>{};
 
     for (final code in order) {
+      final bucket = <Map<String, dynamic>>[];
       for (final s in all) {
         if (_isInvalid(s)) continue;
         final idioma = MainFuentes.normalizeIdioma(s['idioma']?.toString());
@@ -1009,26 +1016,26 @@ class ServerLoader {
             '';
         if (idioma == code && url.isNotEmpty && !seen.contains(url)) {
           seen.add(url);
-          result.add(s);
+          bucket.add(s);
         }
       }
-      if (result.isNotEmpty && code == preferred) break;
+      if (bucket.isNotEmpty) {
+        _sortServersByPriority(bucket, preferredLang: code);
+        result.addAll(bucket);
+      }
     }
 
-    if (result.isEmpty) {
-      for (final s in all) {
-        if (_isInvalid(s)) continue;
-        final url = s['servidor_url']?.toString() ??
-            s['resolved_m3u8']?.toString() ??
-            '';
-        if (url.isNotEmpty && !seen.contains(url)) {
-          seen.add(url);
-          result.add(s);
-        }
+    for (final s in all) {
+      if (_isInvalid(s)) continue;
+      final url = s['servidor_url']?.toString() ??
+          s['resolved_m3u8']?.toString() ??
+          '';
+      if (url.isNotEmpty && !seen.contains(url)) {
+        seen.add(url);
+        result.add(s);
       }
     }
-    
-    _sortServersByPriority(result);
+
     return result;
   }
 

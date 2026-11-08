@@ -10,6 +10,8 @@ class DlnaCastSheet extends StatefulWidget {
   final String title;
   final String? posterUrl;
   final Map<String, String>? headers;
+  final Duration? startPosition;
+  final Duration? duration;
   final VoidCallback onCastStarted;
   final VoidCallback? onSelectServerForDlna;
   final VoidCallback? onResumeLocal;
@@ -20,6 +22,8 @@ class DlnaCastSheet extends StatefulWidget {
     required this.title,
     this.posterUrl,
     this.headers,
+    this.startPosition,
+    this.duration,
     required this.onCastStarted,
     this.onSelectServerForDlna,
     this.onResumeLocal,
@@ -31,6 +35,8 @@ class DlnaCastSheet extends StatefulWidget {
     required String title,
     String? posterUrl,
     Map<String, String>? headers,
+    Duration? startPosition,
+    Duration? duration,
     required VoidCallback onCastStarted,
     VoidCallback? onSelectServerForDlna,
     VoidCallback? onResumeLocal,
@@ -44,6 +50,8 @@ class DlnaCastSheet extends StatefulWidget {
         title: title,
         posterUrl: posterUrl,
         headers: headers,
+        startPosition: startPosition,
+        duration: duration,
         onCastStarted: onCastStarted,
         onSelectServerForDlna: onSelectServerForDlna,
         onResumeLocal: onResumeLocal,
@@ -135,6 +143,8 @@ class _DlnaCastSheetState extends State<DlnaCastSheet> {
       title: widget.title,
       posterUrl: widget.posterUrl,
       headers: widget.headers,
+      startPosition: widget.startPosition,
+      duration: widget.duration,
     );
 
     if (!mounted) return;

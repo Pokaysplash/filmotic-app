@@ -134,15 +134,11 @@ class ServerPreValidationService {
 
       final streamedResponse = await client.send(request).timeout(Duration(seconds: timeoutSec));
       statusCode = streamedResponse.statusCode;
+      final contentLen = streamedResponse.contentLength;
 
-      // WAVE 12.6: Códigos considerados "probablemente válidos"
-      // 200-399 (éxito y redirecciones seguidas)
-      // 206 (Partial Content)
-      // 401 y 403 (pueden funcionar con Referer/cookies específicas al reproducir en ExoPlayer)
-      if ((statusCode >= 200 && statusCode < 400) ||
-          statusCode == 206 ||
-          statusCode == 401 ||
-          statusCode == 403) {
+      // Códigos válidos (200-399 o 206 Partial Content) y que no sean respuestas vacías de 0 bytes
+      if (((statusCode >= 200 && statusCode < 400) || statusCode == 206) &&
+          (contentLen == null || contentLen > 0)) {
         isValid = true;
       }
     } catch (_) {
