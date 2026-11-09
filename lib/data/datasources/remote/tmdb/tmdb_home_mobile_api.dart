@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/constants/tmdb_apis.dart';
+import '../../../../core/storage/app_database.dart';
 
 /// Servicio de Home (móvil) alimentado por TMDB.
 /// Misma lógica de preferencias/filtros que TmdbHomeService (TV),
@@ -10,9 +10,9 @@ import '../../../../core/constants/tmdb_apis.dart';
 ///
 /// API key: a2d9bbed370d9f678e34006f8750a5a5
 class TmdbHomeMobileService {
-  static const String _apiKeyFallback = 'a2d9bbed370d9f678e34006f8750a5a5'; // unused fallback
   static const String _base = 'https://api.themoviedb.org/3';
   static const String _imgBase = 'https://image.tmdb.org/t/p';
+  static const Set<int> _kKidsExcludedGenres = {27, 80, 53, 10752, 10768};
 
   static const int _minVoteCountMovies = 80;
   static const int _minVoteCountTv = 40;
@@ -31,16 +31,16 @@ class TmdbHomeMobileService {
     'ru',
   };
 
-  final math.Random _rng = math.Random();
   final Map<String, String> _logoCache = {};
 
   // ── Preferencias ──────────────────────────────────────────────────────────
 
   Future<_HomePrefs> _loadPrefs() async {
     final p = await SharedPreferences.getInstance();
+    final isKids = AppDatabase.instance.activeProfile?.esInfantil == true;
     return _HomePrefs(
       tmdbEnrichment: p.getBool('tmdb_enrichment') ?? true,
-      allowAdult: p.getBool('allow_adult_content') ?? false,
+      allowAdult: isKids ? false : (p.getBool('allow_adult_content') ?? false),
       showUnreleased: p.getBool('show_unreleased') ?? false,
       homeSessions: p.getBool('home_sessions') ?? true,
       homeFeaturedMovies: p.getBool('home_featured_movies') ?? true,
@@ -152,6 +152,16 @@ class TmdbHomeMobileService {
       if (voteCount < minVotes && popularity < minPop) return false;
 
       if (item['adult'] == true && !prefs.allowAdult) return false;
+      if (AppDatabase.instance.activeProfile?.esInfantil == true) {
+        if (item['adult'] == true) return false;
+        final gids = item['genre_ids'];
+        if (gids is List) {
+          for (final g in gids) {
+            final id = g is num ? g.toInt() : int.tryParse('$g');
+            if (id != null && _kKidsExcludedGenres.contains(id)) return false;
+          }
+        }
+      }
 
       if (!prefs.showUnreleased) {
         final dateStr =
@@ -222,8 +232,12 @@ class TmdbHomeMobileService {
         q['first_air_date.lte'] = stamp;
       }
     }
-    if (!isMovie && TmdbApis.tvWithoutGenres.isNotEmpty) {
-      q['without_genres'] = TmdbApis.tvWithoutGenres;
+    final withoutList = <String>[
+      if (!isMovie && TmdbApis.tvWithoutGenres.isNotEmpty) TmdbApis.tvWithoutGenres,
+      if (AppDatabase.instance.activeProfile?.esInfantil == true) '27,80,53,10752,10768',
+    ];
+    if (withoutList.isNotEmpty) {
+      q['without_genres'] = withoutList.join(',');
     }
     return q;
   }

@@ -16,6 +16,10 @@ import '../../data/extractors/providers/seriesmetro_extractor.dart';
 import '../../data/extractors/providers/smartpelis_extractor.dart';
 import '../../data/extractors/providers/canela_extractor.dart';
 import '../../data/extractors/providers/animeflv_extractor.dart';
+import '../../data/extractors/providers/vidsrc_extractor.dart';
+import '../../data/scrapers/seriesflix_scraper.dart';
+import '../../data/scrapers/cineby_scraper.dart';
+import '../../data/scrapers/thanhdattoday_scraper.dart';
 import '../../data/datasources/remote/sources/custom_api.dart';
 typedef SourceScraper = Stream<Map<String, dynamic>> Function({
   required int tmdbId,
@@ -210,7 +214,9 @@ final List<SourceDefinition> kRegisteredSources = [
       ).map((s) {
         final map = s.toModalMap();
         map['es_cinecalidad'] = true;
-        map['idioma'] = 'es_MX';
+        if ((map['idioma']?.toString() ?? '').isEmpty) {
+          map['idioma'] = 'es_MX';
+        }
         return map;
       });
     },
@@ -466,6 +472,102 @@ final List<SourceDefinition> kRegisteredSources = [
         map['es_animeflv'] = true;
         return map;
       });
+    },
+  ),
+  SourceDefinition(
+    id: 'seriesflix',
+    label: 'Seriesflix',
+    prefsKey: 'seriesflix_enabled',
+    badgeColor: const Color(0xFFE50914),
+    badgeText: 'SERIESFLIX',
+    flagKey: 'es_seriesflix',
+    icon: Icons.movie_creation_rounded,
+    maxResults: 12,
+    scrape: ({
+      required tmdbId,
+      required isMovie,
+      required season,
+      required episode,
+    }) {
+      return SeriesflixScraper.scrapeStream(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+      );
+    },
+  ),
+  SourceDefinition(
+    id: 'vidsrc',
+    label: 'VidSrc',
+    prefsKey: 'vidsrc_enabled',
+    badgeColor: const Color(0xFF8B5CF6),
+    badgeText: 'VIDSRC',
+    flagKey: 'es_vidsrc',
+    icon: Icons.ondemand_video_rounded,
+    maxResults: 12,
+    scrape: ({
+      required tmdbId,
+      required isMovie,
+      required season,
+      required episode,
+    }) {
+      return VidSrcService.scrape(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+      ).map((map) {
+        final m = Map<String, dynamic>.from(map);
+        m['es_vidsrc'] = true;
+        return m;
+      });
+    },
+  ),
+  SourceDefinition(
+    id: 'cineby',
+    label: 'Cineby',
+    prefsKey: 'cineby_enabled',
+    badgeColor: const Color(0xFF06B6D4),
+    badgeText: 'CINEBY',
+    flagKey: 'es_cineby',
+    icon: Icons.theaters_rounded,
+    maxResults: 10,
+    scrape: ({
+      required tmdbId,
+      required isMovie,
+      required season,
+      required episode,
+    }) {
+      return CinebyScraper.scrapeStream(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+      );
+    },
+  ),
+  SourceDefinition(
+    id: 'thanhdattoday',
+    label: 'HDToday',
+    prefsKey: 'thanhdattoday_enabled',
+    badgeColor: const Color(0xFF38BDF8),
+    badgeText: 'HDTODAY',
+    flagKey: 'es_thanhdattoday',
+    icon: Icons.public_rounded,
+    maxResults: 10,
+    scrape: ({
+      required tmdbId,
+      required isMovie,
+      required season,
+      required episode,
+    }) {
+      return ThanhDatTodayScraper.scrapeStream(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+      );
     },
   ),
   // ── APIs personalizadas del usuario (códigos PHP ilimitados) ──

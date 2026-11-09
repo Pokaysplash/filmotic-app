@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../datasources/remote/tmdb/tmdb_metadata_service.dart';
 
 /// Scraper nativo de PoseidonHD2 (www.poseidonhd2.co).
 /// Misma lógica que CuevanaService: TMDB → slug → página → __NEXT_DATA__ → player.php → URL real.
@@ -83,7 +84,24 @@ class PoseidonService {
   // ─── TMDB ───────────────────────────────────────────────────────────────
 
   static Future<_TmdbInfo> _getTmdbInfo(int tmdbId, String mediaType) async {
-    final endpoint = mediaType == 'movie' ? 'movie' : 'tv';
+    final isMovie = mediaType == 'movie';
+    try {
+      final meta = await TmdbMetadataService.instance.getMetadata(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+      );
+      if (meta != null && meta.title.isNotEmpty) {
+        return _TmdbInfo(
+          id: tmdbId,
+          latino: meta.title,
+          castellano: meta.title,
+          ingles: meta.originalTitle ?? meta.title,
+          year: meta.year,
+        );
+      }
+    } catch (_) {}
+
+    final endpoint = isMovie ? 'movie' : 'tv';
 
     Future<Map<String, dynamic>?> fetchLang(String lang) async {
       try {
@@ -94,7 +112,7 @@ class PoseidonService {
               ),
               headers: {'Accept': 'application/json', 'User-Agent': _kUa},
             )
-            .timeout(const Duration(seconds: 12));
+            .timeout(const Duration(seconds: 8));
         if (r.statusCode != 200) return null;
         final data = jsonDecode(r.body);
         if (data is! Map<String, dynamic>) return null;
@@ -105,9 +123,14 @@ class PoseidonService {
       }
     }
 
-    final es = await fetchLang('es-MX');
-    final eses = await fetchLang('es-ES');
-    final en = await fetchLang('en-US');
+    final results = await Future.wait([
+      fetchLang('es-MX'),
+      fetchLang('es-ES'),
+      fetchLang('en-US'),
+    ]);
+    final es = results[0];
+    final eses = results[1];
+    final en = results[2];
 
     int? year;
     final dateStr = mediaType == 'movie'

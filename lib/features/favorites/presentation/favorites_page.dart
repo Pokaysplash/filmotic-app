@@ -189,35 +189,7 @@ class GuardadosPageState extends State<GuardadosPage>
   }
 
   Future<List<Map<String, dynamic>>> _loadHistorial() async {
-    final sembastHistory = await AppDatabase.instance.getHistory();
-    if (sembastHistory.isNotEmpty) return sembastHistory;
-
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs
-        .getKeys()
-        .where((k) => k.startsWith('cachePlayer_'))
-        .toList();
-
-    final List<Map<String, dynamic>> result = [];
-
-    for (final key in keys) {
-      try {
-        final raw = prefs.getString(key);
-        if (raw == null) continue;
-        final data = Map<String, dynamic>.from(jsonDecode(raw));
-        final segundo = data['segundo'] as int? ?? 0;
-        if (segundo < 8) continue;
-        result.add(data);
-      } catch (_) {}
-    }
-
-    result.sort((a, b) {
-      final ta = a['timestamp']?.toString() ?? '';
-      final tb = b['timestamp']?.toString() ?? '';
-      return tb.compareTo(ta);
-    });
-
-    return result;
+    return await AppDatabase.instance.getHistory(deduplicateSeries: true);
   }
 
   // ─────────────────────────────────────────────────────────────────────────

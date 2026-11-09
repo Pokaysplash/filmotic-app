@@ -135,6 +135,26 @@ class DetalleScraper {
           return await GogoAnimeScraper.fetchServers(url: url);
         case 'animeav1':
           return await AnimeAV1Scraper.fetchServers(url: url);
+        case 'telemundo':
+          return await TelemundoScraper.fetchServers(url: url);
+        case 'cinecalidad':
+          final det = await CinecalidadScraper.fetchDetail(url: url, titulo: '', tipo: 'movie');
+          return det.servidores;
+        case 'serieskao':
+          final det = await DetalleSeriesKao.fetch(url: url, titulo: '', tipo: 'tv');
+          return det.servidores;
+        case 'tioplus':
+          final det = await DetalleTioPlus.fetch(url: url, titulo: '', tipo: 'movie');
+          return det.servidores;
+        case 'cuevana':
+          final det = await DetalleCuevana.fetch(url: url, titulo: '', tipo: 'movie');
+          return det.servidores;
+        case 'pelisplus':
+          final det = await DetallePelisPlus.fetch(url: url, titulo: '', tipo: 'movie');
+          return det.servidores;
+        case 'cinehax':
+          final det = await DetalleCineHax.fetch(url: url, titulo: '', tipo: 'movie');
+          return det.servidores;
         default:
           return [];
       }

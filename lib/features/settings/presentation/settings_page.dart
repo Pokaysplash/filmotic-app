@@ -1,31 +1,16 @@
-import 'dart:convert';
 import 'dart:io';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:http/http.dart' as http;
-import 'package:open_filex/open_filex.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../core/constants/sources.dart';
 import '../../../core/constants/versiones.dart'; // ← VersionService
 import '../../../core/services/update_service.dart';
+import '../../../core/storage/app_database.dart';
 
 import 'config_shared.dart';
-import 'content/content_section.dart';
 import 'appearance/appearance_section.dart';
-import 'player/player_section.dart';
-import 'sources/sources_section.dart';
-import 'cache/cache_section.dart';
-import 'downloads/downloads_section.dart';
-import 'supabase/supabase_section.dart';
-import 'notifications/notifications_section.dart'; // Notificaciones
-import '../../../presentation/mobile/mobile_shell.dart';
-import '../../../core/constants/tmdb_apis.dart';
-import '../../../supabase/supabase_config.dart';
+import '../../../presentation/tv/tv_shell.dart' as tv;
 import '../../profile/presentation/profile_selection_page.dart';
 
 class ConfigPage extends StatefulWidget {
@@ -38,8 +23,6 @@ class ConfigPage extends StatefulWidget {
 class _ConfigPageState extends State<ConfigPage> {
   bool _loading = true;
   bool _loadingSettings = true;
-  bool _supabaseActive = false;
-  String? _supabaseUserName;
   String? _error;
   Map<String, dynamic>? _versionData;
 
@@ -47,180 +30,19 @@ class _ConfigPageState extends State<ConfigPage> {
   double _downloadProgress = 0;
   String? _downloadError;
 
-  final Map<String, bool> _sourceEnabled = {};
-  final Map<String, bool> _sourceLoading = {};
-
-  bool _verificarServidores = true;
-  bool _unServidorPorIdioma = true;
-  bool _mostrarServidoresEnPlayer = true;
-  bool _idiomaPredEnabled = false;
-  IdiomaPred _idiomaPred = IdiomaPred.latino;
-
-  FuenteSeleccion _seleccionFuente = FuenteSeleccion.manual;
-  bool _reutilizarUltimoEnlace = false;
-
-  bool _subsAlInicio = false;
-  SubSize _subSize = SubSize.mediano;
-  SubHeight _subHeight = SubHeight.media;
-  bool _idmDownloadEnabled = false;
-
-  bool _enableDownloads = true;
-  bool _showDownloadButtonMain = true;
-  bool _autoDirectDownload = false;
-  IdiomaPred _downloadLanguage = IdiomaPred.latino;
-  int _maxConcurrentDownloads = 2;
-
-  bool _tmdbEnrichment = true;
-  bool _allowAdultContent = false;
-  bool _showUnreleased = false;
-  bool _showSeasonSpecials = false;
-  bool _showUnreleasedEpisodes = false;
-  bool _homeSessions = true;
-  bool _homeFeaturedMovies = true;
-  bool _homePopularMovies = true;
-  bool _homePopularSeries = true;
-  bool _homeYearMovies = true;
-  bool _homeFeaturedSeries = true;
-  bool _homeYearSeries = true;
-  bool _homeTrendingMovies = true;
-  bool _homeTrendingSeries = true;
-  bool _homeLatest = true;
-  bool _regionalFilter = false;
-  bool _spanishLatino = true;
-  bool _spanishCastellano = false;
-  bool _english = false;
-  bool _disableNonLatinTitles = false;
-
-  int get _fuentesActivas => _sourceEnabled.values.where((v) => v).length;
-
-
   @override
   void initState() {
     super.initState();
-    for (final s in kRegisteredSources) {
-      _sourceEnabled[s.id] = false;
-      _sourceLoading[s.id] = true;
-    }
     _checkVersion();
     _loadAllSettings();
   }
 
   Future<void> _loadAllSettings() async {
-    final prefs = await SharedPreferences.getInstance();
+    await AppDatabase.instance.init();
     if (!mounted) return;
     setState(() {
-      for (final s in kRegisteredSources) {
-        _sourceEnabled[s.id] = prefs.getBool(s.prefsKey) ?? false;
-        _sourceLoading[s.id] = false;
-      }
-
-      _verificarServidores = prefs.getBool('verificar_servidores') ?? true;
-      _unServidorPorIdioma = prefs.getBool('un_servidor_por_idioma') ?? true;
-      _mostrarServidoresEnPlayer =
-          prefs.getBool('mostrar_servidores_player') ?? true;
-      _idiomaPredEnabled =
-          prefs.getBool('idioma_predeterminado_enabled') ?? false;
-
-      final idiomaCode = prefs.getString('idioma_predeterminado') ?? 'es_MX';
-      _idiomaPred = IdiomaPred.values.firstWhere(
-        (e) => e.code == idiomaCode,
-        orElse: () => IdiomaPred.latino,
-      );
-
-      _seleccionFuente = FuenteSeleccion.values.firstWhere(
-        (e) => e.name == (prefs.getString('seleccion_fuente') ?? 'manual'),
-        orElse: () => FuenteSeleccion.manual,
-      );
-      _reutilizarUltimoEnlace =
-          prefs.getBool('reutilizar_ultimo_enlace') ?? false;
-
-      _subsAlInicio = prefs.getBool('subtitulos_inicio') ?? false;
-      final sizeCode = prefs.getString('subtitulo_tamano') ?? 'mediano';
-      _subSize = SubSize.values.firstWhere(
-        (e) => e.name == sizeCode,
-        orElse: () => SubSize.mediano,
-      );
-      final heightCode = prefs.getString('subtitulo_altura') ?? 'media';
-      _subHeight = SubHeight.values.firstWhere(
-        (e) => e.name == heightCode,
-        orElse: () => SubHeight.media,
-      );
-      _idmDownloadEnabled = prefs.getBool('idm_download_enabled') ?? false;
-
-      _enableDownloads = prefs.getBool('enable_downloads') ?? true;
-      _showDownloadButtonMain =
-          prefs.getBool('show_download_button_main') ?? true;
-      _autoDirectDownload = prefs.getBool('auto_direct_download') ?? false;
-      _maxConcurrentDownloads =
-          (prefs.getInt('max_concurrent_downloads') ?? 2).clamp(1, 5);
-
-      final dlLangCode = prefs.getString('download_language') ?? 'es_MX';
-      _downloadLanguage = IdiomaPred.values.firstWhere(
-        (e) => e.code == dlLangCode,
-        orElse: () => IdiomaPred.latino,
-      );
-
-      _tmdbEnrichment = prefs.getBool('tmdb_enrichment') ?? true;
-      _allowAdultContent = prefs.getBool('allow_adult_content') ?? false;
-      _showUnreleased = prefs.getBool('show_unreleased') ?? false;
-      _showSeasonSpecials = prefs.getBool('show_season_specials') ?? false;
-      _showUnreleasedEpisodes =
-          prefs.getBool('show_unreleased_episodes') ?? false;
-      _homeSessions = prefs.getBool('home_sessions') ?? true;
-      _homeFeaturedMovies = prefs.getBool('home_featured_movies') ?? true;
-      _homePopularMovies = prefs.getBool('home_popular_movies') ?? true;
-      _homePopularSeries = prefs.getBool('home_popular_series') ?? true;
-      _homeYearMovies = prefs.getBool('home_year_movies') ?? true;
-      _homeFeaturedSeries = prefs.getBool('home_featured_series') ?? true;
-      _homeYearSeries = prefs.getBool('home_year_series') ?? true;
-      _homeTrendingMovies = prefs.getBool('home_trending_movies') ?? true;
-      _homeTrendingSeries = prefs.getBool('home_trending_series') ?? true;
-      _homeLatest = prefs.getBool('home_latest') ?? true;
-      _regionalFilter = prefs.getBool('regional_filter') ??
-          prefs.getBool('regional_peru') ??
-          false;
-      _spanishLatino = prefs.getBool('spanish_latino') ?? true;
-      _spanishCastellano = prefs.getBool('spanish_castellano') ?? false;
-      _english = prefs.getBool('english') ?? false;
-      // Solo un idioma de metadatos activo
-      if (_spanishLatino) {
-        _spanishCastellano = false;
-        _english = false;
-      } else if (_spanishCastellano) {
-        _english = false;
-      } else if (!_english) {
-        _spanishLatino = true;
-      }
-      _disableNonLatinTitles =
-          prefs.getBool('disable_non_latin_titles') ?? false;
-
       _loadingSettings = false;
     });
-
-    // Estado Supabase (para tarjeta Cambiar perfil)
-    final sbActive = await SupabaseConfig.isSupabaseActive();
-    final sbName = await SupabaseConfig.getCurrentUserName();
-    if (mounted) {
-      setState(() {
-        _supabaseActive = sbActive;
-        _supabaseUserName = sbName;
-      });
-    }
-  }
-
-  Future<void> _saveBool(String key, bool value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(key, value);
-  }
-
-  Future<void> _saveString(String key, String value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(key, value);
-  }
-
-  Future<void> _saveInt(String key, int value) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(key, value);
   }
 
   Future<bool?> _confirmDialog({
@@ -270,312 +92,27 @@ class _ConfigPageState extends State<ConfigPage> {
     );
   }
 
-  Future<void> _setSourceEnabled(SourceDefinition source, bool value) async {
-    if (!mounted) return;
-    setState(() => _sourceEnabled[source.id] = value);
-    await _saveBool(source.prefsKey, value);
-  }
-
-  Future<void> _setVerificarServidores(bool value) async {
-    if (value) {
-      final ok = await _confirmDialog(
-        title: 'Activar comprobación de servidores',
-        body:
-            'Se comprobará cada enlace antes de mostrarlo.\n\nEsto puede tomar más tiempo.',
-      );
-      if (ok != true) return;
-    }
-    if (!mounted) return;
-    setState(() => _verificarServidores = value);
-    await _saveBool('verificar_servidores', value);
-  }
-
-  Future<void> _setUnServidorPorIdioma(bool value) async {
-    if (!mounted) return;
-    setState(() => _unServidorPorIdioma = value);
-    await _saveBool('un_servidor_por_idioma', value);
-  }
-
-  Future<void> _setMostrarServidoresEnPlayer(bool value) async {
-    if (!mounted) return;
-    setState(() => _mostrarServidoresEnPlayer = value);
-    await _saveBool('mostrar_servidores_player', value);
-  }
-
-  Future<void> _setIdiomaPredEnabled(bool value) async {
-    if (value) {
-      final ok = await _confirmDialog(
-        title: 'Activar idioma predeterminado',
-        body:
-            'Al activar se elegirá automáticamente el idioma predeterminado para reproducir.\n\nSi "Mostrar lista de servidores en Player" está desactivado, se buscará un servidor de ese idioma y se abrirá el player directamente.',
-      );
-      if (ok != true) return;
-    }
-    if (!mounted) return;
-    setState(() => _idiomaPredEnabled = value);
-    await _saveBool('idioma_predeterminado_enabled', value);
-  }
-
-  Future<void> _setIdiomaPred(IdiomaPred idioma) async {
-    if (!mounted) return;
-    setState(() => _idiomaPred = idioma);
-    await _saveString('idioma_predeterminado', idioma.code);
-  }
-
-  Future<void> _setSeleccionFuente(FuenteSeleccion value) async {
-    if (!mounted) return;
-    setState(() => _seleccionFuente = value);
-    await _saveString('seleccion_fuente', value.name);
-  }
-
-  Future<void> _setReutilizarUltimoEnlace(bool value) async {
-    if (!mounted) return;
-    setState(() => _reutilizarUltimoEnlace = value);
-    await _saveBool('reutilizar_ultimo_enlace', value);
-  }
-
-  Future<void> _setSubsAlInicio(bool value) async {
-    if (!mounted) return;
-    setState(() => _subsAlInicio = value);
-    await _saveBool('subtitulos_inicio', value);
-  }
-
-  Future<void> _setSubSize(SubSize size) async {
-    if (!mounted) return;
-    setState(() => _subSize = size);
-    await _saveString('subtitulo_tamano', size.name);
-  }
-
-  Future<void> _setSubHeight(SubHeight height) async {
-    if (!mounted) return;
-    setState(() => _subHeight = height);
-    await _saveString('subtitulo_altura', height.name);
-  }
-
-  Future<void> _setIdmDownloadEnabled(bool value) async {
-    if (!mounted) return;
-    setState(() => _idmDownloadEnabled = value);
-    await _saveBool('idm_download_enabled', value);
-  }
-
-  Future<void> _setEnableDownloads(bool value) async {
-    if (!mounted) return;
-    setState(() => _enableDownloads = value);
-    await _saveBool('enable_downloads', value);
-    DownloadNavBus.bump();
-  }
-
-
-  Future<void> _setTmdbEnrichment(bool value) async {
-    if (!mounted) return;
-    setState(() => _tmdbEnrichment = value);
-    await _saveBool('tmdb_enrichment', value);
-  }
-
-  Future<void> _setAllowAdultContent(bool value) async {
-    if (!mounted) return;
-    setState(() => _allowAdultContent = value);
-    await _saveBool('allow_adult_content', value);
-  }
-
-  Future<void> _setShowUnreleased(bool value) async {
-    if (!mounted) return;
-    setState(() => _showUnreleased = value);
-    await _saveBool('show_unreleased', value);
-  }
-
-  Future<void> _setShowSeasonSpecials(bool value) async {
-    if (!mounted) return;
-    setState(() => _showSeasonSpecials = value);
-    await _saveBool('show_season_specials', value);
-  }
-
-  Future<void> _setShowUnreleasedEpisodes(bool value) async {
-    if (!mounted) return;
-    setState(() => _showUnreleasedEpisodes = value);
-    await _saveBool('show_unreleased_episodes', value);
-  }
-
-  Future<void> _setHomeFlag(String key, bool value) async {
-    if (!mounted) return;
-    setState(() {
-      switch (key) {
-        case 'home_sessions':
-          _homeSessions = value;
-          break;
-        case 'home_featured_movies':
-          _homeFeaturedMovies = value;
-          break;
-        case 'home_popular_movies':
-          _homePopularMovies = value;
-          break;
-        case 'home_popular_series':
-          _homePopularSeries = value;
-          break;
-        case 'home_year_movies':
-          _homeYearMovies = value;
-          break;
-        case 'home_featured_series':
-          _homeFeaturedSeries = value;
-          break;
-        case 'home_year_series':
-          _homeYearSeries = value;
-          break;
-        case 'home_trending_movies':
-          _homeTrendingMovies = value;
-          break;
-        case 'home_trending_series':
-          _homeTrendingSeries = value;
-          break;
-        case 'home_latest':
-          _homeLatest = value;
-          break;
-      }
-    });
-    await _saveBool(key, value);
-  }
-
-  Future<void> _setRegionalFilter(bool value) async {
-    if (!mounted) return;
-    setState(() => _regionalFilter = value);
-    await _saveBool('regional_filter', value);
-    await _saveBool('regional_peru', value);
-  }
-
-  /// Idioma de metadatos / API TMDB: solo uno activo.
-  Future<void> _setMetadataLanguage(String which) async {
-    if (!mounted) return;
-    final latino = which == 'latino';
-    final cast = which == 'castellano';
-    final eng = which == 'english';
-    setState(() {
-      _spanishLatino = latino;
-      _spanishCastellano = cast;
-      _english = eng;
-    });
-    await _saveBool('spanish_latino', latino);
-    await _saveBool('spanish_castellano', cast);
-    await _saveBool('english', eng);
-    // Sincronizar idioma real de la API TMDB
-    if (latino) await TmdbApis.setLanguage('es-MX');
-    if (cast) await TmdbApis.setLanguage('es-ES');
-    if (eng) await TmdbApis.setLanguage('en-US');
-  }
-
-  Future<void> _setSpanishLatino(bool value) async {
-    if (value) {
-      await _setMetadataLanguage('latino');
-    } else {
-      // No permitir dejar todos apagados → volver a latino
-      await _setMetadataLanguage('latino');
-    }
-  }
-
-  Future<void> _setSpanishCastellano(bool value) async {
-    if (value) {
-      await _setMetadataLanguage('castellano');
-    } else {
-      await _setMetadataLanguage('latino');
-    }
-  }
-
-  Future<void> _setEnglish(bool value) async {
-    if (value) {
-      await _setMetadataLanguage('english');
-    } else {
-      await _setMetadataLanguage('latino');
-    }
-  }
-
-  Future<void> _setDisableNonLatinTitles(bool value) async {
-    if (!mounted) return;
-    setState(() => _disableNonLatinTitles = value);
-    await _saveBool('disable_non_latin_titles', value);
-  }
-
-  void _onContenidoChanged(String key, bool value) {
-    switch (key) {
-      case 'tmdb_enrichment':
-        _setTmdbEnrichment(value);
-        break;
-      case 'allow_adult_content':
-        _setAllowAdultContent(value);
-        break;
-      case 'show_unreleased':
-        _setShowUnreleased(value);
-        break;
-      case 'show_season_specials':
-        _setShowSeasonSpecials(value);
-        break;
-      case 'show_unreleased_episodes':
-        _setShowUnreleasedEpisodes(value);
-        break;
-      case 'regional_filter':
-        _setRegionalFilter(value);
-        break;
-      case 'spanish_latino':
-        _setSpanishLatino(value);
-        break;
-      case 'spanish_castellano':
-        _setSpanishCastellano(value);
-        break;
-      case 'english':
-        _setEnglish(value);
-        break;
-      case 'disable_non_latin_titles':
-        _setDisableNonLatinTitles(value);
-        break;
-      case 'home_sessions':
-      case 'home_featured_movies':
-      case 'home_popular_movies':
-      case 'home_popular_series':
-      case 'home_year_movies':
-      case 'home_featured_series':
-      case 'home_year_series':
-      case 'home_trending_movies':
-      case 'home_trending_series':
-      case 'home_latest':
-        _setHomeFlag(key, value);
-        break;
-      default:
-        _saveBool(key, value);
-    }
-  }
-
   Future<void> _switchToTv() async {
     final ok = await _confirmDialog(
       title: 'Cambiar a vista TV',
       body:
-          'La aplicación se reiniciará para aplicar la interfaz optimizada para TV (orientación horizontal).\n\n¿Deseas continuar?',
-      confirmLabel: 'Reiniciar ahora',
+          'Se aplicará la interfaz optimizada para TV (orientación horizontal).\n\n¿Deseas continuar?',
+      confirmLabel: 'Cambiar ahora',
       accent: kAccentColor,
     );
     if (ok != true) return;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('app_mode', 'tv');
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
 
     if (!mounted) return;
-    SystemNavigator.pop();
-  }
-
-  Future<void> _clearByPrefix(List<String> prefixes, String snackMsg) async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys().where((k) {
-      return prefixes.any((p) => k.startsWith(p) || k == p);
-    }).toList();
-    for (final k in keys) {
-      await prefs.remove(k);
-    }
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(snackMsg),
-        backgroundColor: kCardColor,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      ),
+    Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const tv.MainHome()),
+      (_) => false,
     );
   }
 
@@ -1171,20 +708,29 @@ class _ConfigPageState extends State<ConfigPage> {
                 ),
                 padding: EdgeInsets.fromLTRB(16, 8, 16, listBottomPad),
                 children: [
-                  _buildSectionCard(
-                    title: 'Cambiar perfil',
-                    subtitle: 'Gestiona o cambia de perfil local',
-                    icon: Icons.account_circle_rounded,
-                    accent: const Color(0xFFFF6B35),
-                    onTap: () async {
-                      await Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const ProfileSelectionPage(
-                            allowDismiss: true,
-                          ),
-                        ),
+                  ValueListenableBuilder<LocalProfile?>(
+                    valueListenable: AppDatabase.instance.activeProfileNotifier,
+                    builder: (context, activeProf, _) {
+                      final pName = activeProf?.nombre ?? 'Principal';
+                      final pSubtitle = activeProf?.esInfantil == true
+                          ? 'Perfil activo: $pName (Infantil) · Toca para cambiar'
+                          : 'Perfil activo: $pName · Toca para cambiar';
+                      return _buildSectionCard(
+                        title: 'Cambiar perfil',
+                        subtitle: pSubtitle,
+                        icon: Icons.account_circle_rounded,
+                        accent: const Color(0xFFFF6B35),
+                        onTap: () async {
+                          await Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const ProfileSelectionPage(
+                                allowDismiss: true,
+                              ),
+                            ),
+                          );
+                          await _loadAllSettings();
+                        },
                       );
-                      await _loadAllSettings();
                     },
                   ),
                   const SizedBox(height: 8),

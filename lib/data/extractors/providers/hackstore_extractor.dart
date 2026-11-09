@@ -7,6 +7,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import '../../datasources/remote/tmdb/tmdb_metadata_service.dart';
 
 class HackStoreService {
   static const String _baseUrl = 'https://hackstore.mx';
@@ -68,19 +69,43 @@ class HackStoreService {
   // ─────────────────────────────────────────────────────────
 
   static Future<_TitlesInfo?> _getTmdbTitles(int tmdbId, String type) async {
+    final isMovie = type == 'movie';
+    try {
+      final meta = await TmdbMetadataService.instance.getMetadata(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+      );
+      if (meta != null && meta.title.isNotEmpty) {
+        final fastTitles = <String>{meta.title};
+        if (meta.originalTitle != null && meta.originalTitle!.trim().isNotEmpty) {
+          fastTitles.add(meta.originalTitle!.trim());
+        }
+        return _TitlesInfo(
+          titles: fastTitles.toList(),
+          year: meta.year != null ? '${meta.year}' : '',
+        );
+      }
+    } catch (_) {}
+
     final languages = ['es-MX', 'es-ES', 'en-US'];
     final titles = <String, String>{};
     String year = '';
 
-    for (final lang in languages) {
-      final url =
-          'https://api.themoviedb.org/3/$type/$tmdbId?api_key=$_tmdbApiKey&language=$lang';
-      final data = await _fetchJson(url);
+    final results = await Future.wait(
+      languages.map((lang) async {
+        final url =
+            'https://api.themoviedb.org/3/$type/$tmdbId?api_key=$_tmdbApiKey&language=$lang';
+        return MapEntry(lang, await _fetchJson(url));
+      }),
+    );
+
+    for (final entry in results) {
+      final data = entry.value;
       if (data == null) continue;
 
       final title = data['title']?.toString() ?? data['name']?.toString();
       if (title != null && title.isNotEmpty) {
-        titles[lang] = title;
+        titles[entry.key] = title;
       }
 
       if (year.isEmpty) {

@@ -220,88 +220,155 @@ class ThanhDatTodayScraper {
   }
 
   // ─── DETALLE Y SERVIDORES ─────────────────────────────────────
+  static List<DetalleServidor> _buildServersForTmdb({
+    required String tmdbId,
+    required bool isMovie,
+    int season = 1,
+    int episode = 1,
+  }) {
+    if (isMovie) {
+      return [
+        DetalleServidor(
+          nombre: 'HDToday · Vidcore',
+          url: 'https://vidcore.net/movie/$tmdbId?autoPlay=true&sub=en',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · VidSrc',
+          url: 'https://vidsrc.me/embed/movie?tmdb=$tmdbId',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · MultiEmbed',
+          url: 'https://multiembed.mov/directstream.php?video_id=$tmdbId&tmdb=1',
+          idioma: 'subtitulado',
+          calidad: 'HD',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · VidSrc Pro',
+          url: 'https://vidsrc.pro/embed/movie/$tmdbId',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+      ];
+    } else {
+      return [
+        DetalleServidor(
+          nombre: 'HDToday · Vidcore',
+          url: 'https://vidcore.net/tv/$tmdbId/$season/$episode?autoPlay=true&sub=en',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · VidSrc',
+          url: 'https://vidsrc.me/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · MultiEmbed',
+          url: 'https://multiembed.mov/directstream.php?video_id=$tmdbId&tmdb=1&s=$season&e=$episode',
+          idioma: 'subtitulado',
+          calidad: 'HD',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · VidSrc Pro',
+          url: 'https://vidsrc.pro/embed/tv/$tmdbId/$season/$episode',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+      ];
+    }
+  }
+
   static Future<DetalleContenido> fetchDetail({
     required String url,
     required String titulo,
     required String tipo,
   }) async {
     final servidores = <DetalleServidor>[];
+    final isTv = tipo == 'tv' ||
+        tipo == 'series' ||
+        url.contains('/tv/') ||
+        url.contains('/tv-series/') ||
+        url.contains('/series/');
 
     // Extraer TMDB ID del enlace
-    final idMatch = RegExp(r'-(\d+)/?$').firstMatch(url);
-    final tmdbId = idMatch?.group(1);
+    final idMatch = RegExp(r'-(\d+)/?$').firstMatch(url) ??
+        RegExp(r'/(\d+)/?$').firstMatch(url);
+    final tmdbIdStr = idMatch?.group(1);
+    final tmdbId = tmdbIdStr != null ? int.tryParse(tmdbIdStr) : null;
 
-    if (tmdbId != null && tmdbId.isNotEmpty) {
-      // Servidores directos conocidos por TMDB
-      servidores.addAll([
-        DetalleServidor(
-          nombre: 'HDToday Server 1 (Vidcore)',
-          url: 'https://vidcore.net/movie/$tmdbId?autoPlay=true&sub=en',
-          idioma: 'subtitulado',
-          calidad: '1080p',
-        ),
-        DetalleServidor(
-          nombre: 'HDToday Server 2 (VidSrc)',
-          url: 'https://vidsrc.me/embed/movie?tmdb=$tmdbId',
-          idioma: 'subtitulado',
-          calidad: '1080p',
-        ),
-        DetalleServidor(
-          nombre: 'HDToday Server 3 (MultiEmbed)',
-          url: 'https://multiembed.mov/directstream.php?video_id=$tmdbId&tmdb=1',
-          idioma: 'subtitulado',
-          calidad: 'HD',
-        ),
-        DetalleServidor(
-          nombre: 'HDToday Server 4 (VidSrc Pro)',
-          url: 'https://vidsrc.pro/embed/movie/$tmdbId',
-          idioma: 'subtitulado',
-          calidad: '1080p',
-        ),
-      ]);
+    if (tmdbIdStr != null && tmdbIdStr.isNotEmpty) {
+      servidores.addAll(_buildServersForTmdb(
+        tmdbId: tmdbIdStr,
+        isMovie: !isTv,
+      ));
     }
 
     return DetalleContenido(
       ok: true,
       servicio: 'thanhdattoday',
       titulo: titulo,
-      tipo: tipo,
+      tipo: isTv ? 'tv' : 'movie',
+      tmdbId: tmdbId,
       servidores: servidores,
     );
   }
 
-  static Future<List<DetalleServidor>> fetchServers({required String url}) async {
-    final idMatch = RegExp(r'/(\d+)/?$').firstMatch(url) ?? RegExp(r'-(\d+)/?$').firstMatch(url);
+  static Future<List<DetalleServidor>> fetchServers({
+    required String url,
+    bool? isMovie,
+    int season = 1,
+    int episode = 1,
+  }) async {
+    final idMatch = RegExp(r'/(\d+)/?$').firstMatch(url) ??
+        RegExp(r'-(\d+)/?$').firstMatch(url);
     final tmdbId = idMatch?.group(1);
+    final movie = isMovie ??
+        (!url.contains('/tv/') &&
+            !url.contains('/tv-series/') &&
+            !url.contains('/series/'));
     if (tmdbId != null && tmdbId.isNotEmpty) {
-      return [
-        DetalleServidor(
-          nombre: 'HDToday Server 1 (Vidcore)',
-          url: 'https://vidcore.net/movie/$tmdbId?autoPlay=true&sub=en',
-          idioma: 'subtitulado',
-          calidad: '1080p',
-        ),
-        DetalleServidor(
-          nombre: 'HDToday Server 2 (VidSrc)',
-          url: 'https://vidsrc.me/embed/movie?tmdb=$tmdbId',
-          idioma: 'subtitulado',
-          calidad: '1080p',
-        ),
-        DetalleServidor(
-          nombre: 'HDToday Server 3 (MultiEmbed)',
-          url: 'https://multiembed.mov/directstream.php?video_id=$tmdbId&tmdb=1',
-          idioma: 'subtitulado',
-          calidad: 'HD',
-        ),
-        DetalleServidor(
-          nombre: 'HDToday Server 4 (VidSrc Pro)',
-          url: 'https://vidsrc.pro/embed/movie/$tmdbId',
-          idioma: 'subtitulado',
-          calidad: '1080p',
-        ),
-      ];
+      return _buildServersForTmdb(
+        tmdbId: tmdbId,
+        isMovie: movie,
+        season: season,
+        episode: episode,
+      );
     }
-    final detail = await fetchDetail(url: url, titulo: '', tipo: 'movie');
+    final detail = await fetchDetail(
+      url: url,
+      titulo: '',
+      tipo: movie ? 'movie' : 'tv',
+    );
     return detail.servidores;
+  }
+
+  static Stream<Map<String, dynamic>> scrapeStream({
+    required int tmdbId,
+    required bool isMovie,
+    int season = 1,
+    int episode = 1,
+  }) async* {
+    if (tmdbId <= 0) return;
+    final servers = _buildServersForTmdb(
+      tmdbId: '$tmdbId',
+      isMovie: isMovie,
+      season: season,
+      episode: episode,
+    );
+    for (final s in servers) {
+      yield {
+        'servidor_nombre': s.nombre,
+        'servidor_url': s.url,
+        'calidad': s.calidad ?? '1080p',
+        'idioma': 'en_US',
+        'estado': 'activo',
+        'es_thanhdattoday': true,
+      };
+    }
   }
 }

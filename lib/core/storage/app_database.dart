@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -204,6 +205,93 @@ class AppDatabase {
         await setActiveProfile(all.first);
       }
     }
+
+    // Migrar historial legacy de SharedPreferences una sola vez al primer perfil
+    final allProfiles = await getProfiles();
+    if (allProfiles.isNotEmpty) {
+      await _migrateLegacyHistoryIfNeeded(prefs, allProfiles.first.id);
+    }
+  }
+
+  static const String _kLegacyHistoryMigratedKey = 'legacy_history_migrated_v2';
+
+  Future<void> _migrateLegacyHistoryIfNeeded(
+    SharedPreferences prefs,
+    String defaultProfileId,
+  ) async {
+    if (prefs.getBool(_kLegacyHistoryMigratedKey) == true) return;
+    try {
+      final db = await database;
+      final existingRecords = await _historialStore.find(
+        db,
+        finder: Finder(filter: Filter.equals('perfil_id', defaultProfileId)),
+      );
+      final existingKeys = existingRecords.map((r) => r.key).toSet();
+
+      final keys = prefs
+          .getKeys()
+          .where((k) => k.startsWith('cachePlayer_') && !k.startsWith('cachePlayerRapido_'))
+          .toList();
+
+      for (final k in keys) {
+        final raw = prefs.getString(k);
+        if (raw == null || raw.isEmpty) continue;
+        try {
+          final data = Map<String, dynamic>.from(jsonDecode(raw));
+          final int id = (data['idcontenido'] as num?)?.toInt() ??
+              (data['tmdb_id'] as num?)?.toInt() ??
+              0;
+          final int sec = (data['segundo'] as num?)?.toInt() ?? 0;
+          if (id <= 0 || sec <= 5) continue;
+
+          final int? temp = (data['temporada'] as num?)?.toInt();
+          final int? cap = (data['capitulo'] as num?)?.toInt();
+          final String epId =
+              (temp != null && cap != null) ? 'T${temp}_C$cap' : 'movie';
+          final histKey = _histKey(defaultProfileId, id, epId);
+          if (existingKeys.contains(histKey)) continue;
+
+          final String backdrop = (data['backdrop'] ?? data['poster'] ?? '').toString();
+          final String poster = (data['poster'] ?? data['backdrop'] ?? '').toString();
+          final String titulo = (data['titulo'] ?? data['title'] ?? 'Sin título').toString();
+          final String tipo = (data['tipo'] ?? 'movie').toString();
+          final String ts = (data['timestamp'] ?? DateTime.now().toIso8601String()).toString();
+
+          await _historialStore.record(histKey).put(db, {
+            'id': histKey,
+            'perfil_id': defaultProfileId,
+            'contenido_id': id,
+            'idcontenido': id,
+            'tmdb_id': id,
+            'episodio_id': epId,
+            'progreso_segundos': sec,
+            'segundo': sec,
+            'duracion_total': (data['total'] as num?)?.toInt() ??
+                (data['duracion_total'] as num?)?.toInt() ??
+                0,
+            'total': (data['total'] as num?)?.toInt() ??
+                (data['duracion_total'] as num?)?.toInt() ??
+                0,
+            'fecha': ts,
+            'timestamp': ts,
+            'temporada': temp,
+            'capitulo': cap,
+            'titulo': titulo,
+            'title': titulo,
+            'poster': poster,
+            'poster_path': poster,
+            'backdrop': backdrop,
+            'backdrop_path': backdrop,
+            'tipo': tipo,
+            'media_type': tipo,
+            'videoUrl': (data['videoUrl'] ?? '').toString(),
+          });
+        } catch (_) {}
+      }
+      await prefs.setBool(_kLegacyHistoryMigratedKey, true);
+    } catch (e) {
+      debugPrint('[AppDatabase] Error migrando historial legacy: $e');
+    }
   }
 
   // ══════════════════════════════════════════════════════════════
@@ -300,6 +388,8 @@ class AppDatabase {
     if (_cachedActiveProfile?.id == profile.id) {
       _cachedActiveProfile = profile;
       activeProfileNotifier.value = profile;
+      GuardadosBus.bump();
+      HistorialBus.bump();
     }
   }
 
@@ -328,6 +418,8 @@ class AppDatabase {
         activeProfileNotifier.value = null;
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(_kActiveProfileKey);
+        GuardadosBus.bump();
+        HistorialBus.bump();
       }
     }
   }
@@ -337,6 +429,8 @@ class AppDatabase {
     activeProfileNotifier.value = profile;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_kActiveProfileKey, profile.id);
+    GuardadosBus.bump();
+    HistorialBus.bump();
   }
 
   bool verifyPin(LocalProfile profile, String inputPin) {
@@ -482,7 +576,16 @@ class AppDatabase {
   String _histKey(String perfilId, int contenidoId, String episodioId) =>
       '${perfilId}_${contenidoId}_$episodioId';
 
-  Future<List<Map<String, dynamic>>> getHistory({String? perfilId}) async {
+  /// Clave de SharedPreferences aislada por perfil activo
+  String scopedPrefsKey(String baseKey, {String? perfilId}) {
+    final targetId = perfilId ?? _cachedActiveProfile?.id ?? 'default';
+    return '${targetId}_$baseKey';
+  }
+
+  Future<List<Map<String, dynamic>>> getHistory({
+    String? perfilId,
+    bool deduplicateSeries = true,
+  }) async {
     final targetId = perfilId ?? _cachedActiveProfile?.id;
     if (targetId == null) return [];
     final db = await database;
@@ -490,6 +593,72 @@ class AppDatabase {
       db,
       finder: Finder(
         filter: Filter.equals('perfil_id', targetId),
+        sortOrders: [SortOrder('fecha', false)],
+      ),
+    );
+
+    final result = <Map<String, dynamic>>[];
+    final seenSeriesIds = <int>{};
+
+    for (final r in records) {
+      final item = Map<String, dynamic>.from(r.value);
+      final int sec = (item['segundo'] as num?)?.toInt() ??
+          (item['progreso_segundos'] as num?)?.toInt() ??
+          0;
+      if (sec <= 5) continue;
+
+      final int id = (item['idcontenido'] as num?)?.toInt() ??
+          (item['contenido_id'] as num?)?.toInt() ??
+          (item['tmdb_id'] as num?)?.toInt() ??
+          0;
+      if (id <= 0) continue;
+
+      final String tipo = (item['tipo'] ?? item['media_type'] ?? 'movie')
+          .toString()
+          .toLowerCase();
+
+      if (deduplicateSeries && (tipo == 'tv' || item['temporada'] != null)) {
+        if (seenSeriesIds.contains(id)) continue;
+        seenSeriesIds.add(id);
+      }
+
+      // Garantizar campos normalizados de imagen y título
+      final String poster = (item['poster'] ?? item['poster_path'] ?? item['backdrop'] ?? item['backdrop_path'] ?? '').toString();
+      final String backdrop = (item['backdrop'] ?? item['backdrop_path'] ?? item['poster'] ?? item['poster_path'] ?? '').toString();
+      item['poster'] = poster;
+      item['poster_path'] = poster;
+      item['backdrop'] = backdrop;
+      item['backdrop_path'] = backdrop;
+      item['idcontenido'] = id;
+      item['contenido_id'] = id;
+      item['tmdb_id'] = (item['tmdb_id'] as num?)?.toInt() ?? id;
+      item['segundo'] = sec;
+      item['progreso_segundos'] = sec;
+
+      result.add(item);
+    }
+
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> getHistoryForContent(
+    int contenidoId, {
+    String? perfilId,
+  }) async {
+    final targetId = perfilId ?? _cachedActiveProfile?.id;
+    if (targetId == null || contenidoId <= 0) return [];
+    final db = await database;
+    final records = await _historialStore.find(
+      db,
+      finder: Finder(
+        filter: Filter.and([
+          Filter.equals('perfil_id', targetId),
+          Filter.or([
+            Filter.equals('contenido_id', contenidoId),
+            Filter.equals('idcontenido', contenidoId),
+            Filter.equals('tmdb_id', contenidoId),
+          ]),
+        ]),
         sortOrders: [SortOrder('fecha', false)],
       ),
     );
@@ -506,15 +675,57 @@ class AppDatabase {
     int? capitulo,
     String? titulo,
     String? poster,
+    String? backdrop,
     String? tipo,
     String? videoUrl,
+    String? idioma,
+    String? servidorUrl,
+    String? servidorNombre,
     int? tmdbId,
   }) async {
     final targetId = perfilId ?? _cachedActiveProfile?.id;
-    if (targetId == null || contenidoId <= 0) return;
+    if (targetId == null || contenidoId <= 0 || progresoSegundos < 3) return;
 
     final db = await database;
     final key = _histKey(targetId, contenidoId, episodioId);
+    final existingRaw = await _historialStore.record(key).get(db);
+    final existing = existingRaw != null
+        ? Map<String, dynamic>.from(existingRaw)
+        : const <String, dynamic>{};
+
+    final String effectiveTitulo = (titulo != null && titulo.trim().isNotEmpty && titulo != 'Sin título')
+        ? titulo.trim()
+        : (existing['titulo']?.toString().trim().isNotEmpty == true
+            ? existing['titulo'].toString().trim()
+            : 'Sin título');
+
+    final String effectiveBackdrop = (backdrop != null && backdrop.trim().isNotEmpty)
+        ? backdrop.trim()
+        : (poster != null && poster.trim().isNotEmpty)
+            ? poster.trim()
+            : (existing['backdrop'] ?? existing['poster'] ?? '').toString();
+
+    final String effectivePoster = (poster != null && poster.trim().isNotEmpty)
+        ? poster.trim()
+        : (backdrop != null && backdrop.trim().isNotEmpty)
+            ? backdrop.trim()
+            : (existing['poster'] ?? existing['backdrop'] ?? '').toString();
+
+    final int effectiveDuracion = duracionTotal > 0
+        ? duracionTotal
+        : ((existing['duracion_total'] as num?)?.toInt() ??
+            (existing['total'] as num?)?.toInt() ??
+            0);
+
+    final String effectiveVideoUrl = (videoUrl != null && videoUrl.trim().isNotEmpty)
+        ? videoUrl.trim()
+        : (existing['videoUrl'] ?? '').toString();
+
+    final String effectiveTipo = (tipo != null && tipo.trim().isNotEmpty)
+        ? tipo.trim().toLowerCase()
+        : (existing['tipo'] ?? 'movie').toString().toLowerCase();
+
+    final nowIso = DateTime.now().toIso8601String();
     final data = {
       'id': key,
       'perfil_id': targetId,
@@ -523,19 +734,25 @@ class AppDatabase {
       'episodio_id': episodioId,
       'progreso_segundos': progresoSegundos,
       'segundo': progresoSegundos, // compatibilidad con player
-      'duracion_total': duracionTotal,
-      'total': duracionTotal,
-      'fecha': DateTime.now().toIso8601String(),
-      'timestamp': DateTime.now().toIso8601String(),
-      'temporada': temporada,
-      'capitulo': capitulo,
-      'titulo': titulo,
-      'title': titulo,
-      'poster': poster,
-      'tipo': tipo ?? 'movie',
-      'media_type': tipo ?? 'movie',
-      'videoUrl': videoUrl,
-      'tmdb_id': tmdbId ?? contenidoId,
+      'duracion_total': effectiveDuracion,
+      'total': effectiveDuracion,
+      'fecha': nowIso,
+      'timestamp': nowIso,
+      'temporada': temporada ?? existing['temporada'],
+      'capitulo': capitulo ?? existing['capitulo'],
+      'titulo': effectiveTitulo,
+      'title': effectiveTitulo,
+      'poster': effectivePoster,
+      'poster_path': effectivePoster,
+      'backdrop': effectiveBackdrop,
+      'backdrop_path': effectiveBackdrop,
+      'tipo': effectiveTipo,
+      'media_type': effectiveTipo,
+      'videoUrl': effectiveVideoUrl,
+      'idioma': idioma ?? existing['idioma'],
+      'servidorUrl': servidorUrl ?? existing['servidorUrl'],
+      'servidorNombre': servidorNombre ?? existing['servidorNombre'],
+      'tmdb_id': tmdbId ?? (existing['tmdb_id'] as int?) ?? contenidoId,
     };
 
     await _historialStore.record(key).put(db, data);

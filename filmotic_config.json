@@ -33,10 +33,21 @@
       "animepahe",
       "gogoanime",
       "animeav1",
-      "cinecalidad"
+      "cinecalidad",
+      "thanhdattoday",
+      "poseidon",
+      "pelispedia",
+      "seriesmetro",
+      "smartpelis",
+      "hackstore",
+      "cuevana_eu",
+      "hdfull",
+      "sololatino",
+      "cinecalidad_ec",
+      "hdtoday_cc",
+      "cuevana_biz"
     ],
     "disabled": [
-      "thanhdattoday",
       "telemundo"
     ]
   },
@@ -46,9 +57,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.27",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.27/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.27: Transmisión a TV (Cast/DLNA) fluida sin cortes ni activación molesta del reproductor, canales en vivo más estables con señales de respaldo automáticas y más opciones de servidores e idiomas en películas y series.",
+    "latest_version": "1.0.0-beta.28",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.28/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.28: Selección ultrarrápida de servidores respetando el idioma elegido, corrección de parpadeos al inicio, perfiles independientes con Continuar Viendo sincronizado y modo infantil, y mayor aprovechamiento de todas las fuentes de películas y series.",
     "force_update": false,
     "is_beta": true
   },

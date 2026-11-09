@@ -39,7 +39,6 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
   Timer? _rotationTimer;
   Timer? _debounceTimer;
   bool _readyToShow = false;
-  DateTime? _lastPauseChange;
 
   late final FocusNode _playFocusNode;
   bool _playFocused = false;
@@ -92,8 +91,6 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
     }
 
     // Regla: no mostrar al pulsar pausa repetidamente en menos de 2 segundos (debounce de 800ms)
-    final now = DateTime.now();
-    _lastPauseChange = now;
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 800), () {
       if (!mounted) return;
@@ -148,7 +145,6 @@ class _AdPauseOverlayState extends State<AdPauseOverlay> {
     if (!_readyToShow) return const SizedBox.shrink();
 
     final size = MediaQuery.sizeOf(context);
-    final isTv = widget.isTv || size.width > 800;
     final containerWidth = (size.width * 0.6).clamp(320.0, 560.0);
     final rawPauseKey = AdService.instance.adsterraPauseBannerId;
     final pauseKey = (rawPauseKey.isNotEmpty && rawPauseKey != 'PENDIENTE')

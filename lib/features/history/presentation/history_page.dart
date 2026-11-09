@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/storage/app_database.dart';
 
 import 'package:http/http.dart' as http;
@@ -14,8 +13,6 @@ import '../../player/presentation/tv/tv_player_page.dart';
 import '../../content/presentation/tv_content_options_modal.dart';
 const _kAccentColor = Color(0xFFFF6B00);
 const _kBg = Color(0xFF0A0A0A);
-const _kSurface = Color(0xFF161618);
-const _kBorder = Color(0xFF26262A);
 
 class GuardadosPage extends StatefulWidget {
   final VoidCallback? onRequestMenuFocus;
@@ -64,6 +61,7 @@ class GuardadosPageState extends State<GuardadosPage>
     super.initState();
     GuardadosBus.version.addListener(_onExternalChange);
     HistorialBus.version.addListener(_onExternalChange);
+    AppDatabase.instance.activeProfileNotifier.addListener(_onExternalChange);
     _load();
   }
 
@@ -77,6 +75,7 @@ class GuardadosPageState extends State<GuardadosPage>
     _ignoreSelectTimer?.cancel();
     GuardadosBus.version.removeListener(_onExternalChange);
     HistorialBus.version.removeListener(_onExternalChange);
+    AppDatabase.instance.activeProfileNotifier.removeListener(_onExternalChange);
     for (final n in _historialNodes) {
       n.dispose();
     }
@@ -290,35 +289,7 @@ class GuardadosPageState extends State<GuardadosPage>
   }
 
   Future<List<Map<String, dynamic>>> _loadHistorial() async {
-    final sembastHistory = await AppDatabase.instance.getHistory();
-    if (sembastHistory.isNotEmpty) return sembastHistory;
-
-    final prefs = await SharedPreferences.getInstance();
-    final keys =
-        prefs.getKeys().where((k) => k.startsWith('cachePlayer_')).toList();
-
-    final List<Map<String, dynamic>> result = [];
-
-    for (final key in keys) {
-      try {
-        final raw = prefs.getString(key);
-        if (raw == null) continue;
-        final data = Map<String, dynamic>.from(jsonDecode(raw));
-
-        final segundo = data['segundo'] as int? ?? 0;
-        if (segundo < 8) continue;
-
-        result.add(data);
-      } catch (_) {}
-    }
-
-    result.sort((a, b) {
-      final ta = a['timestamp']?.toString() ?? '';
-      final tb = b['timestamp']?.toString() ?? '';
-      return tb.compareTo(ta);
-    });
-
-    return result;
+    return await AppDatabase.instance.getHistory(deduplicateSeries: true);
   }
 
   void _openHistorial(Map<String, dynamic> item) {

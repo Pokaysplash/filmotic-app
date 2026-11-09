@@ -7,10 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 import '../../content/presentation/tv_content_page.dart';
+import '../../player/presentation/tv/tv_player_page.dart';
 import '../../discover/domain/derivar.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_home_api.dart';
 import 'category_list_page.dart';
 import '../../../core/services/ad_service.dart';
+import '../../../core/storage/app_database.dart';
 
 const kAccentColor = Color(0xFFFF6B35);
 const kBgColor = Colors.black;
@@ -44,8 +46,11 @@ class _HomePageState extends State<HomePage>
   final ValueNotifier<Map<String, dynamic>?> _focusedItemNotifier =
       ValueNotifier(null);
   final ValueNotifier<String> _heroBackdropNotifier = ValueNotifier('');
+  final ScrollController _mainScrollController = ScrollController();
+  final Map<String, String> _backdropByItemCache = {};
   Timer? _focusDebounce;
   int _backdropRequestId = 0;
+  bool? _lastKidsMode;
 
   @override
   bool get wantKeepAlive => true;
@@ -58,18 +63,50 @@ class _HomePageState extends State<HomePage>
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
+    _lastKidsMode = AppDatabase.instance.activeProfile?.esInfantil == true;
+    HistorialBus.version.addListener(_onHistorialOrProfileChanged);
+    AppDatabase.instance.activeProfileNotifier.addListener(_onHistorialOrProfileChanged);
     _fetchHome();
   }
 
   @override
   void dispose() {
+    HistorialBus.version.removeListener(_onHistorialOrProfileChanged);
+    AppDatabase.instance.activeProfileNotifier.removeListener(_onHistorialOrProfileChanged);
     _focusDebounce?.cancel();
+    _mainScrollController.dispose();
     _focusedItemNotifier.dispose();
     _heroBackdropNotifier.dispose();
     for (final node in _sectionFocusNodes) {
       node.dispose();
     }
     super.dispose();
+  }
+
+  Future<void> _onHistorialOrProfileChanged() async {
+    if (!mounted) return;
+    final currentKids = AppDatabase.instance.activeProfile?.esInfantil == true;
+    if (_lastKidsMode != null && _lastKidsMode != currentKids) {
+      _lastKidsMode = currentKids;
+      await _fetchHome();
+      return;
+    }
+    if (_data == null) return;
+    try {
+      final hist = await AppDatabase.instance.getHistory(deduplicateSeries: true);
+      if (!mounted || _data == null) return;
+      final newData = Map<String, dynamic>.from(_data!);
+      newData['continue_watching'] = {
+        'title': 'Seguir viendo',
+        'items': hist,
+      };
+      final allSections = _buildSections(newData);
+      _syncFocusNodes(2 + allSections.length);
+      setState(() {
+        _data = newData;
+        _sections = allSections;
+      });
+    } catch (_) {}
   }
 
   void _syncFocusNodes(int count) {
@@ -247,16 +284,30 @@ class _HomePageState extends State<HomePage>
 
   Future<void> _refreshHeroBackdrop(Map<String, dynamic> item) async {
     final id = item['tmdb_id'] as int? ?? item['idcontenido'] as int? ?? 0;
+    final fallback = _fallbackBackdrop(item);
     if (id <= 0) {
-      _heroBackdropNotifier.value = _fallbackBackdrop(item);
+      if (fallback.isNotEmpty && _heroBackdropNotifier.value != fallback) {
+        _heroBackdropNotifier.value = fallback;
+      }
+      return;
+    }
+
+    final isMovie = (item['media_type']?.toString() ?? 'movie') == 'movie';
+    final cacheKey = '${isMovie ? 'm' : 't'}_$id';
+    final cachedUrl = _backdropByItemCache[cacheKey];
+    if (cachedUrl != null && cachedUrl.isNotEmpty) {
+      if (_heroBackdropNotifier.value != cachedUrl) {
+        _heroBackdropNotifier.value = cachedUrl;
+      }
       return;
     }
 
     final requestId = ++_backdropRequestId;
-    final isMovie = (item['media_type']?.toString() ?? 'movie') == 'movie';
     final fallbackPath = item['backdrop_path']?.toString();
 
-    _heroBackdropNotifier.value = _fallbackBackdrop(item);
+    if (_heroBackdropNotifier.value.isEmpty && fallback.isNotEmpty) {
+      _heroBackdropNotifier.value = fallback;
+    }
 
     try {
       final url = await _tmdb.pickRandomBackdropWithoutLanguage(
@@ -265,10 +316,21 @@ class _HomePageState extends State<HomePage>
         fallbackPath: fallbackPath,
       );
       if (requestId != _backdropRequestId) return;
-      if (url.isNotEmpty) {
-        _heroBackdropNotifier.value = url;
+      final resolvedUrl = url.isNotEmpty ? url : fallback;
+      if (resolvedUrl.isNotEmpty) {
+        _backdropByItemCache[cacheKey] = resolvedUrl;
+        if (_heroBackdropNotifier.value != resolvedUrl) {
+          _heroBackdropNotifier.value = resolvedUrl;
+        }
       }
-    } catch (_) {}
+    } catch (_) {
+      if (requestId == _backdropRequestId &&
+          fallback.isNotEmpty &&
+          _heroBackdropNotifier.value != fallback) {
+        _backdropByItemCache[cacheKey] = fallback;
+        _heroBackdropNotifier.value = fallback;
+      }
+    }
   }
 
   String _fallbackBackdrop(Map? item) {
@@ -281,13 +343,17 @@ class _HomePageState extends State<HomePage>
   }
 
   void _onItemFocused(Map<String, dynamic> item) {
-    if (_focusedItemNotifier.value?['idcontenido'] == item['idcontenido'] &&
-        _focusedItemNotifier.value?['media_type'] == item['media_type']) {
-      _refreshHeroBackdrop(item);
+    final current = _focusedItemNotifier.value;
+    final curId = current?['tmdb_id'] ?? current?['idcontenido'];
+    final nextId = item['tmdb_id'] ?? item['idcontenido'];
+    if (curId != null &&
+        curId == nextId &&
+        current?['media_type'] == item['media_type']) {
       return;
     }
     _focusDebounce?.cancel();
     _focusDebounce = Timer(const Duration(milliseconds: 90), () {
+      if (!mounted) return;
       _focusedItemNotifier.value = item;
       _refreshHeroBackdrop(item);
     });
@@ -321,6 +387,33 @@ class _HomePageState extends State<HomePage>
         .trim();
     final tipo = canonicalMediaType(
         item['media_type'] ?? item['tipo'] ?? item['type'] ?? 'movie');
+
+    // Si proviene de "Seguir viendo" (tiene progreso segundo > 5), abrir el reproductor directamente
+    final int? segundo = (item['segundo'] as num?)?.toInt() ??
+        (item['progreso_segundos'] as num?)?.toInt();
+    final int? resumeId = parseCanonicalTmdbId(
+      item['idcontenido'] ?? item['contenido_id'] ?? item['tmdb_id'] ?? item['id'],
+    );
+    if (segundo != null && segundo > 5 && resumeId != null && resumeId > 0) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PlayerScreen(
+            videoUrl: (item['videoUrl'] ?? '').toString(),
+            idcontenido: resumeId,
+            tmdbId: parseCanonicalTmdbId(item['tmdb_id']) ?? resumeId,
+            temporada: (item['temporada'] as num?)?.toInt(),
+            capitulo: (item['capitulo'] as num?)?.toInt(),
+            tipo: tipo,
+            titulo: titulo,
+            idioma: item['idioma']?.toString(),
+            servidorUrl: item['servidorUrl']?.toString(),
+            servidorNombre: item['servidorNombre']?.toString(),
+          ),
+        ),
+      );
+      return;
+    }
 
     final tmdbRaw = item['tmdb_id'] ?? item['idtmdb'] ?? item['idcontenido'];
     debugPrint('[Navigation] Abriendo contenido: "$titulo" | sitio: ${sitio.isEmpty ? "null" : sitio} | tmdb_id: $tmdbRaw');
@@ -473,51 +566,68 @@ class _HomePageState extends State<HomePage>
           ),
           Positioned.fill(
             child: CustomScrollView(
-              cacheExtent: 300,
+              controller: _mainScrollController,
+              cacheExtent: 500,
               slivers: [
                 SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: heroHeight,
-                    width: double.infinity,
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        ValueListenableBuilder<String>(
-                          valueListenable: _heroBackdropNotifier,
-                          builder: (context, backdropUrl, _) {
-                            if (backdropUrl.isEmpty) {
-                              return const ColoredBox(color: kBgColor);
-                            }
-                            return CachedNetworkImage(
-                              imageUrl: backdropUrl,
-                              fit: BoxFit.cover,
-                              alignment: Alignment.center,
-                              memCacheWidth: bgMemW,
-                              memCacheHeight: bgMemH,
-                              fadeInDuration: const Duration(milliseconds: 280),
-                              placeholder: (_, __) =>
-                                  const ColoredBox(color: kBgColor),
-                              errorWidget: (_, __, ___) =>
-                                  const ColoredBox(color: kBgColor),
-                            );
-                          },
-                        ),
-                        const _HomeOverlayGradient(),
-                        RepaintBoundary(
-                          child: ValueListenableBuilder<Map<String, dynamic>?>(
-                            valueListenable: _focusedItemNotifier,
-                            builder: (context, item, _) => _HeroSection(
-                              item: item,
-                              focusNode: _sectionFocusNodes[0],
-                              onRequestMenuFocus: widget.onRequestMenuFocus,
-                              onRequestNextFocus: sections.isNotEmpty
-                                  ? () => _sectionFocusNodes[1].requestFocus()
-                                  : null,
-                              onTap: _openContent,
+                  child: RepaintBoundary(
+                    child: SizedBox(
+                      height: heroHeight,
+                      width: double.infinity,
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          ValueListenableBuilder<String>(
+                            valueListenable: _heroBackdropNotifier,
+                            builder: (context, backdropUrl, _) {
+                              if (backdropUrl.isEmpty) {
+                                return const ColoredBox(color: kBgColor);
+                              }
+                              return CachedNetworkImage(
+                                imageUrl: backdropUrl,
+                                fit: BoxFit.cover,
+                                alignment: Alignment.center,
+                                memCacheWidth: bgMemW,
+                                memCacheHeight: bgMemH,
+                                useOldImageOnUrlChange: true,
+                                fadeInDuration:
+                                    const Duration(milliseconds: 220),
+                                fadeOutDuration: Duration.zero,
+                                placeholder: (_, __) =>
+                                    const ColoredBox(color: kBgColor),
+                                errorWidget: (_, __, ___) =>
+                                    const ColoredBox(color: kBgColor),
+                              );
+                            },
+                          ),
+                          const _HomeOverlayGradient(),
+                          RepaintBoundary(
+                            child: ValueListenableBuilder<Map<String, dynamic>?>(
+                              valueListenable: _focusedItemNotifier,
+                              builder: (context, item, _) => _HeroSection(
+                                item: item,
+                                focusNode: _sectionFocusNodes[0],
+                                onFocused: () {
+                                  if (_mainScrollController.hasClients &&
+                                      _mainScrollController.offset > 0) {
+                                    _mainScrollController.animateTo(
+                                      0,
+                                      duration:
+                                          const Duration(milliseconds: 220),
+                                      curve: Curves.easeOutCubic,
+                                    );
+                                  }
+                                },
+                                onRequestMenuFocus: widget.onRequestMenuFocus,
+                                onRequestNextFocus: sections.isNotEmpty
+                                    ? () => _sectionFocusNodes[1].requestFocus()
+                                    : null,
+                                onTap: _openContent,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -922,6 +1032,7 @@ class _SectionData {
 class _HeroSection extends StatelessWidget {
   final Map<String, dynamic>? item;
   final FocusNode focusNode;
+  final VoidCallback? onFocused;
   final VoidCallback? onRequestMenuFocus;
   final VoidCallback? onRequestNextFocus;
   final void Function(Map<String, dynamic> item) onTap;
@@ -929,6 +1040,7 @@ class _HeroSection extends StatelessWidget {
   const _HeroSection({
     required this.item,
     required this.focusNode,
+    this.onFocused,
     this.onRequestMenuFocus,
     this.onRequestNextFocus,
     required this.onTap,
@@ -1031,7 +1143,11 @@ class _HeroSection extends StatelessWidget {
         }
         return KeyEventResult.ignored;
       },
-      onFocusChange: (_) {},
+      onFocusChange: (hasFocus) {
+        if (hasFocus) {
+          onFocused?.call();
+        }
+      },
       child: Builder(
         builder: (context) {
           final hasFocus = Focus.of(context).hasFocus;
@@ -1360,17 +1476,17 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
   }
 
   String _imageUrl(Map item) {
-    final backdrop = item['backdrop_path']?.toString() ?? '';
-    if (backdrop.isNotEmpty &&
-        backdrop.startsWith('http') &&
-        !backdrop.contains('[')) {
-      return backdrop;
-    }
-    final poster = item['poster_path']?.toString() ?? '';
-    if (poster.isNotEmpty &&
-        poster.startsWith('http') &&
-        !poster.contains('[')) {
-      return poster;
+    final candidates = [
+      item['backdrop_path'],
+      item['backdrop'],
+      item['poster_path'],
+      item['poster'],
+    ];
+    for (final raw in candidates) {
+      final s = raw?.toString().trim() ?? '';
+      if (s.isEmpty || s.contains('[')) continue;
+      if (s.startsWith('http')) return s;
+      if (s.startsWith('/')) return 'https://image.tmdb.org/t/p/w500$s';
     }
     return '';
   }
@@ -1524,11 +1640,30 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
                       }
 
                       final item = widget.items[itemIndex];
+                      final int? seg = (item['segundo'] as num?)?.toInt() ??
+                          (item['progreso_segundos'] as num?)?.toInt();
+                      final int total = (item['duracion_total'] as num?)?.toInt() ??
+                          (item['total'] as num?)?.toInt() ??
+                          0;
+                      double? progress;
+                      String? epBadge;
+                      if (seg != null && seg > 5) {
+                        final denom = total > 60 ? total : 4200;
+                        progress = (seg / denom).clamp(0.04, 1.0);
+                        final temp = item['temporada'];
+                        final cap = item['capitulo'];
+                        if (temp != null && cap != null) {
+                          epBadge = 'S${temp.toString().padLeft(2, '0')}E${cap.toString().padLeft(2, '0')}';
+                        }
+                      }
                       return Padding(
                         padding: const EdgeInsets.only(right: 10),
                         child: _PosterCard(
                           posterUrl: _imageUrl(item),
                           logoUrl: _logoUrl(item),
+                          title: (item['titulo'] ?? item['title'] ?? '').toString(),
+                          progress: progress,
+                          episodeBadge: epBadge,
                           isFocused: isFocusedSlot,
                           width: cardW,
                           height: cardH,
@@ -1552,6 +1687,9 @@ class _HorizontalSliderState extends State<_HorizontalSlider> {
 class _PosterCard extends StatelessWidget {
   final String posterUrl;
   final String logoUrl;
+  final String title;
+  final double? progress;
+  final String? episodeBadge;
   final bool isFocused;
   final double width;
   final double height;
@@ -1562,6 +1700,9 @@ class _PosterCard extends StatelessWidget {
   const _PosterCard({
     required this.posterUrl,
     this.logoUrl = '',
+    this.title = '',
+    this.progress,
+    this.episodeBadge,
     required this.isFocused,
     required this.width,
     required this.height,
@@ -1659,6 +1800,70 @@ class _PosterCard extends StatelessWidget {
                     ),
                   ),
                 ),
+              if (progress != null) ...[
+                const Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Color(0xCC000000),
+                        ],
+                        stops: [0.4, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+                if (episodeBadge != null && episodeBadge!.isNotEmpty)
+                  Positioned(
+                    top: 6,
+                    left: 6,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: kAccentColor.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Text(
+                        episodeBadge!,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (logoUrl.isEmpty && title.isNotEmpty)
+                  Positioned(
+                    left: 8,
+                    right: 8,
+                    bottom: 10,
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    minHeight: 3.5,
+                    backgroundColor: Colors.white24,
+                    color: Colors.greenAccent,
+                  ),
+                ),
+              ],
             ],
           ),
         ),

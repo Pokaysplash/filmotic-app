@@ -4,16 +4,17 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../shared/modals/playback_setup_modal.dart';
 import '../../core/constants/versiones.dart'; // ← VersionService + VersionInfo con URLs por ABI
+import '../../core/storage/app_database.dart';
 import '../../features/home/presentation/tv_home_page.dart';
 import '../../features/search/presentation/tv_search_page.dart';
 import '../../features/history/presentation/history_page.dart';
 import '../../features/settings/presentation/tv_settings.dart';
 import '../../features/profile/presentation/profile_page.dart';
+import '../../features/profile/presentation/profile_selection_page.dart';
 import '../../features/discover/presentation/discover_page.dart';
 import '../../core/services/remote_config_service.dart';
 import '../../core/services/update_service.dart';
@@ -61,13 +62,11 @@ class _MainHomeState extends State<MainHome> {
 
   final GlobalKey _homeKey = GlobalKey();
   final GlobalKey _descubrirKey = GlobalKey();
-  final GlobalKey _fuentesKey = GlobalKey();
   final GlobalKey _guardadosKey = GlobalKey();
   final GlobalKey _perfilKey = GlobalKey();
 
   bool _homeLoaded = true;
   bool _descubrirLoaded = false;
-  bool _fuentesLoaded = false;
   bool _guardadosLoaded = false;
   bool _perfilLoaded = false;
 
@@ -94,10 +93,6 @@ class _MainHomeState extends State<MainHome> {
   String? _urlArmeabi;
   String? _urlX86;
   String? _urlUniversal;
-
-  /// Preferencia: arm64 | armeabi | x86 | universal
-  String? _preferredAbi;
-  static const _prefAbiKey = 'apk_preferred_abi';
 
   String? _latestVersionName;
 
@@ -144,8 +139,6 @@ class _MainHomeState extends State<MainHome> {
 
       if (status.requiresUpdate && status.latestVersion != null) {
         final v = status.latestVersion!;
-        final prefs = await SharedPreferences.getInstance();
-        final savedAbi = prefs.getString(_prefAbiKey);
 
         setState(() {
           _updateAvailable = true;
@@ -156,7 +149,6 @@ class _MainHomeState extends State<MainHome> {
           _urlUniversal = v.urlApkUniversal ??
               (v.urlApk.trim().isNotEmpty ? v.urlApk : null);
           _downloadUrl = v.urlApk;
-          _preferredAbi = savedAbi;
           _updateMessage =
               '${v.versionAceptada} • ${v.novedades.isNotEmpty ? v.novedades : status.message}';
           _updateBannerDismissed = false;
@@ -204,21 +196,6 @@ class _MainHomeState extends State<MainHome> {
         return null;
       default:
         return null;
-    }
-  }
-
-  String _labelAbi(String abi) {
-    switch (abi) {
-      case 'arm64':
-        return 'ARM64';
-      case 'armeabi':
-        return 'ARMv7';
-      case 'x86':
-        return 'x86';
-      case 'universal':
-        return 'Universal';
-      default:
-        return abi;
     }
   }
 
@@ -511,7 +488,6 @@ class _MainHomeState extends State<MainHome> {
   void _ensureLoaded(int index) {
     if (index == 0) _homeLoaded = true;
     if (index == 1) _descubrirLoaded = true;
-    if (index == _kFuentesIndex) _fuentesLoaded = true;
     if (index == 4) _guardadosLoaded = true;
     if (index == _kPerfilIndex) {
       _perfilLoaded = true;
@@ -529,9 +505,6 @@ class _MainHomeState extends State<MainHome> {
     _ensureLoaded(index);
 
     if (_currentIndex == 1 && index != 1) _descubrirLoaded = false;
-    if (_currentIndex == _kFuentesIndex && index != _kFuentesIndex) {
-      _fuentesLoaded = false;
-    }
     if (_currentIndex == 4 && index != 4) _guardadosLoaded = false;
     if (_currentIndex == _kPerfilIndex && index != _kPerfilIndex) {
       _perfilLoaded = false;
@@ -1470,15 +1443,21 @@ class _SideMenu extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const SizedBox(height: 10),
-                  _SideItem(
-                    expanded: expanded,
-                    icon: Icons.person_rounded,
-                    label: 'Perfil',
-                    focusNode: profileFocus,
-                    selected: profileSelected,
-                    isProfile: true,
-                    onKeyEvent: (n, e) => onKeyEvent(n, e, 6),
-                    onTap: () => onSelect(6),
+                  ValueListenableBuilder<LocalProfile?>(
+                    valueListenable: AppDatabase.instance.activeProfileNotifier,
+                    builder: (context, activeProf, _) {
+                      return _SideItem(
+                        expanded: expanded,
+                        icon: Icons.person_rounded,
+                        label: activeProf?.nombre ?? 'Perfil',
+                        avatarPath: activeProf?.avatar,
+                        focusNode: profileFocus,
+                        selected: profileSelected,
+                        isProfile: true,
+                        onKeyEvent: (n, e) => onKeyEvent(n, e, 6),
+                        onTap: () => onSelect(6),
+                      );
+                    },
                   ),
                   if (expanded) ...[
                     const SizedBox(height: 10),
@@ -1575,6 +1554,7 @@ class _SideItem extends StatelessWidget {
   final bool expanded;
   final IconData icon;
   final String label;
+  final String? avatarPath;
   final FocusNode focusNode;
   final bool selected;
   final bool isProfile;
@@ -1585,6 +1565,7 @@ class _SideItem extends StatelessWidget {
     required this.expanded,
     required this.icon,
     required this.label,
+    this.avatarPath,
     required this.focusNode,
     required this.selected,
     required this.onKeyEvent,
@@ -1652,12 +1633,20 @@ class _SideItem extends StatelessWidget {
                                     ? Colors.white.withValues(alpha: 0.22)
                                     : Colors.white.withValues(alpha: 0.10),
                               ),
-                              child: Icon(
-                                icon,
-                                size: 14,
-                                color:
-                                    selected ? Colors.white : Colors.white70,
-                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: avatarPath != null && avatarPath!.isNotEmpty
+                                  ? buildAvatarImage(
+                                      avatarPath!,
+                                      width: 26,
+                                      height: 26,
+                                    )
+                                  : Icon(
+                                      icon,
+                                      size: 14,
+                                      color: selected
+                                          ? Colors.white
+                                          : Colors.white70,
+                                    ),
                             )
                           else
                             Icon(
@@ -1697,12 +1686,18 @@ class _SideItem extends StatelessWidget {
                                       ? Colors.white.withValues(alpha: 0.2)
                                       : Colors.white.withValues(alpha: 0.1),
                                 ),
-                                child: Icon(
-                                  icon,
-                                  size: 14,
-                                  color:
-                                      Colors.white.withValues(alpha: 0.92),
-                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: avatarPath != null && avatarPath!.isNotEmpty
+                                    ? buildAvatarImage(
+                                        avatarPath!,
+                                        width: 26,
+                                        height: 26,
+                                      )
+                                    : Icon(
+                                        icon,
+                                        size: 14,
+                                        color: Colors.white.withValues(alpha: 0.92),
+                                      ),
                               )
                             : Icon(
                                 icon,

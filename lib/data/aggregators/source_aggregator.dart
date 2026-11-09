@@ -31,8 +31,10 @@ import '../datasources/remote/sources/custom_api.dart';
 import '../extractors/hls/hls_extractor.dart';
 import '../extractors/providers/pelisplus_extractor.dart';
 import '../extractors/providers/vidsrc_extractor.dart';
+import '../extractors/providers/hackstore_extractor.dart';
 import '../scrapers/seriesflix_scraper.dart';
 import '../scrapers/cineby_scraper.dart';
+import '../scrapers/thanhdattoday_scraper.dart';
 
 // ─────────────────────────────────────────────────────────────
 // Enums de configuración (alineados con FuentesSection)
@@ -87,6 +89,8 @@ enum FuenteId {
   seriesmetro,
   smartpelis,
   cinesrc,
+  hackstore,
+  thanhdattoday,
   customapi, // APIs del usuario (códigos PHP ilimitados)
 }
 
@@ -129,6 +133,10 @@ extension FuenteIdX on FuenteId {
         return 'Seriesflix';
       case FuenteId.cineby:
         return 'Cineby';
+      case FuenteId.hackstore:
+        return 'HackStore';
+      case FuenteId.thanhdattoday:
+        return 'HDToday';
       case FuenteId.customapi:
         return 'Mis APIs';
     }
@@ -172,6 +180,10 @@ extension FuenteIdX on FuenteId {
         return 'es_seriesflix';
       case FuenteId.cineby:
         return 'es_cineby';
+      case FuenteId.hackstore:
+        return 'es_hackstore';
+      case FuenteId.thanhdattoday:
+        return 'es_thanhdattoday';
       case FuenteId.customapi:
         return 'es_customapi';
     }
@@ -215,6 +227,10 @@ extension FuenteIdX on FuenteId {
         return const Color(0xFFE50914);
       case FuenteId.cineby:
         return const Color(0xFF06B6D4);
+      case FuenteId.hackstore:
+        return const Color(0xFF10B981);
+      case FuenteId.thanhdattoday:
+        return const Color(0xFF38BDF8);
       case FuenteId.customapi:
         return const Color(0xFF60A5FA);
     }
@@ -243,6 +259,8 @@ class FuentesConfig {
   final bool animeflvEnabled;
   final bool seriesflixEnabled;
   final bool cinebyEnabled;
+  final bool hackstoreEnabled;
+  final bool thanhdattodayEnabled;
   final bool customApiEnabled;
 
   final bool verificarServidores;
@@ -272,6 +290,8 @@ class FuentesConfig {
     required this.animeflvEnabled,
     this.seriesflixEnabled = true,
     this.cinebyEnabled = true,
+    this.hackstoreEnabled = true,
+    this.thanhdattodayEnabled = true,
     required this.customApiEnabled,
     required this.verificarServidores,
     required this.unServidorPorIdioma,
@@ -298,21 +318,23 @@ class FuentesConfig {
     return FuentesConfig(
       pelisplusEnabled: prefs.getBool('pelisplus_enabled') ?? true,
       cuevanaEnabled: prefs.getBool('cuevana_enabled') ?? true,
-      unlimplayEnabled: prefs.getBool('unlimplay_enabled') ?? false,
+      unlimplayEnabled: prefs.getBool('unlimplay_enabled') ?? true,
       cinecalidadEnabled: prefs.getBool('cinecalidad_enabled') ?? true,
       tioplusEnabled: prefs.getBool('tioplus_enabled') ?? true,
       embed69Enabled: prefs.getBool('embed69_enabled') ?? true,
       vidsrcEnabled: prefs.getBool('vidsrc_enabled') ?? true,
-      poseidonEnabled: prefs.getBool('poseidon_enabled') ?? false,
-      fuegocineEnabled: prefs.getBool('fuegocine_enabled') ?? false,
-      pelispediaEnabled: prefs.getBool('pelispedia_enabled') ?? false,
-      seriesmetroEnabled: prefs.getBool('seriesmetro_enabled') ?? false,
-      smartpelisEnabled: prefs.getBool('smartpelis_enabled') ?? false,
-      cinesrcEnabled: prefs.getBool('cinesrc_enabled') ?? false,
+      poseidonEnabled: prefs.getBool('poseidon_enabled') ?? true,
+      fuegocineEnabled: prefs.getBool('fuegocine_enabled') ?? true,
+      pelispediaEnabled: prefs.getBool('pelispedia_enabled') ?? true,
+      seriesmetroEnabled: prefs.getBool('seriesmetro_enabled') ?? true,
+      smartpelisEnabled: prefs.getBool('smartpelis_enabled') ?? true,
+      cinesrcEnabled: prefs.getBool('cinesrc_enabled') ?? true,
       canelaEnabled: prefs.getBool('canela_enabled') ?? true,
       animeflvEnabled: prefs.getBool('animeflv_enabled') ?? true,
       seriesflixEnabled: prefs.getBool('seriesflix_enabled') ?? true,
       cinebyEnabled: prefs.getBool('cineby_enabled') ?? true,
+      hackstoreEnabled: prefs.getBool('hackstore_enabled') ?? true,
+      thanhdattodayEnabled: prefs.getBool('thanhdattoday_enabled') ?? true,
       customApiEnabled: prefs.getBool('custom_api_enabled') ?? false,
       verificarServidores: prefs.getBool('verificar_servidores') ?? true,
       unServidorPorIdioma: prefs.getBool('un_servidor_por_idioma') ?? false,
@@ -342,6 +364,8 @@ class FuentesConfig {
     if (cinebyEnabled) list.add(FuenteId.cineby);
     if (cinecalidadEnabled) list.add(FuenteId.cinecalidad);
     if (poseidonEnabled) list.add(FuenteId.poseidon);
+    if (hackstoreEnabled) list.add(FuenteId.hackstore);
+    if (thanhdattodayEnabled) list.add(FuenteId.thanhdattoday);
     if (customApiEnabled) list.add(FuenteId.customapi);
     if (unlimplayEnabled) list.add(FuenteId.unlimplay);
     if (fuegocineEnabled) list.add(FuenteId.fuegocine);
@@ -710,7 +734,9 @@ class MainFuentes {
           episode: episode,
         )) {
           final map = s.toModalMap();
-          map['idioma'] = 'es_MX';
+          if ((map['idioma']?.toString() ?? '').isEmpty) {
+            map['idioma'] = 'es_MX';
+          }
           yield map;
         }
         break;
@@ -830,6 +856,26 @@ class MainFuentes {
         break;
       case FuenteId.cineby:
         await for (final map in CinebyScraper.scrapeStream(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
+        break;
+      case FuenteId.hackstore:
+        await for (final map in HackStoreService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
+        break;
+      case FuenteId.thanhdattoday:
+        await for (final map in ThanhDatTodayScraper.scrapeStream(
           tmdbId: tmdbId,
           isMovie: isMovie,
           season: season,

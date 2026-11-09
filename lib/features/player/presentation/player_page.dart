@@ -151,6 +151,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _hideControlsTimer;
   Timer? _vodWatchdogTimer;
   Timer? _audioCheckTimer;
+  Timer? _cacheTimer;
   bool _isSwitchingServerNotice = false;
   bool _isDragging = false;
   bool _isDisposing = false;
@@ -166,8 +167,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double _brightnessLevel = 0.5;
   bool _showBrightnessIndicator = false;
   Timer? _brightnessIndicatorTimer;
-  bool _isDraggingSeek = false;
-  Duration _dragSeekTarget = Duration.zero;
 
   List<_SubtitleCue> _subtitleCues = const [];
   String _currentSubtitleText = '';
@@ -209,6 +208,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   List<Map<String, dynamic>> _fallbackServers = [];
   int _fallbackIndex = 0;
   bool _isResolving = false;
+  bool _isTryingNextServer = false;
   bool _allServersFailed = false;
   int _consecutiveServerFailures = 0;
   Timer? _loadingLongTimer;
@@ -505,7 +505,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
       _loadRecommendationsFromGuardados();
       _loadSubtitlePrefs();
+      _startCacheTimer();
     }
+  }
+
+  void _startCacheTimer() {
+    _cacheTimer?.cancel();
+    _cacheTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && !_isDisposing && _controllerReady && !widget.isLive) {
+        _saveCache();
+      }
+    });
   }
 
   void _setupSystemUi() {
@@ -530,7 +540,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _keepScreenOn() => WakelockPlus.enable();
 
   // ─── CACHÉ ──────────────────────────────────────────────────────────────
-  String _getCacheKey() {
+  String _getBaseCacheKey() {
     if (_mediaType == 'tv' &&
         widget.temporada != null &&
         widget.capitulo != null) {
@@ -539,7 +549,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return 'cachePlayer_$_resolvedId';
   }
 
-  String _getCacheKeyRapido() {
+  String _getBaseCacheKeyRapido() {
     if (_mediaType == 'tv' &&
         widget.temporada != null &&
         widget.capitulo != null) {
@@ -548,47 +558,86 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return 'cachePlayerRapido_$_resolvedId';
   }
 
-  Future<void> _saveCache() async {
-    if (!_controllerReady || !_controller.value.isInitialized) return;
+  String _getCacheKey() =>
+      AppDatabase.instance.scopedPrefsKey(_getBaseCacheKey());
 
-    final prefs = await SharedPreferences.getInstance();
-    final pos = _controller.value.position.inSeconds;
+  String _getCacheKeyRapido() =>
+      AppDatabase.instance.scopedPrefsKey(_getBaseCacheKeyRapido());
+
+  Future<void> _saveCache({int? snapshotPos, int? snapshotDur}) async {
+    if (widget.isLive || _resolvedId <= 0) return;
+
+    int pos = snapshotPos ?? 0;
+    int dur = snapshotDur ?? 0;
+    if (snapshotPos == null) {
+      if (!_controllerReady || !_controller.value.isInitialized) {
+        pos = _currentPosition.inSeconds;
+        dur = _totalDuration.inSeconds;
+      } else {
+        pos = _controller.value.position.inSeconds;
+        dur = _controller.value.duration.inSeconds;
+      }
+    }
+    if (pos < 5) return;
 
     String? backdrop = _backdropUrl;
+    String? poster;
     if (_apiData != null) {
       final b = _apiData!['backdrop'] ?? _apiData!['backdrop_path'];
-      if (b is String && b.isNotEmpty) backdrop = b;
+      if (b is String && b.isNotEmpty) {
+        backdrop = _optimizeTmdbUrl(b, size: 'w780');
+      }
+      final p = _apiData!['poster'] ?? _apiData!['poster_path'];
+      if (p is String && p.isNotEmpty) {
+        poster = _optimizeTmdbUrl(p, size: 'w500');
+      }
     }
+    poster ??= backdrop;
 
+    final String effectiveTitle =
+        _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo;
+    final String effectiveUrl =
+        _activeUrl.isNotEmpty ? _activeUrl : widget.videoUrl;
+    final String epId = widget.temporada != null && widget.capitulo != null
+        ? 'T${widget.temporada}_C${widget.capitulo}'
+        : 'movie';
+
+    // 1. Guardar en Sembast según el perfil activo (fuente de verdad por perfil)
+    await AppDatabase.instance.saveHistory(
+      contenidoId: _resolvedId,
+      episodioId: epId,
+      progresoSegundos: pos,
+      duracionTotal: dur,
+      temporada: widget.temporada,
+      capitulo: widget.capitulo,
+      titulo: effectiveTitle,
+      poster: poster,
+      backdrop: backdrop,
+      tipo: _mediaType,
+      videoUrl: effectiveUrl,
+      idioma: _idioma,
+      tmdbId: widget.tmdbId ?? _resolvedId,
+    );
+
+    // 2. Guardar en SharedPreferences aislado por perfil
+    final prefs = await SharedPreferences.getInstance();
     final full = {
       'idcontenido': _resolvedId,
+      'tmdb_id': widget.tmdbId ?? _resolvedId,
       'temporada': widget.temporada,
       'capitulo': widget.capitulo,
       'segundo': pos,
-      'titulo': _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
+      'duracion_total': dur,
+      'total': dur,
+      'titulo': effectiveTitle,
       'tipo': _mediaType,
-      'videoUrl': _activeUrl.isNotEmpty ? _activeUrl : widget.videoUrl,
+      'videoUrl': effectiveUrl,
+      'idioma': _idioma,
+      'poster': poster ?? '',
       'backdrop': backdrop ?? '',
       'timestamp': DateTime.now().toIso8601String(),
     };
     await prefs.setString(_getCacheKey(), jsonEncode(full));
-
-    // Guardar en Sembast según el perfil activo
-    AppDatabase.instance.saveHistory(
-      contenidoId: _resolvedId,
-      episodioId: widget.temporada != null && widget.capitulo != null
-          ? 'T${widget.temporada}_C${widget.capitulo}'
-          : 'movie',
-      progresoSegundos: pos,
-      duracionTotal: _controller.value.duration.inSeconds,
-      temporada: widget.temporada,
-      capitulo: widget.capitulo,
-      titulo: _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
-      poster: backdrop,
-      tipo: _mediaType,
-      videoUrl: _activeUrl.isNotEmpty ? _activeUrl : widget.videoUrl,
-      tmdbId: widget.tmdbId ?? _resolvedId,
-    );
 
     final rapido = {
       'idcontenido': _resolvedId,
@@ -599,15 +648,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await prefs.setString(_getCacheKeyRapido(), jsonEncode(rapido));
 
     GuardadosBus.bump();
+    HistorialBus.bump();
   }
 
   Future<int?> _getSavedPosition() async {
+    final epId = (_mediaType == 'tv' &&
+            widget.temporada != null &&
+            widget.capitulo != null)
+        ? 'T${widget.temporada}_C${widget.capitulo}'
+        : 'movie';
+
+    // 1. Consultar primero Sembast del perfil activo
+    final histItem = await AppDatabase.instance.getHistoryItem(
+      _resolvedId,
+      episodioId: epId,
+    );
+    if (histItem != null) {
+      final sec = (histItem['segundo'] as num?)?.toInt() ??
+          (histItem['progreso_segundos'] as num?)?.toInt();
+      if (sec != null && sec > 5) return sec;
+    }
+
+    // 2. Consultar SharedPreferences aislado por perfil
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_getCacheKeyRapido());
+    final raw = prefs.getString(_getCacheKeyRapido()) ??
+        prefs.getString(_getCacheKey());
     if (raw == null) return null;
     try {
       final data = jsonDecode(raw);
-      return data['segundo'] as int?;
+      return (data['segundo'] as num?)?.toInt();
     } catch (_) {
       return null;
     }
@@ -662,6 +731,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         }
       });
       _loadIntroSkip();
+      if (_controllerReady && _controller.value.position.inSeconds >= 5) {
+        unawaited(_saveCache());
+      }
     } catch (e) {
       debugPrint('Error API player TMDB: $e');
     }
@@ -824,19 +896,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return h;
   }
 
-  /// True si la URL ya es stream directo (m3u8/mp4/etc) — no hace falta extraer.
-  bool _isDirectStreamUrl(String url) {
-    final u = url.toLowerCase().trim();
-    if (u.isEmpty) return false;
-    if (u.contains('.m3u8')) return true;
-    if (u.contains('.mp4')) return true;
-    if (u.contains('.mpd')) return true; // DASH
-    if (u.contains('.mkv') || u.contains('.webm')) return true;
-    // Algunos CDN sirven m3u8 sin extensión clara
-    if (u.contains('/playlist') || u.contains('format=m3u8')) return true;
-    return false;
-  }
-
   Future<void> _initializePlayer() async {
     if (_isResolving) return;
     _isResolving = true;
@@ -860,9 +919,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       final passed = (liveList != null && _currentLiveIndex < liveList.length)
           ? liveList[_currentLiveIndex].trim()
           : widget.videoUrl.trim();
-      if (passed.isNotEmpty && (widget.isLive || _isDirectStreamUrl(passed))) {
-        // Directo al reproductor: NO resolvePlayable, NO getServers en Live TV
-        debugPrint('Player: m3u8/directo recibido → play inmediato ($passed)');
+      if (passed.isNotEmpty) {
+        // Directo al reproductor: ya fue resuelto por PageContenido / ServidoresModal o es Live TV
+        debugPrint('Player: stream recibido → play inmediato ($passed)');
         _activeUrl = passed;
         _activeHeaders = headers;
         _fallbackServers = [];
@@ -874,56 +933,47 @@ class _PlayerScreenState extends State<PlayerScreen> {
         return;
       }
 
-      // ─── 2) URL no-directa (embed) pasada: intentar usarla; fallback sí ─
-      String? url = passed.isNotEmpty ? passed : null;
-
-      // ─── 3) Sin URL → ServerLoader (caché / fuentes) ────────────────────
-      if (url == null || url.isEmpty) {
-        final playable = await _serverLoader.resolvePlayable(
-          contentId: _resolvedId,
-          isMovie: _mediaType != 'tv',
-          season: widget.temporada ?? 0,
-          episode: widget.capitulo ?? 0,
-          context: mounted ? context : null,
-        );
-        if (playable != null && playable.url.isNotEmpty) {
-          url = playable.url;
-          headers = {...headers, ...playable.headers};
-          if (playable.idioma.isNotEmpty) {
-            _idioma = playable.idioma.toUpperCase();
-          }
-          // Si ya resolvió a m3u8, jugar directo manteniendo la lista de fallback
-          final directUrl = url;
-          if (directUrl != null && _isDirectStreamUrl(directUrl)) {
-            _activeUrl = directUrl;
-            _activeHeaders = headers;
-            if (playable.rawServer.isNotEmpty) {
-              _fallbackServers = [playable.rawServer];
-            }
-            unawaited(_prepareFallbackServers(directUrl));
-            await _startControllerWithUrl(directUrl, headers);
-            return;
-          }
+      // ─── 2) Sin URL → ServerLoader (caché / fuentes) ────────────────────
+      String? url;
+      final playable = await _serverLoader.resolvePlayable(
+        contentId: _resolvedId,
+        isMovie: _mediaType != 'tv',
+        season: widget.temporada ?? 0,
+        episode: widget.capitulo ?? 0,
+        context: mounted ? context : null,
+      );
+      if (playable != null && playable.url.isNotEmpty) {
+        url = playable.url;
+        headers = {...headers, ...playable.headers};
+        if (playable.idioma.isNotEmpty) {
+          _idioma = playable.idioma.toUpperCase();
         }
-      }
-
-      // ─── 4) Cola de fallback solo si NO tenemos stream directo ─────────
-      await _prepareFallbackServers(url);
-
-      if (url == null || url.isEmpty) {
-        if (!mounted || _isDisposing) return;
-        setState(() {
-          _isLoading = false;
-          _allServersFailed = true;
-          _errorMessage =
-              'No se encontró ningún servidor disponible para este contenido.';
-        });
+        _activeUrl = url;
+        _activeHeaders = headers;
+        if (playable.rawServer.isNotEmpty) {
+          _fallbackServers = [playable.rawServer];
+        }
+        unawaited(_prepareFallbackServers(url));
+        await _startControllerWithUrl(url, headers);
         return;
       }
 
-      _activeUrl = url;
-      _activeHeaders = headers;
-      await _startControllerWithUrl(url, headers);
+      // ─── 3) Cola de fallback solo si NO tenemos stream ──────────────────
+      await _prepareFallbackServers(url);
+
+      if (_fallbackServers.isNotEmpty) {
+        _fallbackIndex = -1;
+        await _tryNextServer(reason: 'Buscando servidor disponible...');
+        return;
+      }
+
+      if (!mounted || _isDisposing) return;
+      setState(() {
+        _isLoading = false;
+        _allServersFailed = true;
+        _errorMessage =
+            'No se encontró ningún servidor disponible para este contenido.';
+      });
     } catch (e) {
       debugPrint('Error resolve/init: $e');
       await _tryNextServer(reason: e.toString());
@@ -1047,37 +1097,67 @@ class _PlayerScreenState extends State<PlayerScreen> {
         });
       }
 
-      // ── Watchdog de 8 segundos para VOD ─────────────────────────────────
+      // ── Cancelar watchdog previo mientras configuramos posición e inicio ─
       _vodWatchdogTimer?.cancel();
+      _vodWatchdogTimer = null;
+
       if (!widget.isLive) {
-        _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
+        final int? saved = _currentPosition.inSeconds > 5
+            ? _currentPosition.inSeconds
+            : await _getSavedPosition();
+        if (saved != null && saved > 5) {
+          await _controller.seekTo(Duration(seconds: saved));
+        }
+      }
+
+      if (!mounted || _isDisposing) return;
+      _stopLoadingTimer();
+      setState(() {
+        _isLoading = false;
+        _isSwitchingServerNotice = false;
+        _errorMessage = '';
+        _totalDuration = _controller.value.duration;
+        _isPlaying = true;
+      });
+      await _controller.play();
+      _scheduleHideControls();
+
+      // ── Watchdog de 12 segundos para VOD (después de seekTo + play) ──────
+      if (!widget.isLive) {
+        _vodWatchdogTimer = Timer(const Duration(seconds: 12), () {
           if (!mounted || _isDisposing || widget.isLive) return;
           final castState = CastService.instance.state;
           if (castState == CastState.casting || castState == CastState.connected) {
             return;
           }
-          final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
-          final playing = _controllerReady && _controller.value.isPlaying;
-          final hasError = _controllerReady && _controller.value.hasError;
-          if (!playing || pos < 300 || hasError || !_controllerReady) {
-            debugPrint('[VOD Watchdog] Servidor tardó más de 8s sin reproducir. Cambiando servidor...');
-            if (mounted) {
-              setState(() {
-                _isSwitchingServerNotice = true;
-              });
-            }
-            if (_fallbackIndex < _fallbackServers.length) {
-              _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
-            }
-            _serverLoader.markUrlAsInvalid(_activeUrl);
-            _serverLoader.invalidateEpisodeWin(
-              contentId: _resolvedId,
-              isMovie: _mediaType != 'tv',
-              season: widget.temporada ?? 0,
-              episode: widget.capitulo ?? 0,
-            );
-            _tryNextServer(reason: 'El servidor tardó más de 8s en iniciar reproducción');
+          final isWorking = _controllerReady &&
+              !_controller.value.hasError &&
+              (_hasStartedPlaying ||
+                  _controller.value.isPlaying ||
+                  _controller.value.isBuffering ||
+                  _controller.value.position.inMilliseconds > 0 ||
+                  _controller.value.size.width > 0 ||
+                  _controller.value.duration > Duration.zero);
+          if (isWorking) {
+            return;
           }
+          debugPrint('[VOD Watchdog] Servidor sin señal ni metadatos tras 12s. Cambiando servidor...');
+          if (mounted) {
+            setState(() {
+              _isSwitchingServerNotice = true;
+            });
+          }
+          if (_fallbackIndex < _fallbackServers.length) {
+            _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
+          }
+          _serverLoader.markUrlAsInvalid(_activeUrl);
+          _serverLoader.invalidateEpisodeWin(
+            contentId: _resolvedId,
+            isMovie: _mediaType != 'tv',
+            season: widget.temporada ?? 0,
+            episode: widget.capitulo ?? 0,
+          );
+          _tryNextServer(reason: 'El servidor no respondió a tiempo');
         });
       } else {
         // ── Watchdog de 8 segundos para Live TV ──────────────────────────────
@@ -1108,22 +1188,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
         });
       }
-
-      final saved = await _getSavedPosition();
-      if (saved != null && saved > 5) {
-        await _controller.seekTo(Duration(seconds: saved));
-      }
-
-      if (!mounted || _isDisposing) return;
-      _stopLoadingTimer();
-      setState(() {
-        _isLoading = false;
-        _errorMessage = '';
-        _totalDuration = _controller.value.duration;
-        _isPlaying = true;
-      });
-      await _controller.play();
-      _scheduleHideControls();
     } catch (e) {
       _stopLoadingTimer();
       debugPrint('Error al reproducir URL: $e');
@@ -1184,20 +1248,111 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   /// Fallback automático al siguiente servidor válido
   Future<void> _tryNextServer({String? reason}) async {
-    if (!mounted || _isDisposing) return;
+    if (!mounted || _isDisposing || _isTryingNextServer) return;
+    _isTryingNextServer = true;
 
-    _serverLoader.cancelCurrentRequests();
+    try {
+      _serverLoader.cancelCurrentRequests();
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
 
-    _startLoadingTimer();
-    _consecutiveServerFailures++;
+      _startLoadingTimer();
+      _consecutiveServerFailures++;
 
-    // Dar más margen de intentos fallidos antes de rendirnos (10 en lugar de 3)
-    if (_consecutiveServerFailures >= 10) {
+      // Dar más margen de intentos fallidos antes de rendirnos (10 en lugar de 3)
+      if (_consecutiveServerFailures >= 10) {
+        if (!mounted || _isDisposing) return;
+        _stopLoadingTimer();
+        setState(() {
+          _isLoading = false;
+          _isSwitchingServerNotice = false;
+          _allServersFailed = true;
+          _errorMessage = reason != null && reason.isNotEmpty
+              ? 'Ningún servidor funcionó.\n$reason'
+              : 'Ningún servidor disponible para este contenido.';
+        });
+        _showAllServersFailedDialog();
+        return;
+      }
+
+      // Si la URL inicial (p.ej. de Continuar viendo) expiró, intentar resolución rápida en paralelo primero
+      if (_consecutiveServerFailures == 1 && widget.videoUrl.isNotEmpty) {
+        try {
+          final playable = await _serverLoader.resolvePlayable(
+            contentId: _resolvedId,
+            isMovie: _mediaType != 'tv',
+            season: widget.temporada ?? 0,
+            episode: widget.capitulo ?? 0,
+            context: mounted ? context : null,
+          );
+          if (!mounted || _isDisposing) return;
+          if (playable != null &&
+              playable.url.isNotEmpty &&
+              playable.url != _activeUrl) {
+            await _startControllerWithUrl(playable.url, playable.headers);
+            return;
+          }
+        } catch (_) {}
+      }
+
+      // Si llegamos con m3u8 directo y no hay cola, prepararla ahora
+      if (_fallbackServers.isEmpty) {
+        await _prepareFallbackServers(_activeUrl);
+        _fallbackIndex = -1; // se incrementa abajo
+      }
+
+      // Avanzar índice
+      _fallbackIndex++;
+
+      while (_fallbackIndex < _fallbackServers.length) {
+        if (!mounted || _isDisposing) return;
+        // Si el reproductor actual ya empezó a reproducir sin error mientras esperábamos, abortar el cambio.
+        if (_controllerReady &&
+            !_controller.value.hasError &&
+            (_controller.value.isPlaying ||
+                _controller.value.position.inMilliseconds > 0)) {
+          _stopLoadingTimer();
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _isSwitchingServerNotice = false;
+            });
+          }
+          return;
+        }
+        final srv = _fallbackServers[_fallbackIndex];
+        try {
+          final playable = await _serverLoader.tryResolveServer(
+            srv,
+            context: mounted ? context : null,
+          );
+          if (!mounted || _isDisposing) return;
+          if (_controllerReady &&
+              !_controller.value.hasError &&
+              (_controller.value.isPlaying ||
+                  _controller.value.position.inMilliseconds > 0)) {
+            _stopLoadingTimer();
+            setState(() {
+              _isLoading = false;
+              _isSwitchingServerNotice = false;
+            });
+            return;
+          }
+          if (playable != null &&
+              playable.url.isNotEmpty &&
+              playable.url != _activeUrl) {
+            await _startControllerWithUrl(playable.url, playable.headers);
+            return;
+          }
+        } catch (_) {}
+        _serverLoader.markServerAsInvalid(srv);
+        _fallbackIndex++;
+      }
+
+      // Sin más servidores
       if (!mounted || _isDisposing) return;
       _stopLoadingTimer();
       setState(() {
@@ -1209,48 +1364,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
             : 'Ningún servidor disponible para este contenido.';
       });
       _showAllServersFailedDialog();
-      return;
+    } finally {
+      _isTryingNextServer = false;
     }
-
-    // Si llegamos con m3u8 directo y no hay cola, prepararla ahora
-    if (_fallbackServers.isEmpty) {
-      await _prepareFallbackServers(_activeUrl);
-      _fallbackIndex = -1; // se incrementa abajo
-    }
-
-    // Avanzar índice
-    _fallbackIndex++;
-
-    while (_fallbackIndex < _fallbackServers.length) {
-      final srv = _fallbackServers[_fallbackIndex];
-      try {
-        final playable = await _serverLoader.tryResolveServer(
-          srv,
-          context: mounted ? context : null,
-        );
-        if (playable != null &&
-            playable.url.isNotEmpty &&
-            playable.url != _activeUrl) {
-          await _startControllerWithUrl(playable.url, playable.headers);
-          return;
-        }
-      } catch (_) {}
-      _serverLoader.markServerAsInvalid(srv);
-      _fallbackIndex++;
-    }
-
-    // Sin más servidores
-    if (!mounted || _isDisposing) return;
-    _stopLoadingTimer();
-    setState(() {
-      _isLoading = false;
-      _isSwitchingServerNotice = false;
-      _allServersFailed = true;
-      _errorMessage = reason != null && reason.isNotEmpty
-          ? 'Ningún servidor funcionó.\n$reason'
-          : 'Ningún servidor disponible para este contenido.';
-    });
-    _showAllServersFailedDialog();
   }
 
   String _cleanSearchQuery(String raw) {
@@ -2549,8 +2665,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     bool needsSetState = false;
 
-    // Si ya comenzó a reproducir (>300ms de posición), cancelar watchdog y ocultar aviso
-    if (!widget.isLive && (_isSwitchingServerNotice || _vodWatchdogTimer != null) && newPlaying && nowMs > 300) {
+    // Si ya comenzó a reproducir o cargó pistas de video válidas, cancelar watchdog y ocultar aviso
+    if (!widget.isLive &&
+        (_isSwitchingServerNotice || _vodWatchdogTimer != null) &&
+        !value.hasError &&
+        (newPlaying || nowMs > 0 || value.size.width > 0 || newDuration > Duration.zero)) {
       _consecutiveServerFailures = 0;
       _stopLoadingTimer();
       _vodWatchdogTimer?.cancel();
@@ -2699,6 +2818,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!_controllerReady) return;
     if (_controller.value.isPlaying) {
       _controller.pause();
+      unawaited(_saveCache());
     } else {
       _controller.play();
     }
@@ -3098,12 +3218,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _loadingLongTimer?.cancel();
     _vodWatchdogTimer?.cancel();
     _audioCheckTimer?.cancel();
+    _cacheTimer?.cancel();
     _reconnectTimer?.cancel();
     _reconnectCountdownTimer?.cancel();
     _hideControlsTimer?.cancel();
     _positionNotifier.dispose();
 
-    _saveCache();
+    final int finalPos = (_controllerReady && _controller.value.isInitialized)
+        ? _controller.value.position.inSeconds
+        : _currentPosition.inSeconds;
+    final int finalDur = (_controllerReady && _controller.value.isInitialized)
+        ? _controller.value.duration.inSeconds
+        : _totalDuration.inSeconds;
+
+    _saveCache(snapshotPos: finalPos, snapshotDur: finalDur);
     if (_controllerReady) {
       _controller.removeListener(_videoListener);
       _controller.dispose();
@@ -3944,9 +4072,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
               ),
 
-            // ── Bloque C: Banner publicitario periódico (cada 40 min durante 5s) ──
-            if (!_isLoading && _errorMessage.isEmpty)
+            // ── Bloque C: Banner publicitario periódico (15m en series / 30m en películas durante 5s) ──
+            if (!_isLoading && _errorMessage.isEmpty && !widget.isLive)
               PeriodicAdOverlay(
+                isSeries: _mediaType == 'tv',
                 isPaused: !_isPlaying,
                 isTv: false,
               ),

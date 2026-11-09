@@ -31,9 +31,7 @@ import '../../../../data/scrapers/base/registry.dart';
 import '../../../../data/scrapers/base/buscador.dart';
 import '../../../discover/domain/mobile/derivar.dart';
 import '../../../live_tv/data/live_tv_service.dart';
-import '../../../live_tv/domain/channel.dart';
 import '../../../../core/services/cast_service.dart';
-import '../../../../core/services/dlna_helper.dart';
 import '../widgets/dlna_casting_overlay.dart';
 class _SubtitleCue {
   final Duration start;
@@ -102,7 +100,6 @@ class _SegmentedVideoTrackShape extends SliderTrackShape
 
     final cy = trackRect.center.dy;
     final left = trackRect.left;
-    final right = trackRect.right;
     final width = trackRect.width;
     if (width <= 0) return;
 
@@ -286,6 +283,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _audioCheckTimer;
   bool _isSwitchingServerNotice = false;
   bool _isResolving = false;
+  bool _isTryingNextServer = false;
   bool _allServersFailed = false;
   int _consecutiveServerFailures = 0;
   Timer? _loadingLongTimer;
@@ -468,8 +466,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _subtitleBold = false;
   double _subtitleVerticalOffset = 0.0;
   String? _currentSubtitleId;
-  String? _currentSubtitleUrl;
-  String? _currentSubtitleLang;
 
   Timer? _seekHoldTimer;
   int _seekHoldDirection = 0;
@@ -735,13 +731,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   double _nextThresholdPct = 0.95;
 
-  int _seekRepeatCount = 0;
-  DateTime? _lastSeekKeyAt;
-
   Map<String, int> _episodeProgress = {};
   Map<String, int> _recoProgress = {};
 
-  String _getCacheKey() {
+  String _getBaseCacheKey() {
     if (widget.tipo == 'tv' &&
         widget.temporada != null &&
         widget.capitulo != null) {
@@ -750,7 +743,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return 'cachePlayer_${widget.idcontenido}';
   }
 
-  String _getCacheKeyRapido() {
+  String _getBaseCacheKeyRapido() {
     if (widget.tipo == 'tv' &&
         widget.temporada != null &&
         widget.capitulo != null) {
@@ -758,6 +751,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     return 'cachePlayerRapido_${widget.idcontenido}';
   }
+
+  String _getCacheKey() =>
+      AppDatabase.instance.scopedPrefsKey(_getBaseCacheKey());
+
+  String _getCacheKeyRapido() =>
+      AppDatabase.instance.scopedPrefsKey(_getBaseCacheKeyRapido());
 
   String _optimizeTmdbUrl(String? url, {String size = 'w500'}) {
     if (url == null || url.isEmpty) return '';
@@ -819,6 +818,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     FocusManager.instance.addListener(_onGlobalFocusChanged);
     CastService.instance.stateNotifier.addListener(_onTvCastStateChanged);
+    _startClock();
     _startCacheTimer();
     _resetScreensaverTimer();
     WidgetsBinding.instance.addPostFrameCallback((_) => _claimPlayerFocus());
@@ -900,8 +900,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _startCacheTimer() {
     _cacheTimer?.cancel();
-    _cacheTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      if (mounted && !_isDisposing && _controllerReady) {
+    _cacheTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted && !_isDisposing && _controllerReady && !widget.isLive) {
         _saveCache();
       }
     });
@@ -920,50 +920,81 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
   }
 
-  Future<void> _saveCache() async {
-    if (!_controllerReady || !_controller.value.isInitialized) return;
+  Future<void> _saveCache({int? snapshotPos, int? snapshotDur}) async {
+    if (widget.isLive || widget.idcontenido <= 0) return;
 
-    final prefs = await SharedPreferences.getInstance();
-    final pos = _controller.value.position.inSeconds;
+    int pos = snapshotPos ?? 0;
+    int dur = snapshotDur ?? 0;
+    if (snapshotPos == null) {
+      if (!_controllerReady || !_controller.value.isInitialized) {
+        pos = _currentPosition.inSeconds;
+        dur = _totalDuration.inSeconds;
+      } else {
+        pos = _controller.value.position.inSeconds;
+        dur = _controller.value.duration.inSeconds;
+      }
+    }
+    if (pos < 5) return;
 
     String? backdrop;
+    String? poster;
     if (_apiData != null) {
       final b = _apiData!['backdrop'] ?? _apiData!['backdrop_path'];
       if (b is String && b.isNotEmpty) {
         backdrop = _optimizeTmdbUrl(b, size: 'w780');
       }
+      final p = _apiData!['poster'] ?? _apiData!['poster_path'];
+      if (p is String && p.isNotEmpty) {
+        poster = _optimizeTmdbUrl(p, size: 'w500');
+      }
     }
     backdrop ??= _backdropUrl;
+    poster ??= backdrop;
 
+    final String effectiveTitle =
+        _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo;
+    final String effectiveUrl =
+        _activeUrl.isNotEmpty ? _activeUrl : widget.videoUrl;
+    final String epId = widget.temporada != null && widget.capitulo != null
+        ? 'T${widget.temporada}_C${widget.capitulo}'
+        : 'movie';
+
+    await AppDatabase.instance.saveHistory(
+      contenidoId: widget.idcontenido,
+      episodioId: epId,
+      progresoSegundos: pos,
+      duracionTotal: dur,
+      temporada: widget.temporada,
+      capitulo: widget.capitulo,
+      titulo: effectiveTitle,
+      poster: poster,
+      backdrop: backdrop,
+      tipo: widget.tipo,
+      videoUrl: effectiveUrl,
+      idioma: _idioma,
+      servidorUrl: _servidorUrl,
+      servidorNombre: _servidorNombre,
+      tmdbId: widget.tmdbId ?? widget.idcontenido,
+    );
+
+    final prefs = await SharedPreferences.getInstance();
     final full = {
       'idcontenido': widget.idcontenido,
+      'tmdb_id': widget.tmdbId ?? widget.idcontenido,
       'temporada': widget.temporada,
       'capitulo': widget.capitulo,
       'segundo': pos,
-      'titulo': _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
+      'duracion_total': dur,
+      'total': dur,
+      'titulo': effectiveTitle,
       'tipo': widget.tipo,
-      'videoUrl': widget.videoUrl,
-      'poster': backdrop ?? '',
+      'videoUrl': effectiveUrl,
+      'idioma': _idioma,
+      'poster': poster ?? '',
       'backdrop': backdrop ?? '',
       'timestamp': DateTime.now().toIso8601String(),
     };
     await prefs.setString(_getCacheKey(), jsonEncode(full));
-
-    AppDatabase.instance.saveHistory(
-      contenidoId: widget.idcontenido,
-      episodioId: widget.temporada != null && widget.capitulo != null
-          ? 'T${widget.temporada}_C${widget.capitulo}'
-          : 'movie',
-      progresoSegundos: pos,
-      duracionTotal: _controller.value.duration.inSeconds,
-      temporada: widget.temporada,
-      capitulo: widget.capitulo,
-      titulo: _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
-      poster: backdrop,
-      tipo: widget.tipo,
-      videoUrl: widget.videoUrl,
-      tmdbId: widget.tmdbId ?? widget.idcontenido,
-    );
 
     final rapido = {
       'idcontenido': widget.idcontenido,
@@ -974,15 +1005,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
     await prefs.setString(_getCacheKeyRapido(), jsonEncode(rapido));
 
     GuardadosBus.bump();
+    HistorialBus.bump();
   }
 
   Future<int?> _getSavedPosition() async {
+    final epId = (widget.tipo == 'tv' &&
+            widget.temporada != null &&
+            widget.capitulo != null)
+        ? 'T${widget.temporada}_C${widget.capitulo}'
+        : 'movie';
+
+    // 1. Consultar primero Sembast del perfil activo
+    final histItem = await AppDatabase.instance.getHistoryItem(
+      widget.idcontenido,
+      episodioId: epId,
+    );
+    if (histItem != null) {
+      final sec = (histItem['segundo'] as num?)?.toInt() ??
+          (histItem['progreso_segundos'] as num?)?.toInt();
+      if (sec != null && sec > 5) return sec;
+    }
+
+    // 2. Consultar SharedPreferences aislado por perfil
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_getCacheKeyRapido());
+    final raw = prefs.getString(_getCacheKeyRapido()) ??
+        prefs.getString(_getCacheKey());
     if (raw == null) return null;
     try {
       final data = jsonDecode(raw);
-      return data['segundo'] as int?;
+      return (data['segundo'] as num?)?.toInt();
     } catch (_) {
       return null;
     }
@@ -990,21 +1041,41 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _loadEpisodeProgress() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       final map = <String, int>{};
+
+      // 1. Leer de Sembast por perfil activo
+      final records = await AppDatabase.instance.getHistoryForContent(
+        widget.idcontenido,
+      );
+      for (final item in records) {
+        final tNum = item['temporada'];
+        final cNum = item['capitulo'];
+        final sec = (item['segundo'] as num?)?.toInt() ??
+            (item['progreso_segundos'] as num?)?.toInt();
+        if (tNum != null && cNum != null && sec != null && sec > 5) {
+          map['T${tNum}_C$cNum'] = sec;
+        }
+      }
+
+      // 2. Complementar con SharedPreferences aislado por perfil
+      final prefs = await SharedPreferences.getInstance();
       for (final temp in _temporadas) {
         final tNum = temp['numero'];
         final caps = temp['capitulos'] as List? ?? [];
         for (final cap in caps) {
           final cNum = cap['numero'];
-          final key = 'cachePlayerRapido_${widget.idcontenido}_T${tNum}_C$cNum';
+          final epKey = 'T${tNum}_C$cNum';
+          if (map.containsKey(epKey)) continue;
+          final key = AppDatabase.instance.scopedPrefsKey(
+            'cachePlayerRapido_${widget.idcontenido}_$epKey',
+          );
           final raw = prefs.getString(key);
           if (raw != null) {
             try {
               final data = jsonDecode(raw);
-              final sec = data['segundo'] as int?;
+              final sec = (data['segundo'] as num?)?.toInt();
               if (sec != null && sec > 5) {
-                map['T${tNum}_C$cNum'] = sec;
+                map[epKey] = sec;
               }
             } catch (_) {}
           }
@@ -1020,21 +1091,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _loadRecoProgress() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       final map = <String, int>{};
+      final history = await AppDatabase.instance.getHistory(
+        deduplicateSeries: true,
+      );
+      final byId = <int, int>{};
+      for (final h in history) {
+        final id = (h['idcontenido'] as num?)?.toInt() ?? 0;
+        final sec = (h['segundo'] as num?)?.toInt() ?? 0;
+        if (id > 0 && sec > 5) byId[id] = sec;
+      }
+
       for (final rec in _recomendaciones) {
-        final id = rec['idcontenido'];
+        final id = (rec['idcontenido'] as num?)?.toInt();
         if (id == null) continue;
-        final key = 'cachePlayerRapido_$id';
-        final raw = prefs.getString(key);
-        if (raw != null) {
-          try {
-            final data = jsonDecode(raw);
-            final sec = data['segundo'] as int?;
-            if (sec != null && sec > 5) {
-              map['id_$id'] = sec;
-            }
-          } catch (_) {}
+        final sec = byId[id];
+        if (sec != null && sec > 5) {
+          map['id_$id'] = sec;
         }
       }
       if (mounted && !_isDisposing) {
@@ -1140,6 +1213,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _loadIntroSkip();
       _loadEpisodeProgress();
       if (_recomendaciones.isNotEmpty) _loadRecoProgress();
+      if (_controllerReady && _controller.value.position.inSeconds >= 5) {
+        unawaited(_saveCache());
+      }
     } catch (e, st) {
       debugPrint('Error cargando TMDB Player: $e');
       debugPrint(st.toString());
@@ -1541,8 +1617,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (_recomendaciones.isEmpty) return;
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final allKeys = prefs.getKeys();
+      final historyList = await AppDatabase.instance.getHistory(
+        deduplicateSeries: true,
+      );
+      final histById = <int, Map<String, dynamic>>{};
+      for (final h in historyList) {
+        final id = (h['idcontenido'] as num?)?.toInt() ?? 0;
+        if (id > 0) histById[id] = h;
+      }
+
       final kept = <dynamic>[];
 
       for (final rec in _recomendaciones) {
@@ -1559,36 +1642,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
           continue;
         }
 
-        int? segundo;
-        int? duracion;
-        String bestTs = '';
-
-        for (final key in allKeys) {
-          final isMatch = key == 'cachePlayer_$idInt' ||
-              key == 'cachePlayerRapido_$idInt' ||
-              key.startsWith('cachePlayer_${idInt}_') ||
-              key.startsWith('cachePlayerRapido_${idInt}_');
-          if (!isMatch) continue;
-
-          final raw = prefs.getString(key);
-          if (raw == null || raw.isEmpty) continue;
-          try {
-            final data = Map<String, dynamic>.from(jsonDecode(raw));
-            final s = (data['segundo'] as num?)?.toInt();
-            if (s == null || s < 5) continue;
-            final d = (data['duracion'] as num?)?.toInt() ??
-                (data['duration'] as num?)?.toInt();
-            final ts = data['timestamp']?.toString() ?? '';
-            final newer = segundo == null ||
-                (ts.isNotEmpty && ts.compareTo(bestTs) > 0) ||
-                (ts.isEmpty && s > (segundo ?? 0));
-            if (newer) {
-              segundo = s;
-              duracion = d ?? duracion;
-              bestTs = ts;
-            }
-          } catch (_) {}
-        }
+        final hist = histById[idInt];
+        final segundo = (hist?['segundo'] as num?)?.toInt() ??
+            (hist?['progreso_segundos'] as num?)?.toInt();
+        final duracion = (hist?['duracion_total'] as num?)?.toInt() ??
+            (hist?['total'] as num?)?.toInt();
 
         if (segundo != null && segundo > 0) {
           final total =
@@ -1695,6 +1753,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       if (url == null || url.isEmpty) {
+        if (!widget.isLive && _fallbackServers.isNotEmpty) {
+          _fallbackIndex = -1;
+          await _tryNextServer(reason: 'Buscando servidor disponible...');
+          return;
+        }
         if (!mounted || _isDisposing) return;
         setState(() {
           _isLoading = false;
@@ -1793,11 +1856,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       _controller.addListener(_videoListener);
       _controllerReady = true;
-      if (widget.initialPosition != null && widget.initialPosition! > Duration.zero) {
-        try {
-          await _controller.seekTo(widget.initialPosition!);
-        } catch (_) {}
-      }
       _currentQualityLabel = 'Auto';
       _currentQualityUrl = null;
       if (_apiData == null && !widget.isLive) {
@@ -1837,37 +1895,75 @@ class _PlayerScreenState extends State<PlayerScreen> {
         });
       }
 
-      // ── Watchdog de 8 segundos para VOD y Live TV ───────────────────────
+      // ── Cancelar watchdog previo mientras configuramos posición e inicio ─
       _vodWatchdogTimer?.cancel();
+      _vodWatchdogTimer = null;
+
       if (!widget.isLive) {
-        _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
+        int? resumeSec = _currentPosition.inSeconds > 5
+            ? _currentPosition.inSeconds
+            : await _getSavedPosition();
+        if ((resumeSec == null || resumeSec <= 5) &&
+            widget.initialPosition != null &&
+            widget.initialPosition!.inSeconds > 5) {
+          resumeSec = widget.initialPosition!.inSeconds;
+        }
+        if (resumeSec != null && resumeSec > 5) {
+          await _controller.seekTo(Duration(seconds: resumeSec));
+        }
+      }
+
+      if (!mounted || _isDisposing) return;
+      _stopLoadingTimer();
+      setState(() {
+        _isLoading = false;
+        _isSwitchingServerNotice = false;
+        _totalDuration = _controller.value.duration;
+        _errorMessage = '';
+        _recalcularHoraFin();
+        _isPlaying = true;
+      });
+      await _controller.play();
+      _keepScreenOn();
+      _resetScreensaverTimer();
+      WidgetsBinding.instance.addPostFrameCallback((_) => _claimPlayerFocus());
+
+      // ── Watchdog de 12 segundos para VOD y 8s para Live TV (tras play) ──
+      if (!widget.isLive) {
+        _vodWatchdogTimer = Timer(const Duration(seconds: 12), () {
           if (!mounted || _isDisposing || widget.isLive) return;
           final castState = CastService.instance.state;
           if (castState == CastState.casting || castState == CastState.connected) {
             return;
           }
-          final pos = _controllerReady ? _controller.value.position.inMilliseconds : 0;
-          final playing = _controllerReady && _controller.value.isPlaying;
-          final hasError = _controllerReady && _controller.value.hasError;
-          if (!playing || pos < 300 || hasError || !_controllerReady) {
-            debugPrint('[TV VOD Watchdog] Servidor tardó más de 8s sin reproducir. Cambiando servidor...');
-            if (mounted) {
-              setState(() {
-                _isSwitchingServerNotice = true;
-              });
-            }
-            if (_fallbackIndex < _fallbackServers.length) {
-              _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
-            }
-            _serverLoader.markUrlAsInvalid(_activeUrl);
-            _serverLoader.invalidateEpisodeWin(
-              contentId: widget.tmdbId ?? widget.idcontenido,
-              isMovie: widget.tipo.toLowerCase() != 'tv',
-              season: widget.temporada ?? 0,
-              episode: widget.capitulo ?? 0,
-            );
-            _tryNextServer(reason: 'El servidor tardó más de 8s en iniciar reproducción');
+          final isWorking = _controllerReady &&
+              !_controller.value.hasError &&
+              (_hasStartedPlaying ||
+                  _controller.value.isPlaying ||
+                  _controller.value.isBuffering ||
+                  _controller.value.position.inMilliseconds > 0 ||
+                  _controller.value.size.width > 0 ||
+                  _controller.value.duration > Duration.zero);
+          if (isWorking) {
+            return;
           }
+          debugPrint('[TV VOD Watchdog] Servidor sin señal ni metadatos tras 12s. Cambiando servidor...');
+          if (mounted) {
+            setState(() {
+              _isSwitchingServerNotice = true;
+            });
+          }
+          if (_fallbackIndex < _fallbackServers.length) {
+            _serverLoader.markServerAsInvalid(_fallbackServers[_fallbackIndex]);
+          }
+          _serverLoader.markUrlAsInvalid(_activeUrl);
+          _serverLoader.invalidateEpisodeWin(
+            contentId: widget.tmdbId ?? widget.idcontenido,
+            isMovie: widget.tipo.toLowerCase() != 'tv',
+            season: widget.temporada ?? 0,
+            episode: widget.capitulo ?? 0,
+          );
+          _tryNextServer(reason: 'El servidor no respondió a tiempo');
         });
       } else {
         _vodWatchdogTimer = Timer(const Duration(seconds: 8), () {
@@ -1891,25 +1987,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
         });
       }
-
-      final saved = await _getSavedPosition();
-      if (saved != null && saved > 5) {
-        await _controller.seekTo(Duration(seconds: saved));
-      }
-
-      if (!mounted || _isDisposing) return;
-      _stopLoadingTimer();
-      setState(() {
-        _isLoading = false;
-        _totalDuration = _controller.value.duration;
-        _errorMessage = '';
-        _recalcularHoraFin();
-        _isPlaying = true;
-      });
-      await _controller.play();
-      _keepScreenOn();
-      _resetScreensaverTimer();
-      WidgetsBinding.instance.addPostFrameCallback((_) => _claimPlayerFocus());
     } catch (e) {
       _stopLoadingTimer();
       debugPrint('Error al reproducir URL TV: $e');
@@ -1960,19 +2037,104 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _tryNextServer({String? reason}) async {
-    if (!mounted || _isDisposing) return;
-    
-    _serverLoader.cancelCurrentRequests();
+    if (!mounted || _isDisposing || _isTryingNextServer) return;
+    _isTryingNextServer = true;
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
-    _startLoadingTimer();
-    _consecutiveServerFailures++;
+    try {
+      _serverLoader.cancelCurrentRequests();
 
-    // Dar más margen de intentos fallidos antes de rendirnos (10 en lugar de 3)
-    if (_consecutiveServerFailures >= 10) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = '';
+      });
+      _startLoadingTimer();
+      _consecutiveServerFailures++;
+
+      // Dar más margen de intentos fallidos antes de rendirnos (10 en lugar de 3)
+      if (_consecutiveServerFailures >= 10) {
+        if (!mounted || _isDisposing) return;
+        _stopLoadingTimer();
+        setState(() {
+          _isLoading = false;
+          _isSwitchingServerNotice = false;
+          _allServersFailed = true;
+          _errorMessage = reason != null && reason.isNotEmpty
+              ? 'Ningún servidor funcionó.\n$reason'
+              : 'Ningún servidor disponible para este contenido.';
+        });
+        _showAllServersFailedDialog();
+        return;
+      }
+
+      // Si la URL inicial (p.ej. de Continuar viendo) expiró, intentar resolución rápida en paralelo primero
+      if (_consecutiveServerFailures == 1 && widget.videoUrl.isNotEmpty) {
+        try {
+          final playable = await _serverLoader.resolvePlayable(
+            contentId: widget.tmdbId ?? widget.idcontenido,
+            isMovie: widget.tipo.toLowerCase() != 'tv',
+            season: widget.temporada ?? 0,
+            episode: widget.capitulo ?? 0,
+            context: mounted ? context : null,
+          );
+          if (!mounted || _isDisposing) return;
+          if (playable != null &&
+              playable.url.isNotEmpty &&
+              playable.url != _activeUrl) {
+            await _startControllerWithUrl(playable.url, playable.headers);
+            return;
+          }
+        } catch (_) {}
+      }
+
+      if (_fallbackServers.isEmpty) {
+        await _prepareFallbackServersTv(_activeUrl);
+        _fallbackIndex = -1;
+      }
+
+      _fallbackIndex++;
+      while (_fallbackIndex < _fallbackServers.length) {
+        if (!mounted || _isDisposing) return;
+        if (_controllerReady &&
+            !_controller.value.hasError &&
+            (_controller.value.isPlaying ||
+                _controller.value.position.inMilliseconds > 0)) {
+          _stopLoadingTimer();
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+              _isSwitchingServerNotice = false;
+            });
+          }
+          return;
+        }
+        final srv = _fallbackServers[_fallbackIndex];
+        try {
+          final playable = await _serverLoader.tryResolveServer(
+            srv,
+            context: mounted ? context : null,
+          );
+          if (!mounted || _isDisposing) return;
+          if (_controllerReady &&
+              !_controller.value.hasError &&
+              (_controller.value.isPlaying ||
+                  _controller.value.position.inMilliseconds > 0)) {
+            _stopLoadingTimer();
+            setState(() {
+              _isLoading = false;
+              _isSwitchingServerNotice = false;
+            });
+            return;
+          }
+          if (playable != null &&
+              playable.url.isNotEmpty &&
+              playable.url != _activeUrl) {
+            await _startControllerWithUrl(playable.url, playable.headers);
+            return;
+          }
+        } catch (_) {}
+        _serverLoader.markServerAsInvalid(srv);
+        _fallbackIndex++;
+      }
       if (!mounted || _isDisposing) return;
       _stopLoadingTimer();
       setState(() {
@@ -1984,43 +2146,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
             : 'Ningún servidor disponible para este contenido.';
       });
       _showAllServersFailedDialog();
-      return;
+    } finally {
+      _isTryingNextServer = false;
     }
-
-    if (_fallbackServers.isEmpty) {
-      await _prepareFallbackServersTv(_activeUrl);
-      _fallbackIndex = -1;
-    }
-
-    _fallbackIndex++;
-    while (_fallbackIndex < _fallbackServers.length) {
-      final srv = _fallbackServers[_fallbackIndex];
-      try {
-        final playable = await _serverLoader.tryResolveServer(
-          srv,
-          context: mounted ? context : null,
-        );
-        if (playable != null &&
-            playable.url.isNotEmpty &&
-            playable.url != _activeUrl) {
-          await _startControllerWithUrl(playable.url, playable.headers);
-          return;
-        }
-      } catch (_) {}
-      _serverLoader.markServerAsInvalid(srv);
-      _fallbackIndex++;
-    }
-    if (!mounted || _isDisposing) return;
-    _stopLoadingTimer();
-    setState(() {
-      _isLoading = false;
-      _isSwitchingServerNotice = false;
-      _allServersFailed = true;
-      _errorMessage = reason != null && reason.isNotEmpty
-          ? 'Ningún servidor funcionó.\n$reason'
-          : 'Ningún servidor disponible para este contenido.';
-    });
-    _showAllServersFailedDialog();
   }
 
   String _cleanSearchQuery(String raw) {
@@ -2282,8 +2410,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final dur = value.duration;
     bool needsSetState = false;
 
-    // Si ya comenzó a reproducir (>300ms de posición), cancelar watchdog y ocultar aviso
-    if (!widget.isLive && (_isSwitchingServerNotice || _vodWatchdogTimer != null) && newPlaying && nowMs > 300) {
+    // Si ya comenzó a reproducir o cargó pistas de video válidas, cancelar watchdog y ocultar aviso
+    if (!widget.isLive &&
+        (_isSwitchingServerNotice || _vodWatchdogTimer != null) &&
+        !value.hasError &&
+        (newPlaying || nowMs > 0 || value.size.width > 0 || newDuration > Duration.zero)) {
       _consecutiveServerFailures = 0;
       _stopLoadingTimer();
       _vodWatchdogTimer?.cancel();
@@ -2482,11 +2613,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _scheduleHideControls();
     _resetScreensaverTimer();
     _maybeReshowNextPromptOnControls();
-  }
-
-  /// El auto-hide lo gestiona NextEpisodePrompt (barra 10s). Aquí solo re-mostrar.
-  void _scheduleNextPromptAutoHide() {
-    // no-op: el widget tiene el timer interno
   }
 
   /// Al mostrar controles (o toolbar), si estamos en zona de outro y hay siguiente, re-mostrar.
@@ -2963,11 +3089,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _resetScreensaverTimer();
   }
 
-  void _toggleSubtitles() {
-    setState(() => _subtitlesEnabled = !_subtitlesEnabled);
-    _scheduleHideControls();
-  }
-
   Future<void> _loadSubtitlePrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -3039,8 +3160,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState(() {
         _subtitleCues = cues;
         _currentSubtitleId = id;
-        _currentSubtitleUrl = url;
-        if (lang != null) _currentSubtitleLang = lang;
         _subtitlesEnabled = enable;
         _currentSubtitleText = '';
       });
@@ -3137,7 +3256,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _subtitlesEnabled = false;
           _currentSubtitleText = '';
           _currentSubtitleId = null;
-          _currentSubtitleUrl = null;
         });
         _clearActiveSubtitleCache();
       },
@@ -3849,90 +3967,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       },
     );
   }
-
-  Future<void> _switchToSpecificServerTv(Map<String, dynamic> targetServer) async {
-    final targetPosition = _controllerReady ? _controller.value.position : _currentPosition;
-    final previousUrl = _activeUrl;
-    final previousHeaders = _controllerReady ? _activeHeaders : <String, String>{};
-    final wasPlaying = _isPlaying;
-
-    setState(() {
-      _isLoading = true;
-      _errorMessage = '';
-    });
-
-    try {
-      final playable = await _serverLoader.tryResolveServer(
-        targetServer,
-        context: mounted ? context : null,
-      ).timeout(const Duration(seconds: 25));
-
-      if (playable != null && playable.url.isNotEmpty) {
-        _activeUrl = playable.url;
-        _activeHeaders = playable.headers;
-        _idioma = playable.idioma;
-        _servidorUrl = targetServer['servidor_url']?.toString() ?? '';
-        _servidorNombre = targetServer['servidor_nombre']?.toString() ??
-            targetServer['fuente_label']?.toString() ??
-            targetServer['server']?.toString() ??
-            '';
-
-        final others = _fallbackServers.where((s) => s != targetServer).toList();
-        _fallbackServers = [targetServer, ...others];
-        _fallbackIndex = 0;
-
-        await AppDatabase.instance.setCachedServerStatus(
-          _serverKey(targetServer),
-          isValid: true,
-          hasAudio: targetServer['sin_audio'] != true && targetServer['has_audio'] != false,
-        );
-
-        await _startControllerWithUrl(playable.url, playable.headers);
-        if (_controllerReady) {
-          await _controller.seekTo(targetPosition);
-          if (wasPlaying) {
-            await _controller.play();
-          }
-        }
-        return;
-      } else {
-        throw Exception('Servidor no devolvió stream válido');
-      }
-    } catch (e) {
-      debugPrint('[TvPlayerPage] Error al cambiar a servidor específico: $e');
-      _serverLoader.markServerAsInvalid(targetServer);
-      await AppDatabase.instance.setCachedServerStatus(
-        _serverKey(targetServer),
-        isValid: false,
-        hasAudio: false,
-      );
-
-      // Reanudar inmediatamente con el servidor anterior para no dejar al usuario en pantalla de error
-      if (previousUrl.isNotEmpty) {
-        try {
-          await _startControllerWithUrl(previousUrl, previousHeaders);
-          if (_controllerReady) {
-            await _controller.seekTo(targetPosition);
-            if (wasPlaying) {
-              await _controller.play();
-            }
-          }
-        } catch (_) {}
-      }
-
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No se pudo cambiar el idioma. Intenta con otro servidor.'),
-            backgroundColor: Color(0xFFD32F2F),
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-    }
-  }
-
 
   void _openInfoModal() {
     _hideControlsTimer?.cancel();
@@ -4803,6 +4837,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     // Si ya se liberó el controller en _navigateToPlayer, no volver a dispose.
     try {
       if (_controllerReady) {
+        final int finalPos = _controller.value.isInitialized
+            ? _controller.value.position.inSeconds
+            : _currentPosition.inSeconds;
+        final int finalDur = _controller.value.isInitialized
+            ? _controller.value.duration.inSeconds
+            : _totalDuration.inSeconds;
+        _saveCache(snapshotPos: finalPos, snapshotDur: finalDur);
         _controller.removeListener(_videoListener);
         try {
           _controller.pause();
@@ -5358,9 +5399,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   },
                 ),
 
-              // ── Bloque C: Banner publicitario periódico (cada 40 min durante 5s) ──
-              if (!_isLoading && _errorMessage.isEmpty)
+              // ── Bloque C: Banner publicitario periódico (15m en series / 30m en películas durante 5s) ──
+              if (!_isLoading && _errorMessage.isEmpty && !widget.isLive)
                 PeriodicAdOverlay(
+                  isSeries: widget.tipo.toLowerCase() == 'tv',
                   isPaused: !_isPlaying,
                   isTv: true,
                 ),

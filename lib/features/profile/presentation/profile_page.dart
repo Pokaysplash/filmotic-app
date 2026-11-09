@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/services/guardados_bus.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../supabase/supabase_config.dart';
 import 'profile_selection_page.dart';
 
@@ -56,11 +58,15 @@ class PerfilPageState extends State<PerfilPage>
   void initState() {
     super.initState();
     _nodes = List.generate(4, (i) => FocusNode(debugLabel: 'perfil_$i'));
+    AppDatabase.instance.activeProfileNotifier.addListener(refresh);
+    HistorialBus.version.addListener(refresh);
     _load();
   }
 
   @override
   void dispose() {
+    AppDatabase.instance.activeProfileNotifier.removeListener(refresh);
+    HistorialBus.version.removeListener(refresh);
     for (final n in _nodes) {
       n.dispose();
     }
@@ -105,27 +111,26 @@ class PerfilPageState extends State<PerfilPage>
   }
 
   Future<_WatchStats> _loadStats() async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys =
-        prefs.getKeys().where((k) => k.startsWith('cachePlayer_')).toList();
-
     int totalSeconds = 0;
     int movies = 0;
     int episodes = 0;
     int sessions = 0;
 
-    for (final key in keys) {
+    final records = await AppDatabase.instance.getHistory(
+      deduplicateSeries: false,
+    );
+
+    for (final data in records) {
       try {
-        final raw = prefs.getString(key);
-        if (raw == null) continue;
-        final data = Map<String, dynamic>.from(jsonDecode(raw));
-        final segundo = data['segundo'] as int? ?? 0;
+        final segundo = (data['segundo'] as num?)?.toInt() ??
+            (data['progreso_segundos'] as num?)?.toInt() ??
+            0;
         if (segundo < 8) continue;
 
         totalSeconds += segundo;
         sessions++;
         final tipo = (data['tipo']?.toString() ?? 'movie').toLowerCase();
-        if (tipo == 'tv') {
+        if (tipo == 'tv' || data['temporada'] != null) {
           episodes++;
         } else {
           movies++;
@@ -246,75 +251,81 @@ class PerfilPageState extends State<PerfilPage>
           slivers: [
             const SliverToBoxAdapter(child: SizedBox(height: 80)),
 
-            if (_supabaseActive)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(40, 0, 40, 16),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 14,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1a1a2e),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: _kAccentColor.withOpacity(0.4)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.cloud_done_rounded,
-                                  color: _kAccentColor, size: 22),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'Supabase activo',
-                                      style: TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 12,
-                                      ),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(40, 0, 40, 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1a1a2e),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: _kAccentColor.withOpacity(0.4)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              _supabaseActive
+                                  ? Icons.cloud_done_rounded
+                                  : Icons.person_rounded,
+                              color: _kAccentColor,
+                              size: 22,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _supabaseActive ? 'Supabase activo' : 'Perfil activo',
+                                    style: const TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
                                     ),
-                                    Text(
-                                      _supabaseUserName ?? 'Perfil',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600,
-                                      ),
+                                  ),
+                                  Text(
+                                    AppDatabase.instance.activeProfile?.nombre ??
+                                        _supabaseUserName ??
+                                        'Perfil',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                ],
                               ),
-                              TextButton(
-                                onPressed: () async {
-                                  await Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => ProfileSelectionPage(
-                                        allowDismiss: true,
-                                        onProfileSelected: refresh,
-                                      ),
+                            ),
+                            TextButton(
+                              onPressed: () async {
+                                await Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => ProfileSelectionPage(
+                                      allowDismiss: true,
+                                      onProfileSelected: refresh,
                                     ),
-                                  );
-                                  refresh();
-                                },
-                                child: const Text(
-                                  'Cambiar perfil',
-                                  style: TextStyle(color: _kAccentColor),
-                                ),
+                                  ),
+                                );
+                                refresh();
+                              },
+                              child: const Text(
+                                'Cambiar perfil',
+                                style: TextStyle(color: _kAccentColor),
                               ),
-                            ],
-                          ),
+                            ),
+                          ],
                         ),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
+            ),
 
             SliverToBoxAdapter(
               key: _statsKey,

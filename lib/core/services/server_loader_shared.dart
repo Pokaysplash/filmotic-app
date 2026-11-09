@@ -185,8 +185,8 @@ class ServerLoader {
   /// Notificador reactivo del estado de conexión para feedback en UI
   static final ValueNotifier<String> statusNotifier = ValueNotifier<String>('');
 
-  final Set<String> _invalidUrls = {};
-  int _requestId = 0;
+  static final Set<String> _invalidUrls = {};
+  static int _requestId = 0;
 
   void cancelCurrentRequests() {
     _requestId++;
@@ -333,14 +333,21 @@ class ServerLoader {
     String? idioma,
     BuildContext? context,
     bool forceRefresh = false,
+    bool isBackground = false,
   }) async {
+    if (!isBackground) {
+      cancelCurrentRequests();
+    }
     await _ensureLoaded();
     final preferred = idioma ?? _prefs!.preferredIdiomaCode;
-    final order = _prefs!.idiomaFallbackOrder;
+    final order = <String>[
+      preferred,
+      ..._prefs!.idiomaFallbackOrder.where((c) => c != preferred),
+    ];
     final s = isMovie ? 0 : season;
     final e = isMovie ? 0 : episode;
 
-    // 0) Comprobar caché Sembast de servidor exitoso (TTL 30 min)
+    // 0) Comprobar caché Sembast de servidor exitoso (TTL 30 min) respetando idioma seleccionado
     if (!forceRefresh) {
       final cachedWin = await AppDatabase.instance.getSuccessfulServer(
         contentId: contentId,
@@ -349,20 +356,31 @@ class ServerLoader {
       );
       if (cachedWin != null && cachedWin['url'] != null) {
         final winUrl = cachedWin['url'].toString();
+        final cachedIdioma = MainFuentes.normalizeIdioma(cachedWin['idioma']?.toString());
         final isBlacklisted = await AppDatabase.instance.isServerBlacklisted(winUrl) ||
             _invalidUrls.contains(winUrl);
-        if (!isBlacklisted && winUrl.isNotEmpty) {
-          debugPrint('[ServerLoader] Hit Caché Sembast Win → ${cachedWin['server_name'] ?? 'Server'}');
-          return PlayableSource(
-            url: winUrl,
-            headers: Map<String, String>.from(cachedWin['headers'] ?? {}),
-            quality: cachedWin['quality']?.toString() ?? 'Auto',
-            serverName: cachedWin['server_name']?.toString() ?? 'Server',
-            idioma: cachedWin['idioma']?.toString() ?? 'LAT',
-            rawServer: cachedWin['raw_server'] is Map
-                ? Map<String, dynamic>.from(cachedWin['raw_server'])
-                : {},
+        if (!isBlacklisted && winUrl.isNotEmpty && cachedIdioma == preferred) {
+          final headers = Map<String, String>.from(cachedWin['headers'] ?? {});
+          final validation = await ServerPreValidationService.instance.validateUrl(
+            winUrl,
+            extraHeaders: headers,
+            timeout: const Duration(seconds: 3),
           );
+          if (validation.isValid) {
+            debugPrint('[ServerLoader] Hit Caché Sembast Win ($cachedIdioma) → ${cachedWin['server_name'] ?? 'Server'}');
+            return PlayableSource(
+              url: winUrl,
+              headers: headers,
+              quality: cachedWin['quality']?.toString() ?? 'Auto',
+              serverName: cachedWin['server_name']?.toString() ?? 'Server',
+              idioma: cachedIdioma,
+              rawServer: cachedWin['raw_server'] is Map
+                  ? Map<String, dynamic>.from(cachedWin['raw_server'])
+                  : {},
+            );
+          } else {
+            markUrlAsInvalid(winUrl);
+          }
         }
       }
     }
@@ -376,9 +394,18 @@ class ServerLoader {
 
     if (!forceRefresh) {
       final opt = await _loadCacheA(key);
-      if (opt != null && opt.url.isNotEmpty) {
-        debugPrint('[ServerLoader] Hit Caché A → ${opt.serverName}');
-        return opt;
+      if (opt != null && opt.url.isNotEmpty && !_invalidUrls.contains(opt.url)) {
+        final validation = await ServerPreValidationService.instance.validateUrl(
+          opt.url,
+          extraHeaders: opt.headers,
+          timeout: const Duration(seconds: 3),
+        );
+        if (validation.isValid) {
+          debugPrint('[ServerLoader] Hit Caché A → ${opt.serverName}');
+          return opt;
+        } else {
+          markUrlAsInvalid(opt.url);
+        }
       }
     }
 
@@ -406,10 +433,11 @@ class ServerLoader {
           episode: isMovie ? null : e,
         );
         if (backendServers.isNotEmpty) {
+          final filteredBackend = _filterByIdioma(backendServers, preferred);
           final playable = await _resolveServersInParallel(
-            backendServers,
+            filteredBackend.isNotEmpty ? filteredBackend : backendServers,
             context: context,
-            maxParallel: 3,
+            maxParallel: 6,
           );
           if (playable != null) {
             await _persistWin(
@@ -488,6 +516,7 @@ class ServerLoader {
         episode: episode,
         context: context,
         forceRefresh: false,
+        isBackground: true,
       );
     } catch (_) {}
   }
@@ -521,6 +550,7 @@ class ServerLoader {
         idioma: preferred,
         context: context,
         forceRefresh: false,
+        isBackground: true,
       );
 
       if (playable != null) {
@@ -604,9 +634,13 @@ class ServerLoader {
 
     if (collected.isEmpty) return null;
 
-    _sortServersByPriority(collected);
+    _sortServersByPriority(collected, preferredLang: preferred);
 
-    final effectiveOrder = [...order, 'Desconocido'];
+    final effectiveOrder = <String>[
+      preferred,
+      ...order.where((c) => c != preferred),
+      'Desconocido',
+    ];
     for (final code in effectiveOrder) {
       final forLang = collected.where((srv) {
         final idioma = MainFuentes.normalizeIdioma(srv['idioma']?.toString());
@@ -618,7 +652,8 @@ class ServerLoader {
       final playable = await _resolveServersInParallel(
         forLang,
         context: context,
-        maxParallel: 3,
+        maxParallel: 6,
+        webViewBudget: const Duration(seconds: 10),
       );
       if (playable != null) {
         await _persistWin(
@@ -643,16 +678,19 @@ class ServerLoader {
   Future<PlayableSource?> _resolveServersInParallel(
     List<Map<String, dynamic>> servers, {
     BuildContext? context,
-    int maxParallel = 3,
-    Duration webViewBudget = const Duration(seconds: 25),
+    int maxParallel = 6,
+    Duration webViewBudget = const Duration(seconds: 12),
   }) async {
     if (servers.isEmpty) return null;
+    final myId = _requestId;
+    bool isCancelled() => myId != _requestId;
 
     // Fase 1: resolución nativa (HTTP) en paralelo. No toca el WebView.
     final nativeMisses = <Map<String, dynamic>>[];
-    final parallel = maxParallel < 4 ? 4 : maxParallel;
+    final parallel = maxParallel < 6 ? 6 : maxParallel;
 
     for (int i = 0; i < servers.length; i += parallel) {
+      if (isCancelled()) return null;
       final chunk = servers
           .sublist(i, (i + parallel).clamp(0, servers.length))
           .where((s) => !_isInvalid(s))
@@ -663,9 +701,12 @@ class ServerLoader {
       var pending = chunk.length;
 
       for (final srv in chunk) {
-        tryResolveServer(srv, context: context, allowWebView: false)
-            .catchError((_) => null)
-            .then((playable) {
+        tryResolveServer(
+          srv,
+          context: context,
+          allowWebView: false,
+          isCancelled: isCancelled,
+        ).catchError((_) => null).then((playable) {
           if (completer.isCompleted) return;
           if (playable != null && playable.url.isNotEmpty) {
             completer.complete(playable);
@@ -678,7 +719,7 @@ class ServerLoader {
       }
 
       final result = await completer.future.timeout(
-        const Duration(seconds: 15),
+        const Duration(seconds: 7),
         onTimeout: () => null,
       );
       if (result != null) return result;
@@ -687,22 +728,21 @@ class ServerLoader {
     // Fase 2: fallback WebView, uno a uno (el extractor está serializado).
     // Snapshot: callbacks nativos tardíos podrían seguir agregando a la lista.
     final fallback = List<Map<String, dynamic>>.of(nativeMisses);
-    if (context == null || !context.mounted || fallback.isEmpty) {
-      for (final srv in fallback) {
-        markServerAsInvalid(srv);
-      }
+    if (isCancelled() || context == null || !context.mounted || fallback.isEmpty) {
       return null;
     }
 
     _sortServersByPriority(fallback);
     final budget = Stopwatch()..start();
     for (final srv in fallback) {
+      if (isCancelled()) break;
       if (budget.elapsed > webViewBudget) break;
       if (!context.mounted) break;
       final playable = await tryResolveServer(
         srv,
         context: context,
         allowNative: false,
+        isCancelled: isCancelled,
       ).catchError((_) => null);
       if (playable != null && playable.url.isNotEmpty) return playable;
       markServerAsInvalid(srv);
@@ -730,32 +770,42 @@ class ServerLoader {
     final webQueue = <Map<String, dynamic>>[];
     StreamSubscription<FuenteEvent>? sub;
     var resolved = false;
-    final myId = ++_requestId;
+    final myId = _requestId;
     bool isCancelled() => resolved || myId != _requestId;
     var isStreamDone = false;
     int activeWorkers = 0;
+    int activePreferredWorkers = 0;
     var webWorkerRunning = false;
     var webGraceElapsed = false;
-    const int maxParallel = 6;
+    var preferredGraceElapsed = false;
+    const int maxParallel = 8;
     // Tiempo que se le da a la fase nativa antes de empezar a usar WebView.
-    const webGrace = Duration(seconds: 6);
+    const webGrace = Duration(milliseconds: 2200);
+    // Ventana prioritaria para esperar al idioma seleccionado antes de aceptar otro idioma.
+    const preferredLangGrace = Duration(milliseconds: 4500);
     final totalStopwatch = Stopwatch()..start();
     int serversTestedCount = 0;
 
+    PlayableSource? bestFallbackPlayable;
+    Map<String, dynamic>? bestFallbackServer;
+    String bestFallbackPhase = 'nativo';
+
     statusNotifier.value = 'Conectando al mejor servidor...';
 
-    final feedbackTimer = Timer(const Duration(seconds: 5), () {
+    final feedbackTimer = Timer(const Duration(seconds: 4), () {
       if (!completer.isCompleted && !resolved) {
-        statusNotifier.value = 'Probando múltiples servidores...';
+        statusNotifier.value = 'Comprobando servidores disponibles...';
       }
     });
     Timer? webGraceTimer;
+    Timer? preferredGraceTimer;
 
     void finish(PlayableSource? src) {
       if (resolved) return;
       resolved = true;
       feedbackTimer.cancel();
       webGraceTimer?.cancel();
+      preferredGraceTimer?.cancel();
       sub?.cancel();
       totalStopwatch.stop();
 
@@ -790,12 +840,70 @@ class ServerLoader {
       finish(playable);
     }
 
+    int langRank(String code) {
+      if (code == preferred) return 0;
+      final idx = order.indexOf(code);
+      return idx >= 0 ? idx + 1 : 99;
+    }
+
+    bool hasPendingPreferred() {
+      if (activePreferredWorkers > 0) return true;
+      for (final s in queue) {
+        if (MainFuentes.normalizeIdioma(s['idioma']?.toString()) == preferred) {
+          return true;
+        }
+      }
+      for (final s in webQueue) {
+        if (MainFuentes.normalizeIdioma(s['idioma']?.toString()) == preferred) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    void maybeDeliverFallback() {
+      if (resolved || bestFallbackPlayable == null || bestFallbackServer == null) {
+        return;
+      }
+      if ((preferredGraceElapsed || isStreamDone) && !hasPendingPreferred()) {
+        unawaited(onWin(bestFallbackPlayable!, bestFallbackServer!, bestFallbackPhase));
+      }
+    }
+
+    Future<void> registerCandidateWin(
+      PlayableSource playable,
+      Map<String, dynamic> srv,
+      String phase,
+    ) async {
+      if (resolved) return;
+      final srvLang = MainFuentes.normalizeIdioma(
+        playable.idioma.isNotEmpty ? playable.idioma : srv['idioma']?.toString(),
+      );
+      if (srvLang == preferred) {
+        await onWin(playable, srv, phase);
+        return;
+      }
+      if (bestFallbackPlayable == null ||
+          langRank(srvLang) < langRank(bestFallbackPlayable!.idioma)) {
+        bestFallbackPlayable = playable;
+        bestFallbackServer = srv;
+        bestFallbackPhase = phase;
+      }
+      maybeDeliverFallback();
+    }
+
     bool nativeExhausted() => activeWorkers == 0 && queue.isEmpty && isStreamDone;
 
     void checkAllDone() {
       if (resolved) return;
+      maybeDeliverFallback();
+      if (resolved) return;
       if (nativeExhausted() && webQueue.isEmpty && !webWorkerRunning) {
-        finish(null);
+        if (bestFallbackPlayable != null && bestFallbackServer != null) {
+          unawaited(onWin(bestFallbackPlayable!, bestFallbackServer!, bestFallbackPhase));
+        } else {
+          finish(null);
+        }
       }
     }
 
@@ -818,17 +926,26 @@ class ServerLoader {
           _sortServersByPriority(webQueue, preferredLang: preferred);
           final srv = webQueue.removeAt(0);
           if (_isInvalid(srv)) continue;
+          final isPref = MainFuentes.normalizeIdioma(srv['idioma']?.toString()) == preferred;
+          // Si ya tenemos un ganador de respaldo y este servidor WebView tampoco es del idioma preferido, no perder tiempo en WebView.
+          if (!isPref && bestFallbackPlayable != null) {
+            continue;
+          }
+          if (isPref) activePreferredWorkers++;
           final playable = await tryResolveServer(
             srv,
             context: context,
             allowNative: false,
             isCancelled: isCancelled,
           ).catchError((_) => null);
+          if (isPref) activePreferredWorkers--;
           if (playable != null && playable.url.isNotEmpty) {
-            await onWin(playable, srv, 'webview');
-            break;
+            await registerCandidateWin(playable, srv, 'webview');
+            if (resolved) break;
+          } else if (!resolved) {
+            markServerAsInvalid(srv);
           }
-          if (!resolved) markServerAsInvalid(srv);
+          maybeDeliverFallback();
         }
         webWorkerRunning = false;
         checkAllDone();
@@ -838,6 +955,11 @@ class ServerLoader {
     webGraceTimer = Timer(webGrace, () {
       webGraceElapsed = true;
       pumpWebQueue();
+    });
+
+    preferredGraceTimer = Timer(preferredLangGrace, () {
+      preferredGraceElapsed = true;
+      maybeDeliverFallback();
     });
 
     Future<void> tryServer(Map<String, dynamic> srv) async {
@@ -851,7 +973,7 @@ class ServerLoader {
       ).catchError((_) => null);
       if (resolved) return;
       if (playable != null && playable.url.isNotEmpty) {
-        await onWin(playable, srv, 'nativo');
+        await registerCandidateWin(playable, srv, 'nativo');
       } else {
         // No descartar todavía: pasa a la fase WebView.
         webQueue.add(srv);
@@ -862,13 +984,18 @@ class ServerLoader {
       if (resolved) return;
 
       while (activeWorkers < maxParallel && queue.isNotEmpty) {
+        _sortServersByPriority(queue, preferredLang: preferred);
         final srv = queue.removeAt(0);
         if (_isInvalid(srv)) continue;
 
+        final isPref = MainFuentes.normalizeIdioma(srv['idioma']?.toString()) == preferred;
         activeWorkers++;
+        if (isPref) activePreferredWorkers++;
         tryServer(srv).whenComplete(() {
           activeWorkers--;
+          if (isPref) activePreferredWorkers--;
           if (!resolved) {
+            maybeDeliverFallback();
             pumpQueue();
             pumpWebQueue();
             checkAllDone();
@@ -974,13 +1101,31 @@ class ServerLoader {
         ttl: const Duration(minutes: 30),
       );
       if (allKnown.isNotEmpty) {
-        await _saveCacheB(cacheKey, allKnown);
+        final existingB = await _loadCacheB(cacheKey) ?? const [];
+        final existingMain = await _main.tryLoadCachedServers(
+              tmdbId: contentId,
+              tipo: isMovie ? 'movie' : 'tv',
+              season: season,
+              episode: episode,
+            ) ??
+            const [];
+        final merged = <Map<String, dynamic>>[];
+        final seenUrls = <String>{};
+        for (final s in [...allKnown, ...existingB, ...existingMain]) {
+          final u = s['servidor_url']?.toString() ??
+              s['resolved_m3u8']?.toString() ??
+              '';
+          if (u.isEmpty || seenUrls.contains(u)) continue;
+          seenUrls.add(u);
+          merged.add(s);
+        }
+        await _saveCacheB(cacheKey, merged);
         await FuentesCache.saveServers(
           tmdbId: contentId,
           tipo: isMovie ? 'movie' : 'tv',
           season: season,
           episode: episode,
-          servidores: allKnown,
+          servidores: merged,
         );
       }
       await FuentesCache.saveLastLink(
@@ -1199,32 +1344,42 @@ class ServerLoader {
     final health = SourceHealthService.instance.getHealth(sourceId);
 
     final stopwatch = Stopwatch()..start();
-    // Timeout diferenciado: 8s para degraded, 12s para healthy/down
+    // Timeout ágil para evitar que embeds caídos demoren la elección de servidor
     final resolveTimeout = (health.healthStatus == HealthStatus.degraded)
-        ? const Duration(seconds: 8)
-        : const Duration(seconds: 12);
+        ? const Duration(seconds: 5)
+        : const Duration(seconds: 6);
 
     final fresh = freshResolved(srv);
     final already =
         (fresh != null && !_invalidUrls.contains(fresh)) ? fresh : null;
     if (already != null && already.isNotEmpty) {
-      stopwatch.stop();
-      unawaited(AppDatabase.instance.saveServerPerformance(
-        srvName,
-        stopwatch.elapsedMilliseconds.clamp(10, 5000),
-      ));
-      unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
-      debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
-      return PlayableSource(
-        url: already,
-        headers: _extractHeaders(srv),
-        quality: srv['quality']?.toString() ??
-            srv['calidad']?.toString() ??
-            'Auto',
-        serverName: srvName,
-        idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
-        rawServer: srv,
+      final headers = _extractHeaders(srv);
+      final validation = await ServerPreValidationService.instance.validateUrl(
+        already,
+        extraHeaders: headers,
+        timeout: const Duration(seconds: 3),
       );
+      if (validation.isValid) {
+        stopwatch.stop();
+        unawaited(AppDatabase.instance.saveServerPerformance(
+          srvName,
+          stopwatch.elapsedMilliseconds.clamp(10, 5000),
+        ));
+        unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+        debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
+        return PlayableSource(
+          url: already,
+          headers: headers,
+          quality: srv['quality']?.toString() ??
+              srv['calidad']?.toString() ??
+              'Auto',
+          serverName: srvName,
+          idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
+          rawServer: srv,
+        );
+      } else {
+        markUrlAsInvalid(already);
+      }
     }
 
     final url = srv['servidor_url']?.toString() ?? '';
@@ -1242,18 +1397,17 @@ class ServerLoader {
         (lower.contains('/bt/') && lower.contains('.mp4'));
 
     if (esDirecto) {
-      final shouldPreValidate =
-          RemoteConfigService.instance.config.player.preValidateServersOnContentOpen;
-      if (shouldPreValidate) {
-        final validation = await ServerPreValidationService.instance.validateUrl(
-          url,
-          extraHeaders: _extractHeaders(srv),
-        );
-        if (!validation.isValid) {
-          stopwatch.stop();
-          unawaited(SourceHealthService.instance.recordFailure(sourceId, 'Direct stream unreachable'));
-          return null;
-        }
+      final headers = _extractHeaders(srv);
+      final validation = await ServerPreValidationService.instance.validateUrl(
+        url,
+        extraHeaders: headers,
+        timeout: const Duration(seconds: 3),
+      );
+      if (!validation.isValid) {
+        stopwatch.stop();
+        markUrlAsInvalid(url);
+        unawaited(SourceHealthService.instance.recordFailure(sourceId, 'Direct stream unreachable'));
+        return null;
       }
 
       stopwatch.stop();
@@ -1265,7 +1419,7 @@ class ServerLoader {
       debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
       return PlayableSource(
         url: url,
-        headers: _extractHeaders(srv),
+        headers: headers,
         quality: srv['quality']?.toString() ??
             srv['calidad']?.toString() ??
             'Auto',
@@ -1284,22 +1438,32 @@ class ServerLoader {
           timeout: resolveTimeout,
         );
         if (native != null && native.url.isNotEmpty) {
-          stopwatch.stop();
-          stampResolved(srv, native.url);
-          unawaited(AppDatabase.instance.saveServerPerformance(
-            srvName,
-            stopwatch.elapsedMilliseconds.clamp(20, 5000),
-          ));
-          unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
-          debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
-          return PlayableSource(
-            url: native.url,
-            headers: {..._extractHeaders(srv), ...native.headers},
-            quality: native.quality,
-            serverName: srvName,
-            idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
-            rawServer: srv,
+          final mergedHeaders = {..._extractHeaders(srv), ...native.headers};
+          final validation = await ServerPreValidationService.instance.validateUrl(
+            native.url,
+            extraHeaders: mergedHeaders,
+            timeout: const Duration(seconds: 3),
           );
+          if (validation.isValid) {
+            stopwatch.stop();
+            stampResolved(srv, native.url);
+            unawaited(AppDatabase.instance.saveServerPerformance(
+              srvName,
+              stopwatch.elapsedMilliseconds.clamp(20, 5000),
+            ));
+            unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+            debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
+            return PlayableSource(
+              url: native.url,
+              headers: mergedHeaders,
+              quality: native.quality,
+              serverName: srvName,
+              idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
+              rawServer: srv,
+            );
+          } else {
+            markUrlAsInvalid(native.url);
+          }
         }
       } catch (_) {}
     }

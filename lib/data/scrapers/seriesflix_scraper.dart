@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import '../models/scraper/detalle_model.dart';
+import '../datasources/remote/tmdb/tmdb_metadata_service.dart';
 import 'base/base_home_scraper.dart';
 import 'base/buscador.dart';
 
@@ -502,10 +503,33 @@ class SeriesflixScraper {
     int episode = 1,
     String? titleHint,
   }) async* {
-    String? queryTitle = titleHint;
+    final queryTitles = <String>[];
+    if (titleHint != null && titleHint.trim().isNotEmpty) {
+      queryTitles.add(titleHint.trim());
+    }
 
-    // Si no tenemos título, intentar resolverlo desde la API pública de Cineby/TMDB
-    if (queryTitle == null || queryTitle.isEmpty) {
+    // 1. Obtener título desde TmdbMetadataService (caché rápida)
+    if (queryTitles.isEmpty) {
+      try {
+        final meta = await TmdbMetadataService.instance.getMetadata(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+        );
+        if (meta != null) {
+          if (meta.title.trim().isNotEmpty) {
+            queryTitles.add(meta.title.trim());
+          }
+          if (meta.originalTitle != null &&
+              meta.originalTitle!.trim().isNotEmpty &&
+              !queryTitles.contains(meta.originalTitle!.trim())) {
+            queryTitles.add(meta.originalTitle!.trim());
+          }
+        }
+      } catch (_) {}
+    }
+
+    // 2. Fallback si aún no tenemos título
+    if (queryTitles.isEmpty) {
       try {
         final type = isMovie ? 'movie' : 'series';
         final res = await http.get(
@@ -515,15 +539,19 @@ class SeriesflixScraper {
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
           if (data is Map && data['title'] != null) {
-            queryTitle = data['title'].toString();
+            queryTitles.add(data['title'].toString());
           }
         }
       } catch (_) {}
     }
 
-    if (queryTitle == null || queryTitle.isEmpty) return;
+    if (queryTitles.isEmpty) return;
 
-    final searchResults = await search(queryTitle);
+    var searchResults = <BuscadorItem>[];
+    for (final q in queryTitles) {
+      searchResults = await search(q);
+      if (searchResults.isNotEmpty) break;
+    }
     if (searchResults.isEmpty) return;
 
     final candidate = searchResults.first;

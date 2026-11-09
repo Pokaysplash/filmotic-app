@@ -48,16 +48,16 @@ class ServidoresConfig {
   static Future<ServidoresConfig> fromPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     return ServidoresConfig(
-      cuevana: prefs.getBool('cuevana_enabled') ?? false,
-      unlimplay: prefs.getBool('unlimplay_enabled') ?? false,
-      cinecalidad: prefs.getBool('cinecalidad_enabled') ?? false,
-      tioplus: prefs.getBool('tioplus_enabled') ?? false,
-      embed69: prefs.getBool('embed69_enabled') ?? false,
-      poseidon: prefs.getBool('poseidon_enabled') ?? false,
-      cinesrc: prefs.getBool('cinesrc_enabled') ?? false,
-      pelispedia: prefs.getBool('pelispedia_enabled') ?? false,
-      seriesmetro: prefs.getBool('seriesmetro_enabled') ?? false,
-      smartpelis: prefs.getBool('smartpelis_enabled') ?? false,
+      cuevana: prefs.getBool('cuevana_enabled') ?? true,
+      unlimplay: prefs.getBool('unlimplay_enabled') ?? true,
+      cinecalidad: prefs.getBool('cinecalidad_enabled') ?? true,
+      tioplus: prefs.getBool('tioplus_enabled') ?? true,
+      embed69: prefs.getBool('embed69_enabled') ?? true,
+      poseidon: prefs.getBool('poseidon_enabled') ?? true,
+      cinesrc: prefs.getBool('cinesrc_enabled') ?? true,
+      pelispedia: prefs.getBool('pelispedia_enabled') ?? true,
+      seriesmetro: prefs.getBool('seriesmetro_enabled') ?? true,
+      smartpelis: prefs.getBool('smartpelis_enabled') ?? true,
       customapi: prefs.getBool('custom_api_enabled') ?? false,
       verificarServidores: prefs.getBool('verificar_servidores') ?? true,
     );

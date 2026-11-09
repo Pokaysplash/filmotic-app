@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/constants/tmdb_apis.dart';
+import '../../../../core/storage/app_database.dart';
 
 /// Servicio de búsqueda alimentado por la API de TMDB.
 /// Respeta las preferencias de ConfigPage (SharedPreferences),
@@ -14,9 +15,9 @@ import '../../../../core/constants/tmdb_apis.dart';
 ///
 /// API key: a2d9bbed370d9f678e34006f8750a5a5
 class TmdbSearchService {
-  static const String _apiKeyFallback = 'a2d9bbed370d9f678e34006f8750a5a5'; // unused fallback
   static const String _base = 'https://api.themoviedb.org/3';
   static const String _imgBase = 'https://image.tmdb.org/t/p';
+  static const Set<int> _kKidsExcludedGenres = {27, 80, 53, 10752, 10768};
 
   /// Mínimo de votos / popularidad para filtrar basura.
   static const int _minVoteCountMovies = 40;
@@ -41,8 +42,9 @@ class TmdbSearchService {
 
   Future<_SearchPrefs> _loadPrefs() async {
     final p = await SharedPreferences.getInstance();
+    final isKids = AppDatabase.instance.activeProfile?.esInfantil == true;
     return _SearchPrefs(
-      allowAdult: p.getBool('allow_adult_content') ?? false,
+      allowAdult: isKids ? false : (p.getBool('allow_adult_content') ?? false),
       showUnreleased: p.getBool('show_unreleased') ?? false,
       regionalFilter: p.getBool('regional_peru') ?? false,
       spanishLatino: p.getBool('spanish_latino') ?? true,
@@ -106,8 +108,18 @@ class TmdbSearchService {
 
     if (voteCount < minVotes && popularity < minPop) return false;
 
-    // 3) Adult
+    // 3) Adult & Perfil Infantil
     if (item['adult'] == true && !prefs.allowAdult) return false;
+    if (AppDatabase.instance.activeProfile?.esInfantil == true) {
+      if (item['adult'] == true) return false;
+      final gids = item['genre_ids'];
+      if (gids is List &&
+          gids.any((g) => _kKidsExcludedGenres.contains(
+                g is num ? g.toInt() : int.tryParse('$g'),
+              ))) {
+        return false;
+      }
+    }
 
     // 4) Unreleased
     if (!prefs.showUnreleased) {

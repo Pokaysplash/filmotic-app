@@ -3,14 +3,15 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/constants/tmdb_apis.dart';
+import '../../../../core/storage/app_database.dart';
 
 /// Descubrir por tipo + género + orden (TMDB /discover).
 ///
 /// sortBy: popularity | year | title | rating
 class TmdbDiscoverService {
-  static const String _apiKeyFallback = 'a2d9bbed370d9f678e34006f8750a5a5'; // unused fallback
   static const String _base = 'https://api.themoviedb.org/3';
   static const String _imgBase = 'https://image.tmdb.org/t/p';
+  static const Set<int> _kKidsExcludedGenres = {27, 80, 53, 10752, 10768};
 
   static const Map<String, String> _headers = {'Accept': 'application/json'};
 
@@ -91,8 +92,11 @@ class TmdbDiscoverService {
 
   Future<_DiscPrefs> _loadPrefs() async {
     final p = await SharedPreferences.getInstance();
+    final isKids = AppDatabase.instance.activeProfile?.esInfantil == true;
     return _DiscPrefs(
-      allowAdult: p.getBool('allow_adult') ?? false,
+      allowAdult: isKids
+          ? false
+          : (p.getBool('allow_adult_content') ?? p.getBool('allow_adult') ?? false),
       showUnreleased: p.getBool('show_unreleased') ?? false,
       spanishLatino: p.getBool('spanish_latino') ?? true,
       spanishCastellano: p.getBool('spanish_castellano') ?? false,
@@ -226,8 +230,14 @@ class TmdbDiscoverService {
     }
 
     // Excluir reality / talk / news / soap en Descubrir general (no en novelas ni anime)
-    if (isTv && !isNovela && !isAnime && TmdbApis.tvWithoutGenres.isNotEmpty) {
-      query['without_genres'] = TmdbApis.tvWithoutGenres;
+    final withoutList = <String>[
+      if (isTv && !isNovela && !isAnime && TmdbApis.tvWithoutGenres.isNotEmpty)
+        TmdbApis.tvWithoutGenres,
+      if (AppDatabase.instance.activeProfile?.esInfantil == true)
+        '27,80,53,10752,10768',
+    ];
+    if (withoutList.isNotEmpty) {
+      query['without_genres'] = withoutList.join(',');
     }
 
     // Recientes: priorizar fecha reciente
@@ -276,6 +286,16 @@ class TmdbDiscoverService {
         final m = Map<String, dynamic>.from(r);
         if ((m['poster_path']?.toString() ?? '').isEmpty) continue;
         if (!prefs.allowAdult && m['adult'] == true) continue;
+        if (AppDatabase.instance.activeProfile?.esInfantil == true) {
+          if (m['adult'] == true) continue;
+          final gids = m['genre_ids'];
+          if (gids is List &&
+              gids.any((g) => _kKidsExcludedGenres.contains(
+                    g is num ? g.toInt() : int.tryParse('$g'),
+                  ))) {
+            continue;
+          }
+        }
         items.add(_mapItem(m, tipo));
       }
     }

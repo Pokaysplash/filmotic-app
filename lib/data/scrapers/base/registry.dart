@@ -76,7 +76,7 @@ final List<Fuente> fuentesRegistry = [
     search: BuscadorScraper.searchPelisPlus,
   ),
 
-  // ── PelisPlusHD (WAVE 12.17 - Solo Búsqueda) ──────────────────────────
+  // ── PelisPlusHD (WAVE 12.17) ──────────────────────────────────────────
   Fuente(
     id: 'pelisplushd',
     label: 'PelisPlusHD',
@@ -86,7 +86,7 @@ final List<Fuente> fuentesRegistry = [
     tipos: const ['movie', 'tv'],
     generos: const ['Acción', 'Comedia', 'Drama', 'Terror', 'Ciencia Ficción'],
     supportsPopulares: true,
-    hasListing: false,
+    hasListing: true,
     hasSearch: true,
     fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
       return PelisPlusHdScraper.fetch(tipo: tipo, genero: genero, page: page);
@@ -104,7 +104,7 @@ final List<Fuente> fuentesRegistry = [
     },
   ),
 
-  // ── Cuevana3 (WAVE 12.17 - Solo Búsqueda) ────────────────────────────
+  // ── Cuevana3 (WAVE 12.17) ─────────────────────────────────────────────
   Fuente(
     id: 'cuevana3',
     label: 'Cuevana3',
@@ -114,7 +114,7 @@ final List<Fuente> fuentesRegistry = [
     tipos: const ['movie', 'tv'],
     generos: const ['Acción', 'Estrenos', 'Comedia', 'Drama', 'Terror'],
     supportsPopulares: true,
-    hasListing: false,
+    hasListing: true,
     hasSearch: true,
     fetch: ({String? tipo, String? genero, bool populares = false, int page = 1}) {
       return Cuevana3Scraper.fetch(tipo: tipo, genero: genero, page: page);

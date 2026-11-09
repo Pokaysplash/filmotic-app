@@ -12,9 +12,9 @@ import '../../player/presentation/tv/tv_player_controller.dart';
 import '../../player/presentation/tv/tv_player_page.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_content.dart';
 import '../../../data/datasources/remote/tmdb/tmdb_recommendations_api.dart';
-import '../../../supabase/guardados_service.dart';
 import '../../search/presentation/tv_search_page.dart';
 import '../../../core/services/guardados_bus.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../../core/services/server_prevalidation_service.dart';
 import '../../../../core/services/remote_config_service.dart';
 export '../../../core/services/guardados_bus.dart';
@@ -124,6 +124,7 @@ class _PageContenidoState extends State<PageContenido>
     WidgetsBinding.instance.addObserver(this);
     GuardadosBus.version.addListener(_onExternalCacheChange);
     HistorialBus.version.addListener(_onExternalCacheChange);
+    AppDatabase.instance.activeProfileNotifier.addListener(_onExternalCacheChange);
     _loadSavedState();
     _fetchContent();
   }
@@ -133,6 +134,7 @@ class _PageContenidoState extends State<PageContenido>
     WidgetsBinding.instance.removeObserver(this);
     GuardadosBus.version.removeListener(_onExternalCacheChange);
     HistorialBus.version.removeListener(_onExternalCacheChange);
+    AppDatabase.instance.activeProfileNotifier.removeListener(_onExternalCacheChange);
     _liveRefreshTimer?.cancel();
     _hintTimer?.cancel();
     _playFocusNode.dispose();
@@ -376,14 +378,22 @@ class _PageContenidoState extends State<PageContenido>
       final prefs = await SharedPreferences.getInstance();
 
       if (_resolvedMediaType == 'movie') {
-        String? raw = prefs.getString('cachePlayer_${widget.idcontenido}');
-        raw ??= prefs.getString('cachePlayerRapido_${widget.idcontenido}');
-
-        Map<String, dynamic>? data;
-        if (raw != null) {
-          try {
-            data = Map<String, dynamic>.from(jsonDecode(raw));
-          } catch (_) {}
+        Map<String, dynamic>? data = await AppDatabase.instance.getHistoryItem(
+          widget.idcontenido,
+          episodioId: 'movie',
+        );
+        if (data == null) {
+          String? raw = prefs.getString(
+            AppDatabase.instance.scopedPrefsKey('cachePlayer_${widget.idcontenido}'),
+          );
+          raw ??= prefs.getString(
+            AppDatabase.instance.scopedPrefsKey('cachePlayerRapido_${widget.idcontenido}'),
+          );
+          if (raw != null) {
+            try {
+              data = Map<String, dynamic>.from(jsonDecode(raw));
+            } catch (_) {}
+          }
         }
 
         final current = _progressNotifier.value;
@@ -404,6 +414,19 @@ class _PageContenidoState extends State<PageContenido>
       final map = <String, EpisodeProgressInfo>{};
       EpisodeProgressInfo? mostRecent;
 
+      // 1. Cargar de Sembast del perfil activo
+      final records = await AppDatabase.instance.getHistoryForContent(
+        widget.idcontenido,
+      );
+      final sembastByEp = <String, Map<String, dynamic>>{};
+      for (final r in records) {
+        final sNum = (r['temporada'] as num?)?.toInt();
+        final eNum = (r['capitulo'] as num?)?.toInt();
+        if (sNum != null && eNum != null) {
+          sembastByEp['T${sNum}_C$eNum'] = r;
+        }
+      }
+
       for (final season in seasons) {
         final sNum = (season['season_number'] as num?)?.toInt() ?? 0;
         final episodes = List<Map<String, dynamic>>.from(
@@ -411,21 +434,35 @@ class _PageContenidoState extends State<PageContenido>
         );
         for (final ep in episodes) {
           final eNum = (ep['episode_number'] as num?)?.toInt() ?? 0;
-          final fullKey = 'cachePlayer_${widget.idcontenido}_T${sNum}_C$eNum';
-          final rapidoKey =
-              'cachePlayerRapido_${widget.idcontenido}_T${sNum}_C$eNum';
+          final epKey = 'T${sNum}_C$eNum';
+          final fullKey = AppDatabase.instance.scopedPrefsKey(
+            'cachePlayer_${widget.idcontenido}_$epKey',
+          );
+          final rapidoKey = AppDatabase.instance.scopedPrefsKey(
+            'cachePlayerRapido_${widget.idcontenido}_$epKey',
+          );
 
           int? sec;
           DateTime? ts;
 
-          final rawFull = prefs.getString(fullKey);
-          if (rawFull != null) {
-            try {
-              final d = Map<String, dynamic>.from(jsonDecode(rawFull));
-              sec = (d['segundo'] as num?)?.toInt();
-              final tsRaw = d['timestamp']?.toString();
-              if (tsRaw != null) ts = DateTime.tryParse(tsRaw);
-            } catch (_) {}
+          final sembastItem = sembastByEp[epKey];
+          if (sembastItem != null) {
+            sec = (sembastItem['segundo'] as num?)?.toInt() ??
+                (sembastItem['progreso_segundos'] as num?)?.toInt();
+            final tsRaw = (sembastItem['fecha'] ?? sembastItem['timestamp'])?.toString();
+            if (tsRaw != null) ts = DateTime.tryParse(tsRaw);
+          }
+
+          if (sec == null) {
+            final rawFull = prefs.getString(fullKey);
+            if (rawFull != null) {
+              try {
+                final d = Map<String, dynamic>.from(jsonDecode(rawFull));
+                sec = (d['segundo'] as num?)?.toInt();
+                final tsRaw = d['timestamp']?.toString();
+                if (tsRaw != null) ts = DateTime.tryParse(tsRaw);
+              } catch (_) {}
+            }
           }
 
           if (sec == null) {
@@ -1342,7 +1379,6 @@ class _PageContenidoState extends State<PageContenido>
     final poster = _firstUrl(data['poster_path']);
     final backdrop = _firstUrl(data['backdrop_path']);
     final logo = _firstUrl(data['logo_path']);
-    final imdbId = (data['imdb_id']?.toString() ?? '').trim();
     final bgImage = backdrop.isNotEmpty ? backdrop : poster;
 
     double ratingValue = 0;
@@ -1384,7 +1420,7 @@ class _PageContenidoState extends State<PageContenido>
     final bool canRandomEpisode = !isMovie && _totalEpisodesCount > 1;
     final bool episodesViewActive = _showEpisodesView && !isMovie;
     final bool recoViewActive = _showRecommendationsView;
-    final bool canShowLetterboxd = false;
+    bool canShowLetterboxd = false;
 
     final size = MediaQuery.sizeOf(context);
     final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 1.6);
@@ -1594,7 +1630,7 @@ class _PageContenidoState extends State<PageContenido>
                               String playLabel;
                               if (isMovie) {
                                 playLabel = hasProgress
-                                    ? 'Reanudar · ${_formatTime(resumeSec!)}'
+                                    ? 'Reanudar · ${_formatTime(resumeSec)}'
                                     : 'VER AHORA';
                               } else {
                                 if (hasProgress &&
@@ -1775,38 +1811,6 @@ class _PageContenidoState extends State<PageContenido>
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-/// Spinner de "buscando servidor" mostrado mientras ServerLoader resuelve
-/// la fuente de video. Evita que la app parezca congelada.
-class _BuscandoServidorDialog extends StatelessWidget {
-  const _BuscandoServidorDialog();
-
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const CircularProgressIndicator(color: kAccentColor),
-            const SizedBox(height: 18),
-            Text(
-              'Buscando servidor…',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                decoration: TextDecoration.none,
-                decorationColor: Colors.transparent,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -3010,7 +3014,7 @@ class _EpisodesBottomPanelState extends State<_EpisodesBottomPanel> {
                                                   widthFactor:
                                                       _progressFraction(
                                                         item,
-                                                        watchedInfo!.segundo,
+                                                        watchedInfo.segundo,
                                                       ),
                                                   child: ColoredBox(
                                                     color: Colors.white
@@ -3038,7 +3042,7 @@ class _EpisodesBottomPanelState extends State<_EpisodesBottomPanel> {
                                   ] else if (showWatchedBar) ...[
                                     const SizedBox(height: 4),
                                     Text(
-                                      'Visto · ${_formatSeconds(watchedInfo!.segundo)}',
+                                      'Visto · ${_formatSeconds(watchedInfo.segundo)}',
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(

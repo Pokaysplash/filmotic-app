@@ -411,39 +411,13 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
 
   Future<void> _loadContinueItem() async {
     try {
-      final sembastHistory = await AppDatabase.instance.getHistory();
-      if (sembastHistory.isNotEmpty) {
-        if (!mounted) return;
-        setState(() => _continueItem = sembastHistory.first);
-        return;
-      }
-
-      final prefs = await SharedPreferences.getInstance();
-      final keys = prefs
-          .getKeys()
-          .where((k) => k.startsWith('cachePlayer_'))
-          .toList();
-
-      Map<String, dynamic>? best;
-      String bestTs = '';
-
-      for (final key in keys) {
-        try {
-          final raw = prefs.getString(key);
-          if (raw == null) continue;
-          final data = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-          final segundo = data['segundo'] as int? ?? 0;
-          if (segundo < 8) continue;
-          final ts = data['timestamp']?.toString() ?? '';
-          if (best == null || ts.compareTo(bestTs) > 0) {
-            best = data;
-            bestTs = ts;
-          }
-        } catch (_) {}
-      }
-
+      final sembastHistory = await AppDatabase.instance.getHistory(
+        deduplicateSeries: true,
+      );
       if (!mounted) return;
-      setState(() => _continueItem = best);
+      setState(() {
+        _continueItem = sembastHistory.isNotEmpty ? sembastHistory.first : null;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _continueItem = null);
@@ -862,7 +836,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
                         if (u != null && u.isNotEmpty) {
                           _openUrlFallback(u);
                         } else {
-                          _openUrlFallback('https://github.com/Pokaysplash/filmotic-app/releases/tag/v1.0.0-beta.27');
+                          _openUrlFallback('https://github.com/Pokaysplash/filmotic-app/releases/tag/v1.0.0-beta.28');
                         }
                       },
                       child: Padding(

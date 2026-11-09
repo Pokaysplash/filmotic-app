@@ -226,9 +226,10 @@ class HistorialHelper {
     int? temporada,
     int? capitulo,
     String? perfilId,
+    bool deleteAllEpisodes = true,
   }) async {
     try {
-      final episodioId = (temporada != null && capitulo != null)
+      final episodioId = (!deleteAllEpisodes && temporada != null && capitulo != null)
           ? 'T${temporada}_C$capitulo'
           : null;
 
@@ -240,33 +241,32 @@ class HistorialHelper {
         tmdbId: tmdbId,
       );
 
-      // 2. Borrar de SharedPreferences
+      // 2. Borrar de SharedPreferences (tanto con prefijo de perfil como legacy)
       final prefs = await SharedPreferences.getInstance();
       final keys = prefs.getKeys().toList();
+      final activeProfId = perfilId ?? AppDatabase.instance.activeProfile?.id ?? 'default';
 
       final ids = <int>{id};
       if (tmdbId != null && tmdbId > 0) ids.add(tmdbId);
 
       for (final targetId in ids) {
-        if (temporada != null && capitulo != null) {
-          final epKey = 'cachePlayer_${targetId}_T${temporada}_C$capitulo';
-          final epKeyRapido =
-              'cachePlayerRapido_${targetId}_T${temporada}_C$capitulo';
-          await prefs.remove(epKey);
-          await prefs.remove(epKeyRapido);
-        }
-
         for (final k in keys) {
-          if (k == 'cachePlayer_$targetId' ||
+          final isUnscopedMatch = k == 'cachePlayer_$targetId' ||
               k.startsWith('cachePlayer_${targetId}_') ||
               k == 'cachePlayerRapido_$targetId' ||
-              k.startsWith('cachePlayerRapido_${targetId}_')) {
+              k.startsWith('cachePlayerRapido_${targetId}_');
+          final isScopedMatch = k == '${activeProfId}_cachePlayer_$targetId' ||
+              k.startsWith('${activeProfId}_cachePlayer_${targetId}_') ||
+              k == '${activeProfId}_cachePlayerRapido_$targetId' ||
+              k.startsWith('${activeProfId}_cachePlayerRapido_${targetId}_');
+          if (isUnscopedMatch || isScopedMatch) {
             await prefs.remove(k);
           }
         }
       }
 
       // 3. Notificar reactivamente a toda la interfaz
+      GuardadosBus.bump();
       HistorialBus.bump();
     } catch (e) {
       debugPrint('[HistorialHelper] Error al eliminar de historial: $e');

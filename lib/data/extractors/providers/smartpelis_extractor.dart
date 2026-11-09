@@ -2,6 +2,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../datasources/remote/tmdb/tmdb_metadata_service.dart';
 
 /// Scraper nativo de SmartPelis (smartpelis.tv).
 /// Replica el PHP: TMDB → candidatos slug → página con #aa-options →
@@ -75,7 +76,26 @@ class SmartPelisService {
   // ─── TMDB ───────────────────────────────────────────────────────────────
 
   static Future<_TmdbInfo> _getTmdbInfo(int tmdbId, String mediaType) async {
-    final endpoint = mediaType == 'movie' ? 'movie' : 'tv';
+    final isMovie = mediaType == 'movie';
+    try {
+      final meta = await TmdbMetadataService.instance.getMetadata(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+      );
+      if (meta != null && meta.title.isNotEmpty) {
+        final titles = <String>{meta.title};
+        if (meta.originalTitle != null && meta.originalTitle!.trim().isNotEmpty) {
+          titles.add(meta.originalTitle!.trim());
+        }
+        return _TmdbInfo(
+          id: tmdbId,
+          titles: titles.toList(),
+          year: meta.year,
+        );
+      }
+    } catch (_) {}
+
+    final endpoint = isMovie ? 'movie' : 'tv';
 
     Future<Map<String, dynamic>?> fetchLang(String lang) async {
       try {
@@ -86,7 +106,7 @@ class SmartPelisService {
               ),
               headers: {'Accept': 'application/json', 'User-Agent': _kUa},
             )
-            .timeout(const Duration(seconds: 12));
+            .timeout(const Duration(seconds: 8));
         if (r.statusCode != 200) return null;
         final data = jsonDecode(r.body);
         if (data is! Map<String, dynamic>) return null;
@@ -97,9 +117,14 @@ class SmartPelisService {
       }
     }
 
-    final es = await fetchLang('es-MX');
-    final eses = await fetchLang('es-ES');
-    final en = await fetchLang('en-US');
+    final results = await Future.wait([
+      fetchLang('es-MX'),
+      fetchLang('es-ES'),
+      fetchLang('en-US'),
+    ]);
+    final es = results[0];
+    final eses = results[1];
+    final en = results[2];
 
     final titles = <String>{};
 

@@ -11,6 +11,14 @@ import '../extractors/providers/tioplus_extractor.dart'; // TioplusService
 import '../extractors/providers/unlimplay_extractor.dart'; // UnlimplayService
 import '../extractors/hls/hls_extractor.dart'; // ExtractorHlsService  ← NUEVO
 import '../extractors/providers/cinecalidad_extractor.dart';
+import '../extractors/providers/poseidon_extractor.dart';
+import '../extractors/providers/fuegocine_extractor.dart';
+import '../extractors/providers/pelispedia_extractor.dart';
+import '../extractors/providers/seriesmetro_extractor.dart';
+import '../extractors/providers/smartpelis_extractor.dart';
+import '../extractors/providers/cinesrc_extractor.dart';
+import '../extractors/providers/hackstore_extractor.dart';
+import '../extractors/providers/vidsrc_extractor.dart';
 import '../scrapers/cinecalidad_scraper.dart';
 import '../scrapers/thanhdattoday_scraper.dart';
 import '../extractors/providers/animeflv_extractor.dart';
@@ -382,6 +390,94 @@ class MainFuentesServidores {
 
       case 'cineby':
         await for (final map in CinebyScraper.scrapeStream(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
+        break;
+
+      case 'poseidon':
+        await for (final s in PoseidonService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
+        }
+        break;
+
+      case 'fuegocine':
+        await for (final map in FuegoCineService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
+        break;
+
+      case 'pelispedia':
+        await for (final s in PelispediaService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
+        }
+        break;
+
+      case 'seriesmetro':
+        await for (final s in SeriesMetroService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
+        }
+        break;
+
+      case 'smartpelis':
+        await for (final s in SmartPelisService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
+        }
+        break;
+
+      case 'cinesrc':
+        await for (final s in CineSrcService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
+        }
+        break;
+
+      case 'hackstore':
+        await for (final map in HackStoreService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield map;
+        }
+        break;
+
+      case 'vidsrc':
+        await for (final map in VidSrcService.scrape(
           tmdbId: tmdbId,
           isMovie: isMovie,
           season: season,

@@ -83,11 +83,12 @@ class ServerPreValidationService {
     } catch (_) {}
   }
 
-  /// Valida una sola URL haciendo GET parcial (Range: bytes=0-1024) con timeout de 15s
+  /// Valida una sola URL haciendo GET parcial con timeout configurable
   Future<ServerValidationResult> validateUrl(
     String url, {
     String? referer,
     Map<String, String>? extraHeaders,
+    Duration? timeout,
   }) async {
     final cleanUrl = url.trim();
     if (cleanUrl.isEmpty) {
@@ -99,7 +100,10 @@ class ServerPreValidationService {
       return cached;
     }
 
-    final timeoutSec = RemoteConfigService.instance.config.player.preValidationTimeoutSeconds;
+    final timeoutDuration = timeout ??
+        Duration(
+          seconds: RemoteConfigService.instance.config.player.preValidationTimeoutSeconds,
+        );
     final uri = Uri.tryParse(cleanUrl);
     if (uri == null || !uri.hasScheme) {
       final res = ServerValidationResult(isValid: false, statusCode: 0, timestamp: DateTime.now());
@@ -109,12 +113,14 @@ class ServerPreValidationService {
 
     int statusCode = 0;
     bool isValid = false;
+    final lowerUrl = cleanUrl.toLowerCase();
+    final isHlsManifest = lowerUrl.contains('.m3u8') || lowerUrl.contains('playlist');
 
     final headers = <String, String>{
       'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       'Accept': '*/*',
-      'Range': 'bytes=0-1024',
+      if (!isHlsManifest) 'Range': 'bytes=0-1024',
     };
     if (referer != null && referer.isNotEmpty) {
       headers['Referer'] = referer;
@@ -132,11 +138,11 @@ class ServerPreValidationService {
       request.followRedirects = true;
       request.maxRedirects = 5;
 
-      final streamedResponse = await client.send(request).timeout(Duration(seconds: timeoutSec));
+      final streamedResponse = await client.send(request).timeout(timeoutDuration);
       statusCode = streamedResponse.statusCode;
       final contentLen = streamedResponse.contentLength;
 
-      // Códigos válidos (200-399 o 206 Partial Content) y que no sean respuestas vacías de 0 bytes
+      // Códigos válidos (200-399 o 206 Partial Content o 416 si ya tiene rango válido) y que no sean respuestas vacías de 0 bytes
       if (((statusCode >= 200 && statusCode < 400) || statusCode == 206) &&
           (contentLen == null || contentLen > 0)) {
         isValid = true;

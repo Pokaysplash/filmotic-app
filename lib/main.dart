@@ -246,9 +246,16 @@ class _SplashScreenState extends State<SplashScreen> {
 
     await AppDatabase.instance.init();
     final profiles = await AppDatabase.instance.getProfiles();
+    final prefs = await SharedPreferences.getInstance();
+    final askProfileOnStart = prefs.getBool('ask_profile_on_start') ?? true;
+    final activeProfile = AppDatabase.instance.activeProfile;
+    final hasPin = (activeProfile?.pin?.trim().isNotEmpty == true);
 
-    // Mostrar siempre selector de perfiles si no hay perfil o hay múltiples perfiles
-    if (AppDatabase.instance.activeProfile == null || profiles.isNotEmpty) {
+    // Mostrar selector de perfiles si no hay perfil activo, tiene PIN, o el usuario eligió preguntar al inicio
+    if (activeProfile == null ||
+        hasPin ||
+        (askProfileOnStart && profiles.isNotEmpty)) {
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (_, __, ___) => const ProfileSelectionPage(),
@@ -265,6 +272,7 @@ class _SplashScreenState extends State<SplashScreen> {
     final Widget home =
         mode == 'tv' ? const tv.MainHome() : const mobile.MainHome();
 
+    if (!mounted) return;
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => home,

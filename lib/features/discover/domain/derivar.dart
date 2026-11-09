@@ -408,13 +408,21 @@ class _DerivarTvPageState extends State<DerivarTvPage> {
         s == 'jk' ||
         s == 'tioanime' ||
         s == 'animeflv' ||
+        s == 'animeflv_api' ||
         s == 'canelatv' ||
         s == 'canela' ||
         s == 'telemundo' ||
         s == 'animepahe' ||
         s == 'gogoanime' ||
         s == 'animeav1' ||
-        (_data?.servicio.toLowerCase() == 'animejk');
+        s == 'seriesflix' ||
+        s == 'pelisplushd' ||
+        s == 'cuevana3' ||
+        s == 'pelispedia' ||
+        s == 'cineby' ||
+        s == 'thanhdattoday' ||
+        (_data?.servicio.toLowerCase() == 'animejk') ||
+        ((_data?.tmdbId ?? 0) <= 0);
   }
 
   List<DetalleTemporada> get _temporadas => _data?.temporadas ?? [];
@@ -498,10 +506,16 @@ class _DerivarTvPageState extends State<DerivarTvPage> {
       );
 
       try {
-        final servers = await DetalleScraper.fetchServers(
-          servicio: widget.servicio,
-          url: episodeUrl,
-        );
+        var servers = <DetalleServidor>[];
+        if (cap == null && (_data?.servidores.isNotEmpty ?? false)) {
+          servers = List<DetalleServidor>.from(_data!.servidores);
+        }
+        if (servers.isEmpty) {
+          servers = await DetalleScraper.fetchServers(
+            servicio: widget.servicio,
+            url: episodeUrl,
+          );
+        }
 
         if (!mounted) return;
         Navigator.of(context, rootNavigator: true).pop();
@@ -509,7 +523,7 @@ class _DerivarTvPageState extends State<DerivarTvPage> {
         if (servers.isEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content: Text('No se pudo obtener el stream del episodio.'),
+              content: Text('No se pudo obtener el stream del contenido.'),
               backgroundColor: kCardBg,
             ),
           );
@@ -533,13 +547,7 @@ class _DerivarTvPageState extends State<DerivarTvPage> {
         }
 
         if (streamUrl.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('No se pudo obtener el stream del episodio.'),
-              backgroundColor: kCardBg,
-            ),
-          );
-          return;
+          streamUrl = servers.first.url.trim();
         }
 
         if (!mounted) return;

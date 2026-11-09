@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/constants/tmdb_apis.dart';
+import '../../../../core/storage/app_database.dart';
 
 /// Servicio de Home alimentado por la API de TMDB.
 /// Aplica las preferencias de ConfigPage (SharedPreferences).
@@ -15,9 +16,9 @@ import '../../../../core/constants/tmdb_apis.dart';
 ///
 /// Regionalización: solo excluye contenido asiático / indio / ruso.
 class TmdbHomeService {
-  static const String _apiKeyFallback = 'a2d9bbed370d9f678e34006f8750a5a5'; // unused fallback
   static const String _base = 'https://api.themoviedb.org/3';
   static const String _imgBase = 'https://image.tmdb.org/t/p';
+  static const Set<int> _kKidsExcludedGenres = {27, 80, 53, 10752, 10768};
 
   /// Mínimo de votos para considerar contenido "conocido".
   static const int _minVoteCountMovies = 80;
@@ -79,9 +80,10 @@ class TmdbHomeService {
 
   Future<_HomePrefs> _loadPrefs() async {
     final p = await SharedPreferences.getInstance();
+    final isKids = AppDatabase.instance.activeProfile?.esInfantil == true;
     return _HomePrefs(
       tmdbEnrichment: p.getBool('tmdb_enrichment') ?? true,
-      allowAdult: p.getBool('allow_adult_content') ?? false,
+      allowAdult: isKids ? false : (p.getBool('allow_adult_content') ?? false),
       showUnreleased: p.getBool('show_unreleased') ?? false,
       homeSessions: p.getBool('home_sessions') ?? true,
       homeFeaturedMovies: p.getBool('home_featured_movies') ?? true,
@@ -197,8 +199,18 @@ class TmdbHomeService {
 
       if (voteCount < minVotes && popularity < minPop) return false;
 
-      // 3) Adult
+      // 3) Adult & Perfil Infantil
       if (item['adult'] == true && !prefs.allowAdult) return false;
+      if (AppDatabase.instance.activeProfile?.esInfantil == true) {
+        if (item['adult'] == true) return false;
+        final gids = item['genre_ids'];
+        if (gids is List) {
+          for (final g in gids) {
+            final id = g is num ? g.toInt() : int.tryParse('$g');
+            if (id != null && _kKidsExcludedGenres.contains(id)) return false;
+          }
+        }
+      }
 
       // 4) Unreleased
       if (!prefs.showUnreleased) {
@@ -281,8 +293,12 @@ class TmdbHomeService {
     // para el parámetro `language` de la API (metadatos localizados).
 
     // Excluir reality / talk / news / soap en Home (series)
-    if (!isMovie && TmdbApis.tvWithoutGenres.isNotEmpty) {
-      q['without_genres'] = TmdbApis.tvWithoutGenres;
+    final withoutList = <String>[
+      if (!isMovie && TmdbApis.tvWithoutGenres.isNotEmpty) TmdbApis.tvWithoutGenres,
+      if (AppDatabase.instance.activeProfile?.esInfantil == true) '27,80,53,10752,10768',
+    ];
+    if (withoutList.isNotEmpty) {
+      q['without_genres'] = withoutList.join(',');
     }
     return q;
   }
@@ -833,9 +849,10 @@ class TmdbHomeService {
     if (yT != null) data['year_tv'] = yT;
 
     if (prefs.homeSessions) {
+      final hist = await AppDatabase.instance.getHistory(deduplicateSeries: true);
       data['continue_watching'] = {
         'title': 'Seguir viendo',
-        'items': <Map<String, dynamic>>[],
+        'items': hist,
       };
     }
 

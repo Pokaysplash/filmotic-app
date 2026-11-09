@@ -1,8 +1,6 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../content/presentation/content_page.dart';
 import '../../player/presentation/player_page.dart';
@@ -40,13 +38,14 @@ class _HomePageState extends State<HomePage>
   static Map<String, dynamic>? _cachedData;
   static List<Map<String, dynamic>> _cachedHistorial = [];
   static bool _hasLoadedOnce = false;
+  static bool? _cachedKidsMode;
 
   bool _loading = true;
   String? _error;
   Map<String, dynamic>? _data;
 
   final PageController _mainSliderController = PageController();
-  int _mainSliderIndex = 0;
+  final ValueNotifier<int> _mainSliderIndexNotifier = ValueNotifier<int>(0);
 
   List<Map<String, dynamic>> _historial = [];
 
@@ -61,10 +60,6 @@ class _HomePageState extends State<HomePage>
   @override
   void initState() {
     super.initState();
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -74,8 +69,10 @@ class _HomePageState extends State<HomePage>
     );
 
     HistorialBus.version.addListener(_onHistorialBusChanged);
+    AppDatabase.instance.activeProfileNotifier.addListener(_onHistorialBusChanged);
 
-    if (_hasLoadedOnce && _cachedData != null) {
+    final currentKidsMode = AppDatabase.instance.activeProfile?.esInfantil == true;
+    if (_hasLoadedOnce && _cachedData != null && _cachedKidsMode == currentKidsMode) {
       _data = _cachedData;
       _historial = List<Map<String, dynamic>>.from(_cachedHistorial);
       _loading = false;
@@ -88,12 +85,20 @@ class _HomePageState extends State<HomePage>
   @override
   void dispose() {
     HistorialBus.version.removeListener(_onHistorialBusChanged);
+    AppDatabase.instance.activeProfileNotifier.removeListener(_onHistorialBusChanged);
     _mainSliderController.dispose();
+    _mainSliderIndexNotifier.dispose();
     super.dispose();
   }
 
   void _onHistorialBusChanged() {
-    if (mounted) _refreshHistorialQuiet();
+    if (!mounted) return;
+    final currentKidsMode = AppDatabase.instance.activeProfile?.esInfantil == true;
+    if (_cachedKidsMode != null && _cachedKidsMode != currentKidsMode) {
+      _fetchAll();
+      return;
+    }
+    _refreshHistorialQuiet();
   }
 
   Future<void> _refreshHistorialQuiet() async {
@@ -129,6 +134,7 @@ class _HomePageState extends State<HomePage>
 
       _cachedData = apiData;
       _cachedHistorial = historial;
+      _cachedKidsMode = AppDatabase.instance.activeProfile?.esInfantil == true;
       _hasLoadedOnce = true;
 
       setState(() {
@@ -157,33 +163,7 @@ class _HomePageState extends State<HomePage>
 
   Future<List<Map<String, dynamic>>> _loadHistorial() async {
     try {
-      final sembastHistory = await AppDatabase.instance.getHistory();
-      if (sembastHistory.isNotEmpty) return sembastHistory;
-
-      final prefs = await SharedPreferences.getInstance();
-      final keys = prefs
-          .getKeys()
-          .where((k) => k.startsWith('cachePlayer_'))
-          .toList();
-
-      final List<Map<String, dynamic>> result = [];
-      for (final key in keys) {
-        try {
-          final raw = prefs.getString(key);
-          if (raw == null) continue;
-          final data = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-          final segundo = data['segundo'] as int? ?? 0;
-          if (segundo < 8) continue;
-          result.add(data);
-        } catch (_) {}
-      }
-
-      result.sort((a, b) {
-        final ta = a['timestamp']?.toString() ?? '';
-        final tb = b['timestamp']?.toString() ?? '';
-        return tb.compareTo(ta);
-      });
-      return result;
+      return await AppDatabase.instance.getHistory(deduplicateSeries: true);
     } catch (_) {
       return [];
     }
@@ -546,60 +526,67 @@ class _HomePageState extends State<HomePage>
         backgroundColor: kCardBg,
         onRefresh: _fetchAll,
         child: CustomScrollView(
-          cacheExtent: 250,
+          cacheExtent: 500,
           physics: const AlwaysScrollableScrollPhysics(
-            parent: BouncingScrollPhysics(),
+            parent: ClampingScrollPhysics(),
           ),
           slivers: [
             if (slider.isNotEmpty)
               SliverToBoxAdapter(
-                child: SizedBox(
-                  height: heroHeight,
-                  child: Stack(
-                    children: [
-                      PageView.builder(
-                        controller: _mainSliderController,
-                        itemCount: slider.length,
-                        onPageChanged: (i) {
-                          if (mounted) setState(() => _mainSliderIndex = i);
-                        },
-                        itemBuilder: (context, index) {
-                          final item = slider[index];
-                          return _HeroSlide(
-                            item: item,
-                            topPad: topPad,
-                            onTap: () => _openContent(item),
-                            onLongPress: () => _showOpcionesModal(item),
-                          );
-                        },
-                      ),
-                      if (slider.length > 1)
-                        Positioned(
-                          left: 0,
-                          right: 0,
-                          bottom: 12,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: List.generate(slider.length, (i) {
-                              final active = i == _mainSliderIndex;
-                              return AnimatedContainer(
-                                duration: const Duration(milliseconds: 250),
-                                margin: const EdgeInsets.symmetric(
-                                  horizontal: 3,
-                                ),
-                                width: active ? 20 : 6,
-                                height: 6,
-                                decoration: BoxDecoration(
-                                  color: active
-                                      ? Colors.white
-                                      : Colors.white.withValues(alpha: 0.4),
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                              );
-                            }),
-                          ),
+                child: RepaintBoundary(
+                  child: SizedBox(
+                    height: heroHeight,
+                    child: Stack(
+                      children: [
+                        PageView.builder(
+                          controller: _mainSliderController,
+                          itemCount: slider.length,
+                          onPageChanged: (i) {
+                            _mainSliderIndexNotifier.value = i;
+                          },
+                          itemBuilder: (context, index) {
+                            final item = slider[index];
+                            return _HeroSlide(
+                              item: item,
+                              topPad: topPad,
+                              onTap: () => _openContent(item),
+                              onLongPress: () => _showOpcionesModal(item),
+                            );
+                          },
                         ),
-                    ],
+                        if (slider.length > 1)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 12,
+                            child: ValueListenableBuilder<int>(
+                              valueListenable: _mainSliderIndexNotifier,
+                              builder: (context, currentIdx, _) {
+                                return Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: List.generate(slider.length, (i) {
+                                    final active = i == currentIdx;
+                                    return AnimatedContainer(
+                                      duration: const Duration(milliseconds: 250),
+                                      margin: const EdgeInsets.symmetric(
+                                        horizontal: 3,
+                                      ),
+                                      width: active ? 20 : 6,
+                                      height: 6,
+                                      decoration: BoxDecoration(
+                                        color: active
+                                            ? Colors.white
+                                            : Colors.white.withValues(alpha: 0.4),
+                                        borderRadius: BorderRadius.circular(3),
+                                      ),
+                                    );
+                                  }),
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1125,7 +1112,10 @@ class _HeroSlide extends StatelessWidget {
   String get _backdrop {
     final b = item['backdrop_path']?.toString() ?? '';
     if (b.isNotEmpty && b != 'null') {
-      return b.startsWith('http') ? b : 'https://image.tmdb.org/t/p/original$b';
+      if (b.startsWith('http')) {
+        return b.replaceFirst('/t/p/original/', '/t/p/w1280/');
+      }
+      return 'https://image.tmdb.org/t/p/w1280$b';
     }
     final p = item['poster_path']?.toString() ?? '';
     if (p.isNotEmpty && p != 'null') {
@@ -1201,7 +1191,9 @@ class _HeroSlide extends StatelessWidget {
               width: double.infinity,
               height: double.infinity,
               memCacheWidth: (size.width * dpr).round(),
-              fadeInDuration: const Duration(milliseconds: 160),
+              useOldImageOnUrlChange: true,
+              fadeInDuration: const Duration(milliseconds: 120),
+              fadeOutDuration: Duration.zero,
               placeholder: (_, __) =>
                   const ColoredBox(color: Color(0xFF111111)),
               errorWidget: (_, __, ___) =>
@@ -1384,7 +1376,13 @@ class _ContinueCard extends StatelessWidget {
     return '';
   }
 
-  double get _progress => (_segundo / 4200).clamp(0.04, 1.0);
+  double get _progress {
+    final total = (item['duracion_total'] as num?)?.toInt() ??
+        (item['total'] as num?)?.toInt() ??
+        0;
+    final denom = total > 60 ? total : 4200;
+    return (_segundo / denom).clamp(0.04, 1.0);
+  }
   int get _porcentaje => (_progress * 100).round();
 
   @override

@@ -11,12 +11,12 @@ import '../../player/presentation/player_page.dart';
 // Ajusta estas rutas a tu estructura
 import '../../downloads/presentation/download_manager.dart';
 import '../../downloads/presentation/extractor_download_page.dart';
-import '../../../supabase/guardados_service.dart';
 // Recordatorios de capítulos (ajusta rutas si hace falta)
 import 'widgets/tmdb_upcoming_service.dart';
 import 'widgets/upcoming_episodes_modal.dart';
 import '../../search/presentation/search_page.dart';
 import '../../../core/services/guardados_bus.dart';
+import '../../../core/storage/app_database.dart';
 import '../../../../core/services/server_prevalidation_service.dart';
 import '../../../../core/services/remote_config_service.dart';
 export '../../../core/services/guardados_bus.dart';
@@ -60,17 +60,11 @@ class _PageContenidoState extends State<PageContenido>
   bool _overviewExpanded = false;
 
   // ── Config descargas ──────────────────────────────────────────────────────
-  bool _idmDownloadEnabled = false;
   bool _enableDownloads = true;
-  bool _autoDirectDownload = false;
-
-  /// Película completa descargada
-  bool _isMovieDownloaded = false;
 
   /// "T{n}_C{n}" → true si el episodio está descargado
   Map<String, bool> _episodeDownloaded = {};
 
-  bool _showOptions = false;
   bool _playLoading = false;
   String? _loadingEpisodeKey;
 
@@ -78,8 +72,6 @@ class _PageContenidoState extends State<PageContenido>
   bool _isSeriesAiring = false;
 
   late final AnimationController _animController;
-  late final Animation<double> _scaleAnim;
-  late final Animation<double> _fadeAnim;
 
   int? _overrideTmdbId;
 
@@ -98,12 +90,9 @@ class _PageContenidoState extends State<PageContenido>
       vsync: this,
       duration: const Duration(milliseconds: 280),
     );
-    _scaleAnim = CurvedAnimation(
-      parent: _animController,
-      curve: Curves.easeOutBack,
-    );
-    _fadeAnim = CurvedAnimation(parent: _animController, curve: Curves.easeOut);
     GuardadosBus.version.addListener(_onProgressBus);
+    HistorialBus.version.addListener(_onProgressBus);
+    AppDatabase.instance.activeProfileNotifier.addListener(_onProgressBus);
     _loadSavedState();
     _loadDownloadSettings();
     _fetchContent();
@@ -120,6 +109,8 @@ class _PageContenidoState extends State<PageContenido>
   @override
   void dispose() {
     GuardadosBus.version.removeListener(_onProgressBus);
+    HistorialBus.version.removeListener(_onProgressBus);
+    AppDatabase.instance.activeProfileNotifier.removeListener(_onProgressBus);
     _animController.dispose();
     super.dispose();
   }
@@ -128,9 +119,7 @@ class _PageContenidoState extends State<PageContenido>
     final prefs = await SharedPreferences.getInstance();
     if (!mounted) return;
     setState(() {
-      _idmDownloadEnabled = prefs.getBool('idm_download_enabled') ?? false;
       _enableDownloads = prefs.getBool('enable_downloads') ?? true;
-      _autoDirectDownload = prefs.getBool('auto_direct_download') ?? false;
     });
   }
 
@@ -228,7 +217,7 @@ class _PageContenidoState extends State<PageContenido>
           _selectedSeasonIndex = 0;
         });
         _loadSavedState();
-        _loadProgress();
+        await _loadProgress();
         _loadEpisodeProgress();
         _loadDownloadedState();
         _checkAiring();
@@ -321,60 +310,83 @@ class _PageContenidoState extends State<PageContenido>
 
   Future<void> _loadProgress() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       final id = _resolvedTmdbId;
-
       Map<String, dynamic>? best;
       DateTime? bestTs;
 
-      void consider(String? raw) {
+      void considerMap(Map<String, dynamic> data) {
+        final sec = (data['segundo'] as num?)?.toInt() ??
+            (data['progreso_segundos'] as num?)?.toInt();
+        if (sec == null || sec <= 5) return;
+        data['segundo'] = sec;
+        DateTime? ts;
+        final tsRaw = (data['timestamp'] ?? data['fecha'])?.toString();
+        if (tsRaw != null && tsRaw.isNotEmpty) {
+          ts = DateTime.tryParse(tsRaw);
+        }
+        final better = best == null ||
+            (ts != null && (bestTs == null || ts.isAfter(bestTs!))) ||
+            (ts == null &&
+                bestTs == null &&
+                sec > ((best!['segundo'] as int?) ?? 0));
+        if (better) {
+          best = data;
+          bestTs = ts;
+        }
+      }
+
+      // 1. Consultar Sembast del perfil activo
+      final records = await AppDatabase.instance.getHistoryForContent(id);
+      for (final item in records) {
+        considerMap(item);
+      }
+
+      // 2. Consultar SharedPreferences aislado por perfil
+      final prefs = await SharedPreferences.getInstance();
+      void considerRaw(String? raw) {
         if (raw == null || raw.isEmpty) return;
         try {
-          final data = Map<String, dynamic>.from(jsonDecode(raw) as Map);
-          final sec = data['segundo'] as int?;
-          if (sec == null || sec <= 5) return;
-          DateTime? ts;
-          final tsRaw = data['timestamp']?.toString();
-          if (tsRaw != null && tsRaw.isNotEmpty) {
-            ts = DateTime.tryParse(tsRaw);
-          }
-          final better =
-              best == null ||
-              (ts != null && (bestTs == null || ts.isAfter(bestTs!))) ||
-              (ts == null &&
-                  bestTs == null &&
-                  sec > ((best!['segundo'] as int?) ?? 0));
-          if (better) {
-            best = data;
-            bestTs = ts;
-          }
+          considerMap(Map<String, dynamic>.from(jsonDecode(raw) as Map));
         } catch (_) {}
       }
 
-      consider(prefs.getString('cachePlayer_$id'));
-      consider(prefs.getString('cachePlayerRapido_$id'));
+      considerRaw(prefs.getString(AppDatabase.instance.scopedPrefsKey('cachePlayer_$id')));
+      considerRaw(prefs.getString(AppDatabase.instance.scopedPrefsKey('cachePlayerRapido_$id')));
 
-      final prefixFull = 'cachePlayer_${id}_T';
-      final prefixRapido = 'cachePlayerRapido_${id}_T';
+      final prefixFull = AppDatabase.instance.scopedPrefsKey('cachePlayer_${id}_T');
+      final prefixRapido = AppDatabase.instance.scopedPrefsKey('cachePlayerRapido_${id}_T');
       for (final key in prefs.getKeys()) {
         if (key.startsWith(prefixFull) || key.startsWith(prefixRapido)) {
-          consider(prefs.getString(key));
+          considerRaw(prefs.getString(key));
         }
       }
 
       if (mounted) {
         setState(() => _progress = best);
-        if (best != null) {
-          _preResolveServers();
-        }
       }
     } catch (_) {}
   }
 
   Future<void> _loadEpisodeProgress() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       final map = <String, int>{};
+
+      // 1. Leer de Sembast por perfil activo
+      final records = await AppDatabase.instance.getHistoryForContent(
+        _resolvedTmdbId,
+      );
+      for (final item in records) {
+        final tNum = item['temporada'];
+        final cNum = item['capitulo'];
+        final sec = (item['segundo'] as num?)?.toInt() ??
+            (item['progreso_segundos'] as num?)?.toInt();
+        if (tNum != null && cNum != null && sec != null && sec > 5) {
+          map['T${tNum}_C$cNum'] = sec;
+        }
+      }
+
+      // 2. Complementar con SharedPreferences aislado por perfil
+      final prefs = await SharedPreferences.getInstance();
       final seasons = _seasons;
 
       for (final season in seasons) {
@@ -384,10 +396,15 @@ class _PageContenidoState extends State<PageContenido>
         for (final ep in eps) {
           final cNum = ep['episode_number'];
           if (cNum == null) continue;
+          final epKey = 'T${tNum}_C$cNum';
+          if (map.containsKey(epKey)) continue;
 
-          final keyRapido =
-              'cachePlayerRapido_${_resolvedTmdbId}_T${tNum}_C$cNum';
-          final keyFull = 'cachePlayer_${_resolvedTmdbId}_T${tNum}_C$cNum';
+          final keyRapido = AppDatabase.instance.scopedPrefsKey(
+            'cachePlayerRapido_${_resolvedTmdbId}_$epKey',
+          );
+          final keyFull = AppDatabase.instance.scopedPrefsKey(
+            'cachePlayer_${_resolvedTmdbId}_$epKey',
+          );
 
           String? raw = prefs.getString(keyRapido);
           raw ??= prefs.getString(keyFull);
@@ -395,9 +412,9 @@ class _PageContenidoState extends State<PageContenido>
 
           try {
             final data = jsonDecode(raw);
-            final sec = data['segundo'] as int?;
+            final sec = (data['segundo'] as num?)?.toInt();
             if (sec != null && sec > 5) {
-              map['T${tNum}_C$cNum'] = sec;
+              map[epKey] = sec;
             }
           } catch (_) {}
         }
@@ -415,11 +432,6 @@ class _PageContenidoState extends State<PageContenido>
           (_data?['type']?.toString() ?? _resolvedMediaType) == 'movie';
 
       if (isMovie) {
-        final ok = await DownloadManager.isDownloaded(
-          tmdbId: _resolvedTmdbId,
-          tipo: 'movie',
-        );
-        if (mounted) setState(() => _isMovieDownloaded = ok);
         return;
       }
 
@@ -1159,17 +1171,6 @@ class _PageContenidoState extends State<PageContenido>
     );
   }
 
-  void _toggleOptions() {
-    setState(() {
-      _showOptions = !_showOptions;
-      if (_showOptions) {
-        _animController.forward();
-      } else {
-        _animController.reverse();
-      }
-    });
-  }
-
   Widget _buildTmdbRatingBadge(
     double rating, {
     double iconSize = 18,
@@ -1494,7 +1495,7 @@ class _PageContenidoState extends State<PageContenido>
     String playLabel;
     if (isMovie) {
       playLabel = hasProgress
-          ? 'Reanudar · ${_formatTime(resumeSec!)}'
+          ? 'Reanudar · ${_formatTime(resumeSec)}'
           : 'Reproducir';
     } else {
       if (hasEpisodeProgress) {
@@ -2143,7 +2144,7 @@ class _PageContenidoState extends State<PageContenido>
                         );
                         final hasSeen = seenSec != null && seenSec > 5;
                         final progressFactor = hasSeen
-                            ? (seenSec! / ((epRuntime ?? 45) * 60)).clamp(
+                            ? (seenSec / ((epRuntime ?? 45) * 60)).clamp(
                                 0.06,
                                 1.0,
                               )
@@ -2252,7 +2253,7 @@ class _PageContenidoState extends State<PageContenido>
                                                         ),
                                                   ),
                                                   child: Text(
-                                                    _formatTime(seenSec!),
+                                                    _formatTime(seenSec),
                                                     style: const TextStyle(
                                                       color: Colors.white,
                                                       fontSize: 10,
@@ -2322,7 +2323,7 @@ class _PageContenidoState extends State<PageContenido>
                                                 if (epRating > 0)
                                                   const SizedBox(width: 8),
                                                 Text(
-                                                  'Visto · ${_formatTime(seenSec!)}',
+                                                  'Visto · ${_formatTime(seenSec)}',
                                                   style: TextStyle(
                                                     color: kOrangeVer
                                                         .withValues(
@@ -2546,31 +2547,6 @@ class _PageContenidoState extends State<PageContenido>
       child: IconButton(
         icon: Icon(icon, color: Colors.white, size: 20),
         onPressed: onPressed,
-      ),
-    );
-  }
-
-
-  Widget _buildCircleAction({
-    required IconData icon,
-    required bool isActive,
-    required Color activeColor,
-    required VoidCallback onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 48,
-        height: 48,
-        decoration: const BoxDecoration(
-          color: Color(0xFF2a2a2a),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(
-          icon,
-          color: isActive ? activeColor : Colors.white,
-          size: 24,
-        ),
       ),
     );
   }
