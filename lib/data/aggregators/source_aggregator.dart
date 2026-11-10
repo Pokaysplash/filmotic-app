@@ -660,6 +660,8 @@ class _VerifyGate {
 // ─────────────────────────────────────────────────────────────
 
 class MainFuentes {
+  static final MainFuentes instance = MainFuentes();
+
   FuentesConfig? _config;
 
   FuentesConfig get config {

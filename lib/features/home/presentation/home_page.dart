@@ -256,22 +256,36 @@ class _HomePageState extends State<HomePage>
     final id = item['idcontenido'] as int? ?? 0;
     if (id <= 0) return;
 
-    final temporada = item['temporada'] as int?;
-    final capitulo = item['capitulo'] as int?;
     final tipo = (item['tipo'] ?? 'movie').toString().toLowerCase();
+    final int? segundo = (item['segundo'] as num?)?.toInt() ??
+        (item['progreso_segundos'] as num?)?.toInt();
+    final int? duracion = (item['total'] as num?)?.toInt() ??
+        (item['duracion_total'] as num?)?.toInt();
+    final isFinished = duracion != null && duracion > 0 && segundo != null && segundo >= (duracion * 0.95);
+
+    final int? curSeason = (item['temporada'] as num?)?.toInt();
+    final int? curEpisode = (item['capitulo'] as num?)?.toInt();
+    final isTv = tipo == 'tv' || curSeason != null;
+
+    final int? targetSeason = curSeason;
+    final int? targetEpisode = (isTv && isFinished && curEpisode != null)
+        ? (curEpisode + 1)
+        : curEpisode;
+    final String targetVideoUrl = (isTv && isFinished)
+        ? ''
+        : (item['videoUrl']?.toString() ?? '');
     final titulo = item['titulo']?.toString() ?? '';
-    final videoUrl = item['videoUrl']?.toString() ?? '';
     final idioma = item['idioma']?.toString();
 
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
-          videoUrl: videoUrl,
+          videoUrl: targetVideoUrl,
           idcontenido: id,
           tmdbId: id,
-          temporada: temporada,
-          capitulo: capitulo,
+          temporada: targetSeason,
+          capitulo: targetEpisode,
           tipo: tipo,
           titulo: titulo,
           idioma: idioma,

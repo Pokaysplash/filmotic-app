@@ -240,19 +240,23 @@ class TmdbDiscoverService {
       query['without_genres'] = withoutList.join(',');
     }
 
-    // Recientes: priorizar fecha reciente
+    // Recientes: priorizar fecha reciente (máximo 60 días para películas, 90 días para series)
     if (genero.toLowerCase() == 'recientes' && sortBy == 'popularity') {
-      query['sort_by'] =
-          isTv ? 'first_air_date.desc' : 'primary_release_date.desc';
-      if (!prefs.showUnreleased) {
-        final today = DateTime.now();
-        final d =
-            '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-        if (isTv) {
-          query['first_air_date.lte'] = d;
-        } else {
-          query['primary_release_date.lte'] = d;
-        }
+      final today = DateTime.now();
+      final stampNow =
+          '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+      final pastDate = today.subtract(Duration(days: isTv ? 90 : 60));
+      final stampPast =
+          '${pastDate.year.toString().padLeft(4, '0')}-${pastDate.month.toString().padLeft(2, '0')}-${pastDate.day.toString().padLeft(2, '0')}';
+
+      query['sort_by'] = 'popularity.desc';
+      query['vote_count.gte'] = '8';
+      if (isTv) {
+        query['first_air_date.gte'] = stampPast;
+        query['first_air_date.lte'] = stampNow;
+      } else {
+        query['primary_release_date.gte'] = stampPast;
+        query['primary_release_date.lte'] = stampNow;
       }
     } else if (!prefs.showUnreleased) {
       final today = DateTime.now();

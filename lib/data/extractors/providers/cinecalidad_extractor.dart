@@ -9,7 +9,14 @@ const _kAllowedServers = ['Vimeos', 'Hlswish', 'voe', 'Videoapp'];
 
 const _kTmdbApiKey = 'a2d9bbed370d9f678e34006f8750a5a5';
 const _kTmdbBase = 'https://api.themoviedb.org/3';
-const _kCinecalidadBase = 'https://www.cinecalidad.my';
+const _kCinecalidadBase = 'https://cinecalidad.ec';
+const _kCinecalidadMirrors = [
+  'https://cinecalidad.ec',
+  'https://www.cinecalidad.am',
+  'https://cinecalidad.rs',
+  'https://cinecalidad.vg',
+  'https://www.cinecalidad.my',
+];
 
 /// Modelo de servidor listo para [ServidoresModal].
 class CinecalidadServer {
@@ -89,8 +96,26 @@ class CinecalidadService {
       }
     }
 
+    // Búsqueda de respaldo si los slugs directos no coincidieron
     if (foundHtml == null || foundUrl == null) {
-      throw Exception('No se encontró ninguna URL válida en Cinecalidad');
+      for (final title in tmdbData.titles.values) {
+        if (title.trim().isEmpty) continue;
+        final searchUrl = await _searchCinecalidad(title, isMovie: isMovie);
+        if (searchUrl != null && searchUrl.isNotEmpty) {
+          try {
+            final html = await _fetchPage(searchUrl);
+            if (html != null && _hasValidContent(html)) {
+              foundHtml = html;
+              foundUrl = searchUrl;
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    if (foundHtml == null || foundUrl == null) {
+      return;
     }
 
     final links = _extractCinecalidadLinks(foundHtml);
@@ -186,40 +211,78 @@ class CinecalidadService {
   }) {
     final candidates = <String>[];
 
-    if (!isMovie) {
-      final base = '$_kCinecalidadBase/episodio/';
-      final baseOld = '$_kCinecalidadBase/ver-el-episodio/';
-      for (final title in titles.values) {
-        final slug = _slugify(title);
-        if (slug.isEmpty) continue;
-        
-        candidates.add('$base$slug-${season}x$episode-online-descarga/');
-        
-        candidates.add('$baseOld$slug-${season}x$episode/');
-        candidates.add('$baseOld$slug-${season}x$episode-$tmdbId/');
-        if (year != null) {
-          candidates.add('$baseOld$slug-${season}x$episode-$year/');
+    for (final baseMirror in _kCinecalidadMirrors) {
+      if (!isMovie) {
+        final base = '$baseMirror/episodio/';
+        final baseOld = '$baseMirror/ver-el-episodio/';
+        for (final title in titles.values) {
+          final slug = _slugify(title);
+          if (slug.isEmpty) continue;
+
+          candidates.add('$base$slug-${season}x$episode-online-descarga/');
+          candidates.add('$baseOld$slug-${season}x$episode/');
+          candidates.add('$baseOld$slug-${season}x$episode-$tmdbId/');
+          if (year != null) {
+            candidates.add('$baseOld$slug-${season}x$episode-$year/');
+          }
         }
-      }
-    } else {
-      final base = '$_kCinecalidadBase/pelicula/';
-      final baseOld = '$_kCinecalidadBase/ver-pelicula/';
-      for (final title in titles.values) {
-        final slug = _slugify(title);
-        if (slug.isEmpty) continue;
-        
-        candidates.add('$base$slug-$year-online-descarga/');
-        candidates.add('$base$slug-online-descarga/');
-        
-        candidates.add('$baseOld$slug/');
-        candidates.add('$baseOld$slug-$tmdbId/');
-        if (year != null) {
-          candidates.add('$baseOld$slug-$year/');
+      } else {
+        final base = '$baseMirror/pelicula/';
+        final baseOld = '$baseMirror/ver-pelicula/';
+        for (final title in titles.values) {
+          final slug = _slugify(title);
+          if (slug.isEmpty) continue;
+
+          if (year != null) {
+            candidates.add('$base$slug-$year-online-descarga/');
+          }
+          candidates.add('$base$slug-online-descarga/');
+
+          candidates.add('$baseOld$slug/');
+          candidates.add('$baseOld$slug-$tmdbId/');
+          if (year != null) {
+            candidates.add('$baseOld$slug-$year/');
+          }
         }
       }
     }
 
     return candidates.toSet().toList();
+  }
+
+  static Future<String?> _searchCinecalidad(
+    String query, {
+    required bool isMovie,
+  }) async {
+    for (final base in _kCinecalidadMirrors) {
+      try {
+        final uri = Uri.parse('$base/?s=${Uri.encodeQueryComponent(query)}');
+        final res = await http.get(
+          uri,
+          headers: {
+            'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml',
+          },
+        ).timeout(const Duration(seconds: 4));
+        if (res.statusCode != 200) continue;
+        final html = res.body;
+
+        final re = RegExp(
+          r'<article[^>]*>.*?<a\s+href="([^"]+)"',
+          caseSensitive: false,
+          dotAll: true,
+        );
+        final match = re.firstMatch(html);
+        if (match != null) {
+          final link = match.group(1);
+          if (link != null && link.isNotEmpty && link.startsWith('http')) {
+            return link;
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
   }
 
   // ─── Fetch + extracción ─────────────────────────────────────────────────
@@ -247,7 +310,10 @@ class CinecalidadService {
   }
 
   static bool _hasValidContent(String html) {
-    return html.contains('panel_online') && html.contains('data-option');
+    return (html.contains('panel_online') ||
+            html.contains('vimeos.net') ||
+            html.contains('data-option')) &&
+        (html.contains('data-option') || html.contains('<iframe'));
   }
 
   static List<_ExtractedLink> _extractCinecalidadLinks(String html) {

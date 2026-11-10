@@ -192,6 +192,84 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return t == 'tv' ? 'tv' : 'movie';
   }
 
+  /// Resuelve determinísticamente el siguiente episodio evitando repetir el actual.
+  (int, int)? _getNextEpisodeTarget() {
+    if (_mediaType != 'tv') return null;
+
+    final currentTemp = widget.temporada ?? 1;
+    final currentCap = widget.capitulo ?? 1;
+
+    if (_siguiente != null) {
+      final s = (_siguiente!['temporada'] as num?)?.toInt();
+      final c = (_siguiente!['capitulo'] as num?)?.toInt() ??
+          (_siguiente!['numero'] as num?)?.toInt();
+      if (s != null && c != null && (s != currentTemp || c != currentCap)) {
+        return (s, c);
+      }
+    }
+
+    if (_temporadas.isNotEmpty) {
+      for (int sIdx = 0; sIdx < _temporadas.length; sIdx++) {
+        final seasonMap = _temporadas[sIdx];
+        if (seasonMap is! Map) continue;
+        final sNum = (seasonMap['numero'] as num?)?.toInt() ??
+            (seasonMap['season_number'] as num?)?.toInt();
+        if (sNum == currentTemp) {
+          final caps = seasonMap['capitulos'] as List? ??
+              seasonMap['episodes'] as List? ??
+              [];
+          final sortedCaps = List<Map<String, dynamic>>.from(
+            caps.whereType<Map>().map((e) => Map<String, dynamic>.from(e)),
+          )..sort((a, b) =>
+              ((a['numero'] ?? a['episode_number'] as num?)?.toInt() ?? 0)
+                  .compareTo(((b['numero'] ?? b['episode_number'] as num?)?.toInt() ?? 0)));
+
+          for (final capMap in sortedCaps) {
+            final cNum = (capMap['numero'] as num?)?.toInt() ??
+                (capMap['episode_number'] as num?)?.toInt();
+            if (cNum != null && cNum > currentCap) {
+              return (currentTemp, cNum);
+            }
+          }
+
+          if (sIdx + 1 < _temporadas.length) {
+            final nextSeasonMap = _temporadas[sIdx + 1];
+            if (nextSeasonMap is Map) {
+              final nextSNum = (nextSeasonMap['numero'] as num?)?.toInt() ??
+                  (nextSeasonMap['season_number'] as num?)?.toInt() ??
+                  (currentTemp + 1);
+              final nextCaps = nextSeasonMap['capitulos'] as List? ??
+                  nextSeasonMap['episodes'] as List? ??
+                  [];
+              if (nextCaps.isNotEmpty) {
+                final firstCap = nextCaps.firstWhere(
+                  (e) => e is Map,
+                  orElse: () => null,
+                );
+                if (firstCap != null && firstCap is Map) {
+                  final firstCNum = (firstCap['numero'] as num?)?.toInt() ??
+                      (firstCap['episode_number'] as num?)?.toInt() ??
+                      1;
+                  return (nextSNum, firstCNum);
+                }
+              }
+              return (nextSNum, 1);
+            }
+          }
+        }
+      }
+    }
+
+    return (currentTemp, currentCap + 1);
+  }
+
+  bool get _hasRealNext {
+    if (_mediaType == 'tv') {
+      return _getNextEpisodeTarget() != null;
+    }
+    return _recomendaciones.isNotEmpty;
+  }
+
   bool get _hasBottomContent =>
       _mediaType == 'tv' && _temporadas.isNotEmpty;
 
@@ -1213,16 +1291,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _goNextEpisode() {
-    if (_mediaType != 'tv' || _siguiente == null) return;
+    if (_mediaType != 'tv') return;
+    final next = _getNextEpisodeTarget();
+    if (next == null) return;
     _openServersModal(
-      temporada: _siguiente!['temporada'] as int?,
-      capitulo: _siguiente!['capitulo'] as int?,
+      temporada: next.$1,
+      capitulo: next.$2,
       isNext: true,
     );
   }
 
   void _handleVideoEnded() {
     if (!mounted || _isDisposing) return;
+    if (_mediaType == 'tv') {
+      _goNextEpisode();
+      return;
+    }
     setState(() {
       _showNextButton = true;
       _showControls = true;
@@ -1386,8 +1470,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
             if (!_isLoading &&
                 _errorMessage.isEmpty &&
                 _showNextButton &&
-                _mediaType == 'tv' &&
-                _siguiente != null)
+                _hasRealNext)
               Positioned(
                 right: 16,
                 bottom: _showControls

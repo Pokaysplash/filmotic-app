@@ -81,10 +81,10 @@
             <!-- (déjalo como lo tienes) -->
         </activity>
 
-        <!-- FileProvider: necesario para flutter_app_installer y open_filex -->
+        <!-- FileProvider: necesario para el instalador nativo y flutter_app_installer -->
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileProvider;${applicationId}.fileprovider"
+            android:authorities="${applicationId}.fileProvider"
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data

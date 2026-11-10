@@ -11,6 +11,10 @@ import 'package:http/http.dart' as http;
 
 class PelisPlusService {
   static const String _baseUrl = 'https://www.pelisplushd.la';
+  static const List<String> _baseMirrors = [
+    'https://www.pelisplushd.la',
+    'https://pelisplushd.lat',
+  ];
   static const String _tmdbApiKey = '439c478a771f35c05022f9feabcca01c';
   static const String _userAgent =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -138,37 +142,40 @@ class PelisPlusService {
     int tmdbId,
     String mediaType,
   ) async {
-    for (final searchTitle in titles) {
-      if (searchTitle.isEmpty) continue;
+    for (final base in _baseMirrors) {
+      for (final searchTitle in titles) {
+        if (searchTitle.isEmpty) continue;
 
-      final searchUrl =
-          '$_baseUrl/search?s=${Uri.encodeComponent(searchTitle)}';
-      final html = await _fetchUrl(searchUrl);
-      if (html == null || html.isEmpty) continue;
+        final searchUrl =
+            '$base/search?s=${Uri.encodeComponent(searchTitle)}';
+        final html = await _fetchUrl(searchUrl);
+        if (html == null || html.isEmpty) continue;
 
-      final matches = _extractSearchResults(html, mediaType);
-      for (final match in matches) {
-        final foundTitle = match['title'] ?? '';
-        final href = match['href'] ?? '';
-        if (href.isEmpty) continue;
+        final matches = _extractSearchResults(html, mediaType);
+        for (final match in matches) {
+          final foundTitle = match['title'] ?? '';
+          var href = match['href'] ?? '';
+          if (href.isEmpty) continue;
+          if (href.startsWith('/')) href = '$base$href';
 
-        // Coincidencia con el título de búsqueda o con cualquiera de la lista
-        if (_titleMatch(searchTitle, foundTitle) ||
-            titles.any((t) => _titleMatch(t, foundTitle))) {
-          return href;
+          // Coincidencia con el título de búsqueda o con cualquiera de la lista
+          if (_titleMatch(searchTitle, foundTitle) ||
+              titles.any((t) => _titleMatch(t, foundTitle))) {
+            return href;
+          }
         }
       }
-    }
 
-    // Fallback por ID TMDB (si el sitio lo usa en la ruta)
-    final directUrls = [
-      '$_baseUrl/pelicula/$tmdbId',
-      '$_baseUrl/serie/$tmdbId',
-    ];
-    for (final url in directUrls) {
-      final html = await _fetchUrl(url);
-      if (html != null && html.isNotEmpty && html.length > 500) {
-        return url;
+      // Fallback por ID TMDB (si el sitio lo usa en la ruta)
+      final directUrls = [
+        '$base/pelicula/$tmdbId',
+        '$base/serie/$tmdbId',
+      ];
+      for (final url in directUrls) {
+        final html = await _fetchUrl(url);
+        if (html != null && html.isNotEmpty && html.length > 500) {
+          return url;
+        }
       }
     }
 

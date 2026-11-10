@@ -37,6 +37,28 @@ class VidSrcService {
           continue;
         }
 
+        if (embedUrl.contains('2embed.cc')) {
+          if (!seen.contains(embedUrl)) {
+            seen.add(embedUrl);
+            yield _map(
+              url: embedUrl,
+              name: '2Embed Fast',
+            );
+          }
+          continue;
+        }
+
+        if (embedUrl.contains('autoembed.cc')) {
+          if (!seen.contains(embedUrl)) {
+            seen.add(embedUrl);
+            yield _map(
+              url: embedUrl,
+              name: 'AutoEmbed Player',
+            );
+          }
+          continue;
+        }
+
         final html = await _fetch(embedUrl);
         if (html == null || html.isEmpty) {
           // Si el fetch falló pero la URL es un embed válido, emitir como iframe
@@ -86,7 +108,7 @@ class VidSrcService {
           yield _map(url: embedUrl, name: 'VidSrc');
         }
 
-        if (seen.isNotEmpty) break;
+        if (seen.length >= 6) break;
       }
     } catch (_) {}
   }
@@ -123,15 +145,19 @@ class VidSrcService {
       return [
         'https://vidsrc.sh/embed/movie/$tmdbId',
         'https://vidsrc.net/embed/movie/$tmdbId',
+        'https://www.2embed.cc/embed/$tmdbId',
         'https://multiembed.mov/?video_id=$tmdbId&tmdb=1',
         'https://vidsrc.me/embed/movie/$tmdbId',
+        'https://player.autoembed.cc/embed/movie/$tmdbId',
       ];
     }
     return [
       'https://vidsrc.sh/embed/tv/$tmdbId/$season-$episode',
       'https://vidsrc.net/embed/tv/$tmdbId/$season-$episode',
+      'https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode',
       'https://multiembed.mov/?video_id=$tmdbId&tmdb=1&s=$season&e=$episode',
       'https://vidsrc.me/embed/tv/$tmdbId/$season-$episode',
+      'https://player.autoembed.cc/embed/tv/$tmdbId/$season/$episode',
     ];
   }
 

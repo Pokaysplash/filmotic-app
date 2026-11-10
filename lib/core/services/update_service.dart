@@ -1,8 +1,7 @@
 import 'dart:io';
-import 'package:android_intent_plus/android_intent.dart';
-import 'package:android_intent_plus/flag.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_app_installer/flutter_app_installer.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -18,6 +17,9 @@ import 'remote_config_service.dart';
 class UpdateService {
   UpdateService._();
   static final UpdateService instance = UpdateService._();
+
+  static const MethodChannel _installerChannel =
+      MethodChannel('com.example.lol/installer');
 
   static const String _kPendingUpdateKey = 'pending_update_version';
   static const String _kUpdateAttemptsKey = 'update_attempt_count_';
@@ -205,15 +207,23 @@ class UpdateService {
     }
   }
 
-  /// Directorio idóneo para descargar el paquete de instalación
+  /// Directorio idóneo para descargar el paquete de instalación.
+  /// Prioriza `getExternalStorageDirectory` (`Android/data/<pkg>/files`), que es
+  /// compatible tanto con nuestro FileProvider como con OpenFilex sin requerir
+  /// MANAGE_EXTERNAL_STORAGE en Android 11+.
   Future<Directory> getApkStorageDir() async {
     if (Platform.isAndroid) {
+      // Limpiar posibles archivos residuales en externalCacheDirectories antiguos
       try {
-        final extDirs = await getExternalCacheDirectories();
-        if (extDirs != null && extDirs.isNotEmpty) {
-          return extDirs.first;
+        final extCacheDirs = await getExternalCacheDirectories();
+        if (extCacheDirs != null) {
+          for (final d in extCacheDirs) {
+            final oldApk = File('${d.path}/filmotic_update.apk');
+            if (await oldApk.exists()) await oldApk.delete();
+          }
         }
       } catch (_) {}
+
       try {
         final extDir = await getExternalStorageDirectory();
         if (extDir != null) {
@@ -224,7 +234,83 @@ class UpdateService {
     return await getTemporaryDirectory();
   }
 
-  /// Descarga el APK con validación estricta de código HTTP y verificación de integridad
+  /// Verifica la integridad estructural del archivo APK/ZIP (cabecera inicial PK\x03\x04,
+  /// cierre End of Central Directory PK\x05\x06, tamaño esperado y parser PackageManager de Android).
+  Future<bool> _validateApkIntegrity(File file, {int? expectedSize}) async {
+    try {
+      if (!await file.exists()) return false;
+      final len = await file.length();
+
+      // El APK de Filmotic supera los 15 MB
+      if (len < 15 * 1024 * 1024) {
+        debugPrint('[UpdateService] APK rechazado por tamaño insuficiente: $len bytes');
+        return false;
+      }
+
+      if (expectedSize != null && expectedSize > 0 && len != expectedSize) {
+        debugPrint(
+          '[UpdateService] APK incompleto: descargados $len bytes de $expectedSize esperados',
+        );
+        return false;
+      }
+
+      // 1. Verificar firma inicial ZIP (PK\x03\x04)
+      final headerChunks = await file.openRead(0, 4).toList();
+      final headerBytes = headerChunks.expand((x) => x).toList();
+      if (headerBytes.length < 4 ||
+          headerBytes[0] != 0x50 ||
+          headerBytes[1] != 0x4B ||
+          headerBytes[2] != 0x03 ||
+          headerBytes[3] != 0x04) {
+        debugPrint('[UpdateService] APK rechazado: cabecera ZIP inválida');
+        return false;
+      }
+
+      // 2. Verificar firma final End of Central Directory (PK\x05\x06) en los últimos 1024 bytes
+      final tailStart = (len - 1024).clamp(0, len);
+      final tailChunks = await file.openRead(tailStart, len).toList();
+      final tailBytes = tailChunks.expand((x) => x).toList();
+      bool hasEocd = false;
+      for (int i = tailBytes.length - 22; i >= 0; i--) {
+        if (tailBytes[i] == 0x50 &&
+            tailBytes[i + 1] == 0x4B &&
+            tailBytes[i + 2] == 0x05 &&
+            tailBytes[i + 3] == 0x06) {
+          hasEocd = true;
+          break;
+        }
+      }
+      if (!hasEocd) {
+        debugPrint('[UpdateService] APK rechazado: falta firma EOCD (PK\\x05\\x06) al final del archivo');
+        return false;
+      }
+
+      // 3. Validar con PackageManager nativo de Android
+      if (Platform.isAndroid) {
+        try {
+          final res = await _installerChannel.invokeMethod<Map<dynamic, dynamic>>(
+            'verifyApkFile',
+            {'filePath': file.path},
+          );
+          if (res != null && res['valid'] == false) {
+            debugPrint(
+              '[UpdateService] PackageManager rechazó el APK: ${res['reason']}',
+            );
+            return false;
+          }
+        } catch (e) {
+          debugPrint('[UpdateService] Canal verifyApkFile no disponible, usando validación ZIP: $e');
+        }
+      }
+
+      return true;
+    } catch (e) {
+      debugPrint('[UpdateService] Error validando integridad del APK: $e');
+      return false;
+    }
+  }
+
+  /// Descarga el APK en limpio con validación estricta de código HTTP e integridad completa
   Future<String> downloadApk({
     required String url,
     required void Function(int received, int total) onProgress,
@@ -232,95 +318,75 @@ class UpdateService {
   }) async {
     final dir = await getApkStorageDir();
     final filePath = '${dir.path}/filmotic_update.apk';
+    final partPath = '${dir.path}/filmotic_update.apk.part';
     final file = File(filePath);
+    final partFile = File(partPath);
+
+    // Eliminar siempre cualquier APK o fragmento previo antes de comenzar una nueva descarga
+    // para evitar mezclar bytes de versiones distintas o reutilizar descargas truncadas.
+    try {
+      if (await file.exists()) await file.delete();
+      if (await partFile.exists()) await partFile.delete();
+    } catch (_) {}
 
     final dio = Dio(
       BaseOptions(
         connectTimeout: const Duration(seconds: 35),
-        receiveTimeout: const Duration(minutes: 6),
+        receiveTimeout: const Duration(minutes: 8),
       ),
     );
 
-    const int maxRetries = 4;
+    const int maxRetries = 3;
     Object? lastError;
 
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        int existingLength = 0;
-        if (await file.exists()) {
-          existingLength = await file.length();
+        if (await partFile.exists()) {
+          await partFile.delete();
         }
 
-        final isResume = existingLength > 0;
-        final headers = isResume ? {'Range': 'bytes=$existingLength-'} : null;
+        int expectedTotal = -1;
+        debugPrint('[UpdateService] Descargando APK limpio (Intento $attempt/$maxRetries)...');
 
-        debugPrint('[UpdateService] Descargando APK (Intento $attempt/$maxRetries, bytes previos: $existingLength)...');
-
-        final response = await dio.download(
+        await dio.download(
           url,
-          filePath,
+          partPath,
           cancelToken: cancelToken,
-          deleteOnError: false, // ¡Conserva los bytes descargados si la red fluctúa!
-          fileAccessMode: isResume ? FileAccessMode.append : FileAccessMode.write,
+          deleteOnError: true,
+          fileAccessMode: FileAccessMode.write,
           onReceiveProgress: (received, total) {
-            final fullTotal = total > 0 ? (total + (isResume ? existingLength : 0)) : -1;
-            final fullReceived = received + (isResume ? existingLength : 0);
-            onProgress(fullReceived, fullTotal);
+            if (total > 0) expectedTotal = total;
+            onProgress(received, total);
           },
           options: Options(
             responseType: ResponseType.bytes,
             followRedirects: true,
             maxRedirects: 10,
-            headers: headers,
             validateStatus: (status) =>
-                status != null && ((status >= 200 && status < 400) || status == 416),
+                status != null && status >= 200 && status < 400,
           ),
         );
 
-        if (response.statusCode == 416) {
-          debugPrint('[UpdateService] Código 416: El archivo ya estaba completo.');
-        }
-
-        // Validar si el archivo ya quedó completo e íntegro
-        if (await file.exists()) {
+        // Validar que el archivo descargado esté 100% completo y sea un APK válido
+        if (await _validateApkIntegrity(partFile, expectedSize: expectedTotal)) {
+          if (await file.exists()) await file.delete();
+          await partFile.rename(filePath);
           final len = await file.length();
-          if (len >= 5 * 1024 * 1024) {
-            final headerBytes = await file.openRead(0, 4).first;
-            if (headerBytes.length >= 4 &&
-                headerBytes[0] == 0x50 &&
-                headerBytes[1] == 0x4B &&
-                headerBytes[2] == 0x03 &&
-                headerBytes[3] == 0x04) {
-              debugPrint('[UpdateService] APK descargado con éxito y verificado ($len bytes).');
-              return filePath;
-            }
-          }
+          debugPrint('[UpdateService] APK descargado y verificado al 100% ($len bytes).');
+          return filePath;
+        } else {
+          if (await partFile.exists()) await partFile.delete();
+          throw Exception('El paquete descargado está incompleto o corrupto.');
         }
       } catch (e) {
         lastError = e;
-        debugPrint('[UpdateService] Fallo temporal en intento $attempt: $e');
+        debugPrint('[UpdateService] Fallo en intento $attempt: $e');
+        try {
+          if (await partFile.exists()) await partFile.delete();
+        } catch (_) {}
         if (attempt == maxRetries) break;
-        // Espera breve para dar tiempo a que la conexión móvil se estabilice
         await Future.delayed(Duration(seconds: attempt * 2));
       }
-    }
-
-    // Comprobación final si el archivo ya fue descargado completamente
-    if (await file.exists()) {
-      try {
-        final length = await file.length();
-        if (length >= 5 * 1024 * 1024) {
-          final headerBytes = await file.openRead(0, 4).first;
-          if (headerBytes.length >= 4 &&
-              headerBytes[0] == 0x50 &&
-              headerBytes[1] == 0x4B &&
-              headerBytes[2] == 0x03 &&
-              headerBytes[3] == 0x04) {
-            return filePath;
-          }
-        }
-        await file.delete();
-      } catch (_) {}
     }
 
     if (lastError != null) {
@@ -373,10 +439,11 @@ class UpdateService {
   }
 
   /// Inicia el instalador nativo de Android con estrategia resiliente en cascada:
-  /// 1. Solicitud previa segura de permiso REQUEST_INSTALL_PACKAGES (sin abortar)
-  /// 2. flutter_app_installer (FileProvider .fileProvider)
-  /// 3. OpenFilex (FileProvider propio e independiente)
-  /// 4. AndroidIntent (intent ACTION_VIEW directo)
+  /// 1. Verificación previa de integridad del APK (evita "Error al analizar el paquete")
+  /// 2. Solicitud previa segura de permiso REQUEST_INSTALL_PACKAGES
+  /// 3. Canal nativo installApkNative (FileProvider + ClipData + grantUriPermission explícito)
+  /// 4. flutter_app_installer (FileProvider .fileProvider)
+  /// 5. OpenFilex (FileProvider independiente en externalFilesDir)
   Future<bool> installApk({
     required String filePath,
     required String targetVersion,
@@ -390,7 +457,15 @@ class UpdateService {
       throw Exception('El archivo de instalación no fue encontrado en el almacenamiento.');
     }
 
-    // 1. Manejo preventivo del permiso para instalar paquetes desconocidos
+    // 1. Verificar que el APK esté íntegro antes de entregárselo a Android
+    if (!await _validateApkIntegrity(file)) {
+      try {
+        await file.delete();
+      } catch (_) {}
+      throw Exception('El archivo descargado estaba incompleto. Por favor pulsa "Descargar de nuevo".');
+    }
+
+    // 2. Manejo preventivo del permiso para instalar paquetes desconocidos
     try {
       final installPerm = await Permission.requestInstallPackages.status;
       if (!installPerm.isGranted) {
@@ -403,7 +478,21 @@ class UpdateService {
 
     await markPendingUpdate(targetVersion);
 
-    // 2. Intento 1: flutter_app_installer
+    // 3. Intento 1: Instalador nativo propio con concesión explícita de URI a PackageInstaller
+    try {
+      final nativeResult = await _installerChannel.invokeMethod<bool>(
+        'installApkNative',
+        {'filePath': filePath},
+      );
+      if (nativeResult == true) {
+        debugPrint('[UpdateService] Instalador iniciado con canal nativo installApkNative.');
+        return true;
+      }
+    } catch (e) {
+      debugPrint('[UpdateService] Falló installApkNative: $e. Intentando flutter_app_installer...');
+    }
+
+    // 4. Intento 2: flutter_app_installer
     try {
       final flutterAppInstaller = FlutterAppInstaller();
       final result = await flutterAppInstaller.installApk(
@@ -418,7 +507,7 @@ class UpdateService {
       debugPrint('[UpdateService] Falló flutter_app_installer: $e. Intentando OpenFilex...');
     }
 
-    // 3. Intento 2: OpenFilex (altamente compatible en Android TV y móviles)
+    // 5. Intento 3: OpenFilex (compatible al estar en getExternalStorageDirectory)
     try {
       final openResult = await OpenFilex.open(
         filePath,
@@ -429,24 +518,7 @@ class UpdateService {
         return true;
       }
     } catch (e) {
-      debugPrint('[UpdateService] Falló OpenFilex: $e. Intentando AndroidIntent directo...');
-    }
-
-    // 4. Intento 3: AndroidIntent directo con ACTION_VIEW
-    try {
-      final intent = AndroidIntent(
-        action: 'android.intent.action.VIEW',
-        data: Uri.file(filePath).toString(),
-        type: 'application/vnd.android.package-archive',
-        flags: const [
-          Flag.FLAG_ACTIVITY_NEW_TASK,
-          Flag.FLAG_GRANT_READ_URI_PERMISSION,
-        ],
-      );
-      await intent.launch();
-      return true;
-    } catch (e) {
-      debugPrint('[UpdateService] Falló AndroidIntent directo: $e');
+      debugPrint('[UpdateService] Falló OpenFilex: $e');
     }
 
     throw Exception(

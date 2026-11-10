@@ -391,24 +391,39 @@ class _HomePageState extends State<HomePage>
     // Si proviene de "Seguir viendo" (tiene progreso segundo > 5), abrir el reproductor directamente
     final int? segundo = (item['segundo'] as num?)?.toInt() ??
         (item['progreso_segundos'] as num?)?.toInt();
+    final int? duracion = (item['total'] as num?)?.toInt() ??
+        (item['duracion_total'] as num?)?.toInt();
+    final isFinished = duracion != null && duracion > 0 && segundo != null && segundo >= (duracion * 0.95);
+
     final int? resumeId = parseCanonicalTmdbId(
       item['idcontenido'] ?? item['contenido_id'] ?? item['tmdb_id'] ?? item['id'],
     );
     if (segundo != null && segundo > 5 && resumeId != null && resumeId > 0) {
+      final int? curSeason = (item['temporada'] as num?)?.toInt();
+      final int? curEpisode = (item['capitulo'] as num?)?.toInt();
+      final isTv = tipo.toLowerCase() == 'tv' || curSeason != null;
+      final int? targetSeason = curSeason;
+      final int? targetEpisode = (isTv && isFinished && curEpisode != null)
+          ? (curEpisode + 1)
+          : curEpisode;
+      final String targetVideoUrl = (isTv && isFinished)
+          ? ''
+          : (item['videoUrl'] ?? '').toString();
+
       Navigator.push(
         context,
         MaterialPageRoute(
           builder: (_) => PlayerScreen(
-            videoUrl: (item['videoUrl'] ?? '').toString(),
+            videoUrl: targetVideoUrl,
             idcontenido: resumeId,
             tmdbId: parseCanonicalTmdbId(item['tmdb_id']) ?? resumeId,
-            temporada: (item['temporada'] as num?)?.toInt(),
-            capitulo: (item['capitulo'] as num?)?.toInt(),
+            temporada: targetSeason,
+            capitulo: targetEpisode,
             tipo: tipo,
             titulo: titulo,
             idioma: item['idioma']?.toString(),
-            servidorUrl: item['servidorUrl']?.toString(),
-            servidorNombre: item['servidorNombre']?.toString(),
+            servidorUrl: (isTv && isFinished) ? null : item['servidorUrl']?.toString(),
+            servidorNombre: (isTv && isFinished) ? null : item['servidorNombre']?.toString(),
           ),
         ),
       );

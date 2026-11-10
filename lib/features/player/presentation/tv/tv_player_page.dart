@@ -677,12 +677,84 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   bool get _showSeasonsAndEpisodes => _currentRow >= 3;
 
+  /// Resuelve determinísticamente el siguiente episodio evitando repetir el actual.
+  (int, int)? _getNextEpisodeTarget() {
+    if (widget.tipo != 'tv') return null;
+
+    final currentTemp = widget.temporada ?? 1;
+    final currentCap = widget.capitulo ?? 1;
+
+    // 1. Si _siguiente tiene datos válidos y no es el mismo episodio
+    if (_siguiente != null) {
+      final s = (_siguiente!['temporada'] as num?)?.toInt();
+      final c = (_siguiente!['capitulo'] as num?)?.toInt() ??
+          (_siguiente!['numero'] as num?)?.toInt();
+      if (s != null && c != null && (s != currentTemp || c != currentCap)) {
+        return (s, c);
+      }
+    }
+
+    // 2. Buscar en la lista de temporadas cargada (_temporadas)
+    if (_temporadas.isNotEmpty) {
+      for (int sIdx = 0; sIdx < _temporadas.length; sIdx++) {
+        final seasonMap = _temporadas[sIdx];
+        if (seasonMap is! Map) continue;
+        final sNum = (seasonMap['numero'] as num?)?.toInt() ??
+            (seasonMap['season_number'] as num?)?.toInt();
+        if (sNum == currentTemp) {
+          final caps = seasonMap['capitulos'] as List? ??
+              seasonMap['episodes'] as List? ??
+              [];
+          final sortedCaps = List<Map<String, dynamic>>.from(
+            caps.whereType<Map>().map((e) => Map<String, dynamic>.from(e)),
+          )..sort((a, b) =>
+              ((a['numero'] ?? a['episode_number'] as num?)?.toInt() ?? 0)
+                  .compareTo(((b['numero'] ?? b['episode_number'] as num?)?.toInt() ?? 0)));
+
+          for (final capMap in sortedCaps) {
+            final cNum = (capMap['numero'] as num?)?.toInt() ??
+                (capMap['episode_number'] as num?)?.toInt();
+            if (cNum != null && cNum > currentCap) {
+              return (currentTemp, cNum);
+            }
+          }
+
+          // Último capítulo de la temporada actual -> primer capítulo de la siguiente temporada
+          if (sIdx + 1 < _temporadas.length) {
+            final nextSeasonMap = _temporadas[sIdx + 1];
+            if (nextSeasonMap is Map) {
+              final nextSNum = (nextSeasonMap['numero'] as num?)?.toInt() ??
+                  (nextSeasonMap['season_number'] as num?)?.toInt() ??
+                  (currentTemp + 1);
+              final nextCaps = nextSeasonMap['capitulos'] as List? ??
+                  nextSeasonMap['episodes'] as List? ??
+                  [];
+              if (nextCaps.isNotEmpty) {
+                final firstCap = nextCaps.firstWhere(
+                  (e) => e is Map,
+                  orElse: () => null,
+                );
+                if (firstCap != null && firstCap is Map) {
+                  final firstCNum = (firstCap['numero'] as num?)?.toInt() ??
+                      (firstCap['episode_number'] as num?)?.toInt() ??
+                      1;
+                  return (nextSNum, firstCNum);
+                }
+              }
+              return (nextSNum, 1);
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Fallback determinista: capítulo siguiente
+    return (currentTemp, currentCap + 1);
+  }
+
   bool get _hasRealNext {
     if (widget.tipo == 'tv') {
-      return _siguiente != null &&
-          (_siguiente!['temporada'] != null ||
-              _siguiente!['capitulo'] != null ||
-              _siguiente!['numero'] != null);
+      return _getNextEpisodeTarget() != null;
     }
     return _recomendaciones.isNotEmpty;
   }
@@ -1004,6 +1076,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
     };
     await prefs.setString(_getCacheKeyRapido(), jsonEncode(rapido));
 
+    // Si el capítulo terminó (>= 95%), registrar el siguiente capítulo en el historial
+    // para que "Continuar viendo" avance al siguiente capítulo en lugar de quedarse en el terminado.
+    if (widget.tipo == 'tv' && dur > 0 && pos >= (dur * 0.95)) {
+      final next = _getNextEpisodeTarget();
+      if (next != null) {
+        final nextTemp = next.$1;
+        final nextCap = next.$2;
+        final nextEpId = 'T${nextTemp}_C$nextCap';
+        unawaited(AppDatabase.instance.saveHistory(
+          contenidoId: widget.idcontenido,
+          episodioId: nextEpId,
+          progresoSegundos: 6,
+          duracionTotal: 0,
+          temporada: nextTemp,
+          capitulo: nextCap,
+          titulo: effectiveTitle,
+          poster: poster,
+          backdrop: backdrop,
+          tipo: widget.tipo,
+          videoUrl: '',
+          idioma: _idioma,
+          tmdbId: widget.tmdbId ?? widget.idcontenido,
+        ));
+      }
+    }
+
     GuardadosBus.bump();
     HistorialBus.bump();
   }
@@ -1023,6 +1121,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (histItem != null) {
       final sec = (histItem['segundo'] as num?)?.toInt() ??
           (histItem['progreso_segundos'] as num?)?.toInt();
+      final total = (histItem['total'] as num?)?.toInt() ??
+          (histItem['duracion_total'] as num?)?.toInt() ??
+          0;
+      // Si ya vio más del 95%, reiniciar a 0:00 para no reiniciar en créditos
+      if (total > 0 && sec != null && sec >= (total * 0.95)) {
+        return 0;
+      }
       if (sec != null && sec > 5) return sec;
     }
 
@@ -1033,7 +1138,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (raw == null) return null;
     try {
       final data = jsonDecode(raw);
-      return (data['segundo'] as num?)?.toInt();
+      final sec = (data['segundo'] as num?)?.toInt();
+      final total = (data['total'] as num?)?.toInt() ??
+          (data['duracion_total'] as num?)?.toInt() ??
+          0;
+      if (total > 0 && sec != null && sec >= (total * 0.95)) {
+        return 0;
+      }
+      return sec;
     } catch (_) {
       return null;
     }
@@ -2495,8 +2607,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
           }
         }
 
-        if (!_hasHandledEnd &&
-            _currentPosition >= _totalDuration - const Duration(seconds: 1)) {
+        final bool isCompleted = _controller.value.isCompleted;
+        final bool reachedEnd = _totalDuration > const Duration(seconds: 10) &&
+            (_currentPosition >= _totalDuration - const Duration(milliseconds: 1500) ||
+             (!_controller.value.isPlaying && _currentPosition >= _totalDuration - const Duration(seconds: 4)));
+
+        if (!_hasHandledEnd && (isCompleted || reachedEnd)) {
           _hasHandledEnd = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted && !_isDisposing) _handleVideoEnded();
@@ -4300,19 +4416,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _goNextEpisode() {
-    if (!_hasRealNext) return;
     if (widget.tipo == 'tv') {
-      if (_siguiente == null) return;
-      final s = (_siguiente!['temporada'] as num?)?.toInt();
-      final c = (_siguiente!['capitulo'] as num?)?.toInt();
-      final titulo = (_siguiente!['titulo'] ?? _tituloContenido).toString();
+      final next = _getNextEpisodeTarget();
+      if (next == null) return;
+      final s = next.$1;
+      final c = next.$2;
+      final titulo = _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo;
       _navigateToPlayer(
         idcontenido: widget.idcontenido,
         tmdbId: widget.tmdbId ?? widget.idcontenido,
         temporada: s,
         capitulo: c,
         tipo: 'tv',
-        titulo: titulo.isNotEmpty ? titulo : widget.titulo,
+        titulo: titulo,
       );
     } else {
       if (_recomendaciones.isEmpty) return;
@@ -4332,7 +4448,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _handleVideoEnded() {
     if (!mounted || _isDisposing) return;
     if (_showBecauseYouWatched) return;
-    if (!_hasRealNext) return;
     _goNextEpisode();
   }
 
@@ -4596,17 +4711,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   String _nextPromptTitle() {
-    if (widget.tipo == 'tv' && _siguiente != null) {
-      final t = _siguiente!['temporada'];
-      final c = _siguiente!['capitulo'];
-      final name =
-          _siguiente!['titulo'] ?? _siguiente!['titulo_capitulo'] ?? '';
+    if (widget.tipo == 'tv') {
+      final next = _getNextEpisodeTarget();
+      final t = (_siguiente?['temporada'] as num?)?.toInt() ?? next?.$1;
+      final c = (_siguiente?['capitulo'] as num?)?.toInt() ??
+          (_siguiente?['numero'] as num?)?.toInt() ??
+          next?.$2;
+      final name = (_siguiente?['titulo'] ?? _siguiente?['titulo_capitulo'] ?? '').toString();
       final s = t != null ? 'S${t.toString().padLeft(2, '0')}' : '';
       final e = c != null ? 'E${c.toString().padLeft(2, '0')}' : '';
-      if (name.toString().isNotEmpty) {
+      if (name.isNotEmpty) {
         return '$s$e · $name';
       }
-      return '$s $e'.trim();
+      if (s.isNotEmpty || e.isNotEmpty) {
+        return '$s$e · Siguiente episodio';
+      }
+      return 'Siguiente episodio';
     }
     if (_recomendaciones.isNotEmpty) {
       return (_recomendaciones.first['titulo'] ?? '').toString();
@@ -4615,8 +4735,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   String? _nextPromptThumb() {
-    if (widget.tipo == 'tv' && _siguiente != null) {
-      return (_siguiente!['backdrop'] ?? _siguiente!['poster'])?.toString();
+    if (widget.tipo == 'tv') {
+      final img = (_siguiente?['backdrop'] ?? _siguiente?['poster'])?.toString();
+      if (img != null && img.isNotEmpty) return img;
     }
     if (_recomendaciones.isNotEmpty) {
       final r = _recomendaciones.first;
@@ -5321,6 +5442,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         _nextPromptAutoHidden = true;
                       });
                       if (hadFocus) _releaseOverlayFocusToSafe();
+                      // Al terminar la cuenta regresiva, pasar automáticamente al siguiente capítulo
+                      _goNextEpisode();
                     },
                     onNavigateDown: () {
                       setState(() {

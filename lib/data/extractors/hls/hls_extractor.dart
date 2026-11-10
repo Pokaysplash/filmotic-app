@@ -443,16 +443,23 @@ class NativeResolvers {
 
   // ---------- STREAMWISH ----------
   static Future<StreamResult?> _resolveStreamWish(String url) async {
-    final rawId = url.split('/').last.replaceAll(RegExp(r'\.html$'), '');
+    final uri = Uri.tryParse(url);
+    String rawId = uri?.queryParameters['id'] ?? uri?.queryParameters['v'] ?? '';
+    if (rawId.isEmpty) {
+      rawId = url.split('/').last.replaceAll(RegExp(r'\.html$'), '');
+      if (rawId.contains('?')) {
+        rawId = rawId.split('?').first;
+      }
+    }
     final mirrors = [
-      'https://hanerix.com/e/$rawId',
       'https://embedwish.com/e/$rawId',
+      'https://awish.pro/e/$rawId',
+      'https://wishfast.top/e/$rawId',
+      'https://hanerix.com/e/$rawId',
       'https://hglink.to/e/$rawId',
       url,
       'https://streamwish.to/e/$rawId',
-      'https://awish.pro/e/$rawId',
       'https://strwish.com/e/$rawId',
-      'https://wishfast.top/e/$rawId',
     ];
 
     for (final mirror in mirrors) {
@@ -532,10 +539,19 @@ class NativeResolvers {
 
   // ---------- VIDHIDE ----------
   static Future<StreamResult?> _resolveVidHide(String url) async {
-    final rawId = url.split('/').last.replaceAll(RegExp(r'\.html$'), '');
+    final uri = Uri.tryParse(url);
+    String rawId = uri?.queryParameters['id'] ?? uri?.queryParameters['v'] ?? '';
+    if (rawId.isEmpty) {
+      rawId = url.split('/').last.replaceAll(RegExp(r'\.html$'), '');
+      if (rawId.contains('?')) {
+        rawId = rawId.split('?').first;
+      }
+    }
     final mirrors = [
-      'https://vidhidepre.com/v/$rawId',
+      'https://callistanise.com/v/$rawId',
+      'https://vidhide.com/v/$rawId',
       'https://vidhidepro.com/v/$rawId',
+      'https://vidhidepre.com/v/$rawId',
       'https://vidhidevip.com/v/$rawId',
       url,
     ];

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/constants/tmdb_apis.dart';
@@ -133,10 +134,16 @@ class TmdbHomeMobileService {
     bool isAnime = false,
     bool isRecent = false,
   }) {
-    final minVotes = (isNovela || isAnime || isRecent)
-        ? 3
-        : (isMovie ? _minVoteCountMovies : _minVoteCountTv);
-    final minPop = (isNovela || isAnime || isRecent) ? 2.0 : _minPopularity;
+    final minVotes = isRecent
+        ? (isMovie ? 8 : 4)
+        : (isNovela || isAnime)
+            ? 3
+            : (isMovie ? _minVoteCountMovies : _minVoteCountTv);
+    final minPop = isRecent
+        ? 6.0
+        : (isNovela || isAnime)
+            ? 2.0
+            : _minPopularity;
 
     return items.where((item) {
       final poster = item['poster_path']?.toString() ?? '';
@@ -163,7 +170,29 @@ class TmdbHomeMobileService {
         }
       }
 
-      if (!prefs.showUnreleased) {
+      // 4) Unreleased & Recientes (evitar mostrar películas de hace meses)
+      if (isRecent) {
+        final dateStr =
+            (isMovie ? item['release_date'] : item['first_air_date'])
+                    ?.toString()
+                    .trim() ??
+                '';
+        if (dateStr.isNotEmpty) {
+          final d = DateTime.tryParse(dateStr);
+          if (d != null) {
+            final now = DateTime.now();
+            final daysOld = now.difference(d).inDays;
+            if (isMovie && daysOld > 60) return false;
+            if (!isMovie && daysOld > 90) return false;
+            if (!prefs.showUnreleased &&
+                d.isAfter(now.add(const Duration(days: 2)))) {
+              return false;
+            }
+          }
+        } else {
+          return false;
+        }
+      } else if (!prefs.showUnreleased) {
         final dateStr =
             (isMovie ? item['release_date'] : item['first_air_date'])
                     ?.toString() ??
@@ -583,34 +612,73 @@ class TmdbHomeMobileService {
     );
 
     if (prefs.homeLatest) {
-      futures['now_playing'] = _listResultsMultiPage(
-        '/movie/now_playing',
-        language: language,
-        max: _targetPerSection + 10,
-      );
-      futures['on_the_air'] = _listResultsMultiPage(
-        '/tv/on_the_air',
-        language: language,
-        max: _targetPerSection + 10,
-      );
       final now = DateTime.now();
-      final sixMonthsAgo = now.subtract(const Duration(days: 180));
       final stampNow =
           '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-      final stampPast =
-          '${sixMonthsAgo.year.toString().padLeft(4, '0')}-${sixMonthsAgo.month.toString().padLeft(2, '0')}-${sixMonthsAgo.day.toString().padLeft(2, '0')}';
+      final sixtyDaysAgo = now.subtract(const Duration(days: 60));
+      final stampPast60 =
+          '${sixtyDaysAgo.year.toString().padLeft(4, '0')}-${sixtyDaysAgo.month.toString().padLeft(2, '0')}-${sixtyDaysAgo.day.toString().padLeft(2, '0')}';
+      final thirtyDaysAgo = now.subtract(const Duration(days: 30));
+      final stampPast30 =
+          '${thirtyDaysAgo.year.toString().padLeft(4, '0')}-${thirtyDaysAgo.month.toString().padLeft(2, '0')}-${thirtyDaysAgo.day.toString().padLeft(2, '0')}';
+      final ninetyDaysAgo = now.subtract(const Duration(days: 90));
+      final stampPast90 =
+          '${ninetyDaysAgo.year.toString().padLeft(4, '0')}-${ninetyDaysAgo.month.toString().padLeft(2, '0')}-${ninetyDaysAgo.day.toString().padLeft(2, '0')}';
 
+      // 1. En cartelera / streaming reciente (región MX para lanzamientos latinos)
+      futures['now_playing'] = _listResultsMultiPage(
+        '/movie/now_playing',
+        query: {'region': 'MX'},
+        language: language,
+        max: _targetPerSection + 10,
+      );
+
+      // 2. Películas de estreno populares de los últimos 60 días
       futures['recent_discover_movies'] = _listResultsMultiPage(
         '/discover/movie',
         query: {
           'include_adult': prefs.allowAdult ? 'true' : 'false',
-          'primary_release_date.gte': stampPast,
+          'primary_release_date.gte': stampPast60,
+          'primary_release_date.lte': stampNow,
+          'sort_by': 'popularity.desc',
+          'vote_count.gte': '8',
+        },
+        language: language,
+        max: _targetPerSection + 15,
+      );
+
+      // 3. Películas más nuevas (últimos 30 días, ordenadas por fecha)
+      futures['recent_newest_movies'] = _listResultsMultiPage(
+        '/discover/movie',
+        query: {
+          'include_adult': prefs.allowAdult ? 'true' : 'false',
+          'primary_release_date.gte': stampPast30,
           'primary_release_date.lte': stampNow,
           'sort_by': 'primary_release_date.desc',
+          'vote_count.gte': '8',
+        },
+        language: language,
+        max: _targetPerSection + 10,
+      );
+
+      // 4. Series nuevas estrenadas en los últimos 90 días
+      futures['recent_discover_tv'] = _listResultsMultiPage(
+        '/discover/tv',
+        query: {
+          'include_adult': prefs.allowAdult ? 'true' : 'false',
+          'first_air_date.gte': stampPast90,
+          'first_air_date.lte': stampNow,
+          'sort_by': 'popularity.desc',
           'vote_count.gte': '5',
         },
         language: language,
         max: _targetPerSection + 15,
+      );
+
+      futures['on_the_air'] = _listResultsMultiPage(
+        '/tv/on_the_air',
+        language: language,
+        max: _targetPerSection + 10,
       );
     }
 
@@ -760,7 +828,10 @@ class TmdbHomeMobileService {
     }
 
     if (prefs.homeLatest) {
+      final now = DateTime.now();
+      final sixtyDaysAgo = now.subtract(const Duration(days: 60));
       final latestRaw = <Map<String, dynamic>>[
+        ...?rawMap['recent_newest_movies'],
         ...?rawMap['recent_discover_movies'],
         ...?rawMap['now_playing'],
       ];
@@ -768,20 +839,34 @@ class TmdbHomeMobileService {
       final deduped = <Map<String, dynamic>>[];
       for (final m in latestRaw) {
         final id = m['id'] as int? ?? 0;
-        if (id > 0 && !seen.contains(id)) {
-          seen.add(id);
-          deduped.add(m);
+        if (id <= 0 || seen.contains(id)) continue;
+
+        // FILTRO ESTRICTO: no mostrar películas estrenadas hace meses (máximo 60 días)
+        final dateStr = m['release_date']?.toString().trim() ?? '';
+        if (dateStr.isNotEmpty) {
+          final rDate = DateTime.tryParse(dateStr);
+          if (rDate != null) {
+            if (rDate.isBefore(sixtyDaysAgo)) continue;
+            if (!prefs.showUnreleased &&
+                rDate.isAfter(now.add(const Duration(days: 2)))) {
+              continue;
+            }
+          }
+        } else {
+          continue;
         }
+
+        seen.add(id);
+        deduped.add(m);
       }
+
+      // Orden inteligente: pondera fecha reciente y popularidad
       deduped.sort((a, b) {
-        final da = a['release_date']?.toString() ??
-            a['first_air_date']?.toString() ??
-            '';
-        final db = b['release_date']?.toString() ??
-            b['first_air_date']?.toString() ??
-            '';
-        return db.compareTo(da);
+        final scoreA = _calculateRecencyScore(a, now);
+        final scoreB = _calculateRecencyScore(b, now);
+        return scoreB.compareTo(scoreA);
       });
+
       final latest = await section(
         'Agregados Recientemente - Películas',
         deduped,
@@ -790,17 +875,42 @@ class TmdbHomeMobileService {
       );
       if (latest != null) data['recent_movies'] = latest;
 
+      final ninetyDaysAgo = now.subtract(const Duration(days: 90));
       final recentTvRaw = <Map<String, dynamic>>[
+        ...?rawMap['recent_discover_tv'],
         ...?rawMap['on_the_air'],
       ];
-      recentTvRaw.sort((a, b) {
-        final da = a['first_air_date']?.toString() ?? '';
-        final db = b['first_air_date']?.toString() ?? '';
-        return db.compareTo(da);
+      final seenTv = <int>{};
+      final dedupedTv = <Map<String, dynamic>>[];
+      for (final m in recentTvRaw) {
+        final id = m['id'] as int? ?? 0;
+        if (id <= 0 || seenTv.contains(id)) continue;
+
+        final airDateStr = m['first_air_date']?.toString().trim() ?? '';
+        if (airDateStr.isNotEmpty) {
+          final airDate = DateTime.tryParse(airDateStr);
+          if (airDate != null) {
+            if (airDate.isBefore(ninetyDaysAgo)) continue;
+            if (!prefs.showUnreleased &&
+                airDate.isAfter(now.add(const Duration(days: 2)))) {
+              continue;
+            }
+          }
+        }
+
+        seenTv.add(id);
+        dedupedTv.add(m);
+      }
+
+      dedupedTv.sort((a, b) {
+        final scoreA = _calculateRecencyScore(a, now);
+        final scoreB = _calculateRecencyScore(b, now);
+        return scoreB.compareTo(scoreA);
       });
+
       final recentTv = await section(
         'Agregados Recientemente - Series',
-        recentTvRaw,
+        dedupedTv,
         isMovie: false,
         isRecent: true,
       );
@@ -905,6 +1015,29 @@ class TmdbHomeMobileService {
 
     out.sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
     return out;
+  }
+
+  double _calculateRecencyScore(Map<String, dynamic> item, DateTime now) {
+    final pop = (item['popularity'] is num)
+        ? (item['popularity'] as num).toDouble()
+        : double.tryParse('${item['popularity']}') ?? 0.0;
+    final votes = (item['vote_count'] is num)
+        ? (item['vote_count'] as num).toInt()
+        : int.tryParse('${item['vote_count']}') ?? 0;
+    final dateStr =
+        (item['release_date'] ?? item['first_air_date'])?.toString().trim() ??
+            '';
+
+    int daysOld = 30;
+    if (dateStr.isNotEmpty) {
+      final d = DateTime.tryParse(dateStr);
+      if (d != null) {
+        daysOld = now.difference(d).inDays.clamp(0, 65);
+      }
+    }
+
+    final recencyFactor = math.max(0.25, (60.0 - daysOld) / 60.0);
+    return (pop * 0.7 + votes * 0.3) * recencyFactor;
   }
 }
 

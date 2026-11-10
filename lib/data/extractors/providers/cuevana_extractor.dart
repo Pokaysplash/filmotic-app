@@ -11,6 +11,11 @@ class CuevanaService {
   static const _kTmdbKey = 'a2d9bbed370d9f678e34006f8750a5a5';
   static const _kTmdbBase = 'https://api.themoviedb.org/3';
   static const _kBase = 'https://wv3.cuevana3.eu';
+  static const _kMirrors = [
+    'https://wv3.cuevana3.eu',
+    'https://ww3.cuevana3.me',
+    'https://cuevana.biz',
+  ];
 
   static const _kUa =
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
@@ -31,9 +36,13 @@ class CuevanaService {
 
   /// Mapeo de dominios del player (antes en player.php).
   static const _kDomainMap = <String, String>{
-    'streamwish.to': 'hgplaycdn.com',
+    'streamwish.to': 'embedwish.com',
+    'strwish.com': 'embedwish.com',
     'vidhidepro.com': 'callistanise.com',
+    'vidhidepre.com': 'callistanise.com',
+    'vidhidevip.com': 'callistanise.com',
     'filelions.to': 'callistanise.com',
+    'filelions.com': 'callistanise.com',
   };
 
   /// Emite servidores listos para [ServidoresModal].
@@ -189,15 +198,17 @@ class CuevanaService {
     ];
 
     final candidates = <String>[];
-    for (final nombre in nombres) {
-      final slug = _slugify(nombre);
-      if (slug.isEmpty) continue;
-      candidates.add(
-        '$_kBase/episodio/$slug-temporada-$season-episodio-$episode',
-      );
-      candidates.add(
-        '$_kBase/episodio/$slug-${tmdb.id}-temporada-$season-episodio-$episode',
-      );
+    for (final base in _kMirrors) {
+      for (final nombre in nombres) {
+        final slug = _slugify(nombre);
+        if (slug.isEmpty) continue;
+        candidates.add(
+          '$base/episodio/$slug-temporada-$season-episodio-$episode',
+        );
+        candidates.add(
+          '$base/episodio/$slug-${tmdb.id}-temporada-$season-episodio-$episode',
+        );
+      }
     }
 
     String? episodeUrl;
@@ -233,18 +244,20 @@ class CuevanaService {
     required bool isMovie,
     required _TmdbInfo tmdb,
   }) {
-    final prefix = isMovie ? '$_kBase/ver-pelicula/' : '$_kBase/ver-serie/';
     final titles = [tmdb.latino, tmdb.castellano, tmdb.ingles];
     final out = <String>[];
 
-    for (final title in titles) {
-      if (title.trim().isEmpty) continue;
-      final slug = _slugify(title);
-      if (slug.isEmpty) continue;
-      out.add('$prefix$slug');
-      out.add('$prefix$slug-${tmdb.id}');
-      if (tmdb.year != null) {
-        out.add('$prefix$slug-${tmdb.year}');
+    for (final base in _kMirrors) {
+      final prefix = isMovie ? '$base/ver-pelicula/' : '$base/ver-serie/';
+      for (final title in titles) {
+        if (title.trim().isEmpty) continue;
+        final slug = _slugify(title);
+        if (slug.isEmpty) continue;
+        out.add('$prefix$slug');
+        out.add('$prefix$slug-${tmdb.id}');
+        if (tmdb.year != null) {
+          out.add('$prefix$slug-${tmdb.year}');
+        }
       }
     }
     return out.toSet().toList();

@@ -57,9 +57,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.28",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.28/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.28: Selección ultrarrápida de servidores respetando el idioma elegido, corrección de parpadeos al inicio, perfiles independientes con Continuar Viendo sincronizado y modo infantil, y mayor aprovechamiento de todas las fuentes de películas y series.",
+    "latest_version": "1.0.0-beta.29",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.29/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.29: Solución definitiva al error de análisis de paquete al actualizar, pase automático continuo entre episodios de series sin repetición, nuevas fuentes y espejos verificados de películas y series, cartelera reciente estricta y mejoras generales de estabilidad.",
     "force_update": false,
     "is_beta": true
   },
