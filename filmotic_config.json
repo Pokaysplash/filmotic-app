@@ -57,9 +57,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.29",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.29/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.29: Solución definitiva al error de análisis de paquete al actualizar, pase automático continuo entre episodios de series sin repetición, nuevas fuentes y espejos verificados de películas y series, cartelera reciente estricta y mejoras generales de estabilidad.",
+    "latest_version": "1.0.0-beta.30",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.30/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.30: Solución definitiva al parpadeo de carga al transmitir a Smart TV (Cast/DLNA), reproducción continua sin cortes por prefetching en RAM, carga de películas ultraligera e instantánea sin raspado masivo en segundo plano, y mejoras de rendimiento general.",
     "force_update": false,
     "is_beta": true
   },
