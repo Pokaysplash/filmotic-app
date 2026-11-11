@@ -578,14 +578,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
       } else {
         _initializePlayer();
       }
-      _loadApiData().then((_) {
-        if (mounted && !_isDisposing) {
-          _loadSubtitles();
-        }
-      }).catchError((e) {
-        debugPrint('[Player] Error cargando apiData: $e');
+      Future.delayed(const Duration(milliseconds: 1200), () {
+        if (!mounted || _isDisposing) return;
+        _loadApiData().then((_) {
+          if (mounted && !_isDisposing) {
+            _loadSubtitles();
+          }
+        }).catchError((e) {
+          debugPrint('[Player] Error cargando apiData: $e');
+        });
+        _loadRecommendationsFromGuardados();
       });
-      _loadRecommendationsFromGuardados();
       _loadSubtitlePrefs();
       _startCacheTimer();
     }
@@ -1048,9 +1051,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _activeHeaders = headers;
         _fallbackServers = [];
         _fallbackIndex = 0;
-        if (!widget.isLive) {
-          unawaited(_prepareFallbackServers(passed));
-        }
         await _startControllerWithUrl(passed, headers);
         return;
       }
@@ -1075,7 +1075,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         if (playable.rawServer.isNotEmpty) {
           _fallbackServers = [playable.rawServer];
         }
-        unawaited(_prepareFallbackServers(url));
         await _startControllerWithUrl(url, headers);
         return;
       }

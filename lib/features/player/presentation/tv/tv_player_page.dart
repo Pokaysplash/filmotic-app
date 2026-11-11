@@ -1857,9 +1857,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       }
 
       if (!widget.isLive) {
-        if (url != null && url.isNotEmpty) {
-          unawaited(_prepareFallbackServersTv(url));
-        } else {
+        if (url == null || url.isEmpty) {
           await _prepareFallbackServersTv(url);
         }
       }
@@ -5042,6 +5040,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
             final isCasting = castState == CastState.casting ||
                 castState == CastState.connected;
             if (isCasting) {
+              if (_controllerReady && _isPlaying) {
+                _controller.pause();
+              }
               return DlnaCastingOverlay(
                 title: _tituloContenido.isNotEmpty ? _tituloContenido : widget.titulo,
                 posterUrl: _backdropUrl,

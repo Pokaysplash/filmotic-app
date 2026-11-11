@@ -69,7 +69,7 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
   DateTime? _lastVolumePollAt;
   int _lastVolume = 50;
 
-  static const Duration _kPollNetworkInterval = Duration(seconds: 5);
+  static const Duration _kPollNetworkInterval = Duration(seconds: 15);
   static const Duration _kVolumePollInterval = Duration(seconds: 30);
 
   void invalidateCache() {
@@ -114,7 +114,9 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
       }
     }
 
-    // 2. Throttle de GetPositionInfo a 1 vez cada 5s (interpolando en medio)
+    // 2. Throttle de GetPositionInfo a 1 vez cada 15s (interpolando suavemente en medio).
+    // Previene que televisores LG webOS, Samsung Tizen o TCL muestren el OSD o la rueda
+    // de carga cada segundo en respuesta a peticiones SOAP continuas.
     if (action == 'GetPositionInfo') {
       if (_lastPositionPollAt != null &&
           now.difference(_lastPositionPollAt!) < _kPollNetworkInterval) {
@@ -127,12 +129,22 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
       try {
         final xml = await _postSoap(controlUrl, serviceType, action, body);
         final parsed = dc.DlnaSoapParser.parsePositionInfo(xml);
-        _lastKnownPosition = parsed.position;
+        // Si el TV reporta posición 0 o 1s para un stream en vivo/piped pero ya
+        // teníamos un avance real, preservar el avance interpolado.
+        if (parsed.position <= const Duration(seconds: 1) &&
+            _lastKnownPosition > const Duration(seconds: 3)) {
+          final elapsed = _lastTransportState == 'PLAYING' && _lastPositionPollAt != null
+              ? now.difference(_lastPositionPollAt!)
+              : Duration.zero;
+          _lastKnownPosition += elapsed;
+        } else {
+          _lastKnownPosition = parsed.position;
+        }
         if (parsed.duration > Duration.zero) {
           _lastKnownDuration = parsed.duration;
         }
         _lastPositionPollAt = now;
-        return xml;
+        return _buildSyntheticPositionXml(_lastKnownPosition, _lastKnownDuration);
       } catch (_) {
         _lastPositionPollAt = now;
         return _buildSyntheticPositionXml(
@@ -142,8 +154,8 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
       }
     }
 
-    // 3. Throttle de GetTransportInfo a 1 vez cada 5s e ignorar TRANSITIONING
-    // transitorio para que no active ni parpadee el reproductor.
+    // 3. Throttle de GetTransportInfo a 1 vez cada 15s e ignorar TRANSITIONING
+    // y BUFFERING transitorios para que no active ni parpadee el reproductor ni el OSD.
     if (action == 'GetTransportInfo') {
       if (_lastTransportPollAt != null &&
           now.difference(_lastTransportPollAt!) < _kPollNetworkInterval) {
@@ -152,8 +164,9 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
       try {
         final xml = await _postSoap(controlUrl, serviceType, action, body);
         final rawState = dc.DlnaSoapParser.parseTransportInfo(xml);
-        if (rawState == 'TRANSITIONING' && _lastTransportState == 'PLAYING') {
-          // Mantener PLAYING durante micro-transiciones de buffer en la TV
+        if ((rawState == 'TRANSITIONING' || rawState == 'BUFFERING') &&
+            _lastTransportState == 'PLAYING') {
+          // Mantener PLAYING durante micro-transiciones o absorción de buffer en el TV
           _lastTransportPollAt = now;
           return _buildSyntheticTransportXml('PLAYING');
         }
@@ -252,10 +265,10 @@ class _HlsVariantTrack {
   int _cachedBytes = 0;
   int _activeDownloads = 0;
 
-  static const int _kMaxCachedSegments = 10;
-  static const int _kMaxCacheBytes = 36 * 1024 * 1024; // 36 MB max RAM
-  static const int _kPrefetchLookahead = 4;
-  static const int _kMaxConcurrentPrefetch = 3;
+  static const int _kMaxCachedSegments = 30;
+  static const int _kMaxCacheBytes = 96 * 1024 * 1024; // 96 MB max RAM
+  static const int _kPrefetchLookahead = 10;
+  static const int _kMaxConcurrentPrefetch = 4;
 
   _HlsVariantTrack({
     required this.trackId,
@@ -727,7 +740,7 @@ class _CastStreamAccelerator {
         return;
       }
 
-      request.response.bufferOutput = false;
+      request.response.bufferOutput = true;
       request.response.headers.contentType = _sniffSegmentContentType(bytes);
       request.response.headers.set('Accept-Ranges', 'bytes');
 
@@ -782,7 +795,7 @@ class _CastStreamAccelerator {
         await request.response.close();
         return;
       }
-      request.response.bufferOutput = false;
+      request.response.bufferOutput = true;
       request.response.statusCode = HttpStatus.ok;
       request.response.headers.set('Content-Length', bytes.length.toString());
       if (request.method != 'HEAD') {
@@ -936,7 +949,7 @@ class _CastStreamAccelerator {
     }
 
     final response = request.response;
-    response.bufferOutput = false;
+    response.bufferOutput = true;
     response.statusCode = HttpStatus.ok;
     response.headers.contentType = ContentType('video', 'mp2t');
     response.headers.set('Accept-Ranges', 'none');
@@ -983,9 +996,9 @@ class _CastStreamAccelerator {
 
     for (int i = startIndex; i < track.segments.length; i++) {
       if (clientDisconnected) break;
-      // Si el TV abrió una nueva conexión de reproducción y ya pasó el primer
-      // segmento de sondeo, abortar la conexión vieja para no duplicar tráfico.
-      if (session.activeDlnaStreamGen != myGen && i > startIndex) {
+      // Si el TV abrió una nueva conexión de reproducción (p.ej. seek o reconexión),
+      // abortar la conexión vieja para no saturar ancho de banda.
+      if (session.activeDlnaStreamGen != myGen) {
         break;
       }
 
@@ -998,10 +1011,10 @@ class _CastStreamAccelerator {
 
       try {
         response.add(bytes);
-        await response.flush();
+        // NO llamamos response.flush() en cada segmento para permitir que el buffer
+        // del socket fluya en paralelo a la descarga del siguiente segmento sin pausas.
       } catch (_) {
         // El Smart TV cerró el socket (p. ej. fin del probe inicial o Stop).
-        // Salir del bucle de inmediato para NO seguir descargando en background.
         clientDisconnected = true;
         break;
       }
@@ -1062,7 +1075,7 @@ class _CastStreamAccelerator {
     }
 
     final response = request.response;
-    response.bufferOutput = false;
+    response.bufferOutput = true;
     response.statusCode = isHead && upstreamResp.statusCode == 206
         ? HttpStatus.ok
         : upstreamResp.statusCode;

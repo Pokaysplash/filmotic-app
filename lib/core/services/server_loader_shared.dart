@@ -364,7 +364,7 @@ class ServerLoader {
           final validation = await ServerPreValidationService.instance.validateUrl(
             winUrl,
             extraHeaders: headers,
-            timeout: const Duration(seconds: 3),
+            timeout: const Duration(milliseconds: 1500),
           );
           if (validation.isValid) {
             debugPrint('[ServerLoader] Hit Caché Sembast Win ($cachedIdioma) → ${cachedWin['server_name'] ?? 'Server'}');
@@ -398,7 +398,7 @@ class ServerLoader {
         final validation = await ServerPreValidationService.instance.validateUrl(
           opt.url,
           extraHeaders: opt.headers,
-          timeout: const Duration(seconds: 3),
+          timeout: const Duration(milliseconds: 1500),
         );
         if (validation.isValid) {
           debugPrint('[ServerLoader] Hit Caché A → ${opt.serverName}');
@@ -1246,6 +1246,23 @@ class ServerLoader {
         return aIsDirect ? -1 : 1;
       }
 
+      // 0.08. Priorizar CDNs nativos rápidos con respuesta en <500ms
+      final aIsFastCdn = aName.contains('streamwish') ||
+          aName.contains('filelions') ||
+          aName.contains('voe') ||
+          aName.contains('vidmoly') ||
+          aName.contains('luluvdo') ||
+          aName.contains('waaw');
+      final bIsFastCdn = bName.contains('streamwish') ||
+          bName.contains('filelions') ||
+          bName.contains('voe') ||
+          bName.contains('vidmoly') ||
+          bName.contains('luluvdo') ||
+          bName.contains('waaw');
+      if (aIsFastCdn != bIsFastCdn) {
+        return aIsFastCdn ? -1 : 1;
+      }
+
       // 0.1. Priorizar por estado de salud de la fuente (healthy > degraded > down)
       final aSrcId = SourceHealthService.normalizeSourceId(
         a['fuente_id']?.toString() ?? a['fuente']?.toString() ?? a['sitio']?.toString() ?? aName,
@@ -1357,7 +1374,7 @@ class ServerLoader {
       final validation = await ServerPreValidationService.instance.validateUrl(
         already,
         extraHeaders: headers,
-        timeout: const Duration(seconds: 3),
+        timeout: const Duration(milliseconds: 1500),
       );
       if (validation.isValid) {
         stopwatch.stop();
@@ -1401,7 +1418,7 @@ class ServerLoader {
       final validation = await ServerPreValidationService.instance.validateUrl(
         url,
         extraHeaders: headers,
-        timeout: const Duration(seconds: 3),
+        timeout: const Duration(milliseconds: 1500),
       );
       if (!validation.isValid) {
         stopwatch.stop();
