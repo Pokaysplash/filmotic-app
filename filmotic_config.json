@@ -299,6 +299,56 @@
         "streams": [
           "https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8"
         ]
+      },
+      {
+        "name": "Runtime Español",
+        "aliases": ["runtime", "runtime español", "runtime cine", "runtime cine y series"],
+        "logo": "https://i.imgur.com/F3b8zO7.png",
+        "group": "Movies",
+        "country": "ES",
+        "streams": [
+          "https://run-rt-uh-roku.otteravision.com/run/rt_uh/rt_uh.m3u8"
+        ]
+      },
+      {
+        "name": "Pluto TV Cine Estelar",
+        "aliases": ["pluto tv cine estelar", "pluto tv cine", "pluto cine"],
+        "logo": "https://i.imgur.com/L1d4TqS.png",
+        "group": "Movies",
+        "country": "CO",
+        "streams": [
+          "https://jmp2.uk/plu-5dcde437229eff00091b6c30.m3u8"
+        ]
+      },
+      {
+        "name": "Pluto TV Cine Comedia",
+        "aliases": ["pluto tv cine comedia", "pluto comedia"],
+        "logo": "https://i.imgur.com/L1d4TqS.png",
+        "group": "Movies",
+        "country": "CO",
+        "streams": [
+          "https://jmp2.uk/plu-5dcdde78f080d900098550e4.m3u8"
+        ]
+      },
+      {
+        "name": "Pluto TV Series",
+        "aliases": ["pluto tv series", "pluto series"],
+        "logo": "https://i.imgur.com/L1d4TqS.png",
+        "group": "Movies",
+        "country": "CO",
+        "streams": [
+          "https://jmp2.uk/plu-5dcde1317578340009b751d0.m3u8"
+        ]
+      },
+      {
+        "name": "Pluto TV Kids LatAm",
+        "aliases": ["pluto tv kids", "pluto tv kids latam", "pluto kids"],
+        "logo": "https://i.imgur.com/6UeK4vO.png",
+        "group": "Kids",
+        "country": "CO",
+        "streams": [
+          "https://jmp2.uk/plu-5dd6dae8ce788b0009eaf77b.m3u8"
+        ]
       }
     ],
     "epg_enabled": true,
