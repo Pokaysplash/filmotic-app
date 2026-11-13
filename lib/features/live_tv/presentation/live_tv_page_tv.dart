@@ -13,11 +13,13 @@ import '../../../core/services/periodic_ad_overlay.dart';
 
 class LiveTvPageTv extends StatefulWidget {
   final VoidCallback? onRequestMenuFocus;
+  final ValueChanged<FocusNode>? onMainFocusNodeCreated;
   final bool isActive;
 
   const LiveTvPageTv({
     super.key,
     this.onRequestMenuFocus,
+    this.onMainFocusNodeCreated,
     this.isActive = true,
   });
 
@@ -53,6 +55,12 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
   bool _showOsd = false;
   Timer? _osdTimer;
 
+  final FocusScopeNode _mainFocusNode = FocusScopeNode(debugLabel: 'LiveTvMain');
+  final FocusScopeNode _categoriesScopeNode = FocusScopeNode(debugLabel: 'LiveTvCategories');
+  final FocusScopeNode _channelsScopeNode = FocusScopeNode(debugLabel: 'LiveTvChannels');
+  final FocusScopeNode _rightPanelScopeNode = FocusScopeNode(debugLabel: 'LiveTvRightPanel');
+  final FocusNode _fullScreenFocusNode = FocusNode(debugLabel: 'LiveTvFullScreen');
+
   final Map<String, _ChannelEpgState> _channelEpgMap = {};
   Timer? _nowTimer;
 
@@ -80,6 +88,11 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        widget.onMainFocusNodeCreated?.call(_mainFocusNode);
+      }
+    });
     final cfg = RemoteConfigService.instance.config.liveTv;
     _selectedCountry = cfg.defaultCountry.isNotEmpty ? cfg.defaultCountry : 'co';
     _loadChannels();
@@ -121,6 +134,11 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
     _nowTimer?.cancel();
     _osdTimer?.cancel();
     _disposePreview();
+    _mainFocusNode.dispose();
+    _categoriesScopeNode.dispose();
+    _channelsScopeNode.dispose();
+    _rightPanelScopeNode.dispose();
+    _fullScreenFocusNode.dispose();
     super.dispose();
   }
 
@@ -361,6 +379,21 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
       _showOsd = true;
     });
     _showOsdTemporarily();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _isFullScreen) {
+        _fullScreenFocusNode.requestFocus();
+      }
+    });
+  }
+
+  void _exitFullScreen() {
+    if (!_isFullScreen) return;
+    setState(() => _isFullScreen = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _channelsScopeNode.requestFocus();
+      }
+    });
   }
 
   Widget _buildFullScreenView() {
@@ -369,6 +402,7 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
     final totalStreams = ch.allStreamUrls.length;
 
     return Focus(
+      focusNode: _fullScreenFocusNode,
       autofocus: true,
       onKeyEvent: (node, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -377,16 +411,19 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
 
         if (event.logicalKey == LogicalKeyboardKey.escape ||
             event.logicalKey == LogicalKeyboardKey.backspace ||
-            event.logicalKey == LogicalKeyboardKey.goBack) {
-          setState(() => _isFullScreen = false);
+            event.logicalKey == LogicalKeyboardKey.goBack ||
+            event.logicalKey == LogicalKeyboardKey.gameButtonB) {
+          _exitFullScreen();
           return KeyEventResult.handled;
         }
 
-        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown ||
+            event.logicalKey == LogicalKeyboardKey.channelDown) {
           _switchNextChannel(1);
           return KeyEventResult.handled;
         }
-        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp ||
+            event.logicalKey == LogicalKeyboardKey.channelUp) {
           _switchNextChannel(-1);
           return KeyEventResult.handled;
         }
@@ -403,7 +440,10 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
         }
 
         if (event.logicalKey == LogicalKeyboardKey.select ||
-            event.logicalKey == LogicalKeyboardKey.enter) {
+            event.logicalKey == LogicalKeyboardKey.enter ||
+            event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+            event.logicalKey == LogicalKeyboardKey.space ||
+            event.logicalKey == LogicalKeyboardKey.gameButtonA) {
           if (_previewController != null) {
             if (_previewController!.value.isPlaying) {
               _previewController!.pause();
@@ -636,7 +676,7 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
         canPop: false,
         onPopInvokedWithResult: (didPop, _) {
           if (didPop) return;
-          setState(() => _isFullScreen = false);
+          _exitFullScreen();
         },
         child: Scaffold(
           backgroundColor: Colors.black,
@@ -647,20 +687,23 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
 
     return Scaffold(
       backgroundColor: kBgColor,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildTopBar(),
-            Expanded(
-              child: _isLoading
-                  ? const Center(
-                      child: CircularProgressIndicator(color: kBrandOrange),
-                    )
-                  : _error != null
-                      ? _buildErrorView()
-                      : _buildMagisLayout(),
-            ),
-          ],
+      body: FocusScope(
+        node: _mainFocusNode,
+        child: SafeArea(
+          child: Column(
+            children: [
+              _buildTopBar(),
+              Expanded(
+                child: _isLoading
+                    ? const Center(
+                        child: CircularProgressIndicator(color: kBrandOrange),
+                      )
+                    : _error != null
+                        ? _buildErrorView()
+                        : _buildMagisLayout(),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -701,67 +744,131 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: _countries.map((c) {
+                children: List.generate(_countries.length, (idx) {
+                  final c = _countries[idx];
                   final isSel = (_selectedCountry ?? '') == c['code'];
+                  void selectCountry() {
+                    setState(() => _selectedCountry = c['code']);
+                    _loadChannels();
+                  }
+
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
-                    child: InkWell(
-                      onTap: () {
-                        setState(() => _selectedCountry = c['code']);
-                        _loadChannels();
+                    child: Focus(
+                      onKeyEvent: (node, event) {
+                        if (event is KeyDownEvent) {
+                          if (idx == 0 && event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                            widget.onRequestMenuFocus?.call();
+                            return KeyEventResult.handled;
+                          }
+                          if (event.logicalKey == LogicalKeyboardKey.select ||
+                              event.logicalKey == LogicalKeyboardKey.enter ||
+                              event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                              event.logicalKey == LogicalKeyboardKey.space ||
+                              event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+                            selectCountry();
+                            return KeyEventResult.handled;
+                          }
+                        }
+                        return KeyEventResult.ignored;
                       },
-                      borderRadius: BorderRadius.circular(8),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: isSel ? kBrandOrange : Colors.white.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Text(
-                          c['label']!,
-                          style: TextStyle(
-                            color: isSel ? Colors.white : Colors.white70,
-                            fontSize: 12,
-                            fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
-                          ),
-                        ),
+                      child: Builder(
+                        builder: (fCtx) {
+                          final hasFocus = Focus.of(fCtx).hasFocus;
+                          return GestureDetector(
+                            onTap: selectCountry,
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 120),
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: isSel
+                                    ? kBrandOrange
+                                    : (hasFocus
+                                        ? Colors.white.withValues(alpha: 0.16)
+                                        : Colors.white.withValues(alpha: 0.06)),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: hasFocus ? Colors.white : Colors.transparent,
+                                  width: hasFocus ? 1.8 : 1.0,
+                                ),
+                              ),
+                              child: Text(
+                                c['label']!,
+                                style: TextStyle(
+                                  color: (isSel || hasFocus) ? Colors.white : Colors.white70,
+                                  fontSize: 12,
+                                  fontWeight: (isSel || hasFocus) ? FontWeight.bold : FontWeight.normal,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     ),
                   );
-                }).toList(),
+                }),
               ),
             ),
           ),
 
           // Botón Guía TV
-          InkWell(
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => EpgPageTv(channels: _allChannels),
-                ),
-              );
+          Focus(
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent &&
+                  (event.logicalKey == LogicalKeyboardKey.select ||
+                      event.logicalKey == LogicalKeyboardKey.enter ||
+                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                      event.logicalKey == LogicalKeyboardKey.space ||
+                      event.logicalKey == LogicalKeyboardKey.gameButtonA)) {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => EpgPageTv(channels: _allChannels),
+                  ),
+                );
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
             },
-            borderRadius: BorderRadius.circular(8),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.08),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.calendar_month_rounded, color: Colors.white70, size: 16),
-                  SizedBox(width: 6),
-                  Text('Guía EPG', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                ],
-              ),
+            child: Builder(
+              builder: (fCtx) {
+                final hasFocus = Focus.of(fCtx).hasFocus;
+                return GestureDetector(
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => EpgPageTv(channels: _allChannels),
+                      ),
+                    );
+                  },
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 120),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: hasFocus
+                          ? kBrandOrange.withValues(alpha: 0.25)
+                          : Colors.white.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: hasFocus ? kBrandOrange : Colors.white12,
+                        width: hasFocus ? 1.8 : 1.0,
+                      ),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.calendar_month_rounded, color: Colors.white70, size: 16),
+                        SizedBox(width: 6),
+                        Text('Guía EPG', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ),
           const SizedBox(width: 8),
           IconButton(
             tooltip: 'Refrescar canales',
+            focusColor: kBrandOrange.withValues(alpha: 0.3),
             icon: const Icon(Icons.refresh_rounded, color: Colors.white70, size: 20),
             onPressed: () => _loadChannels(force: true),
           ),
@@ -778,19 +885,28 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
         Container(
           width: 200,
           color: kPanelBg,
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
-            itemCount: _categories.length,
-            itemBuilder: (context, i) {
-              final cat = _categories[i];
-              final isSel = _selectedCategory == cat['code'];
-              return _TvCategoryItem(
-                label: cat['label']!,
-                icon: cat['icon']!,
-                isSelected: isSel,
-                onTap: () => _onCategorySelected(cat['code']!),
-              );
-            },
+          child: FocusScope(
+            node: _categoriesScopeNode,
+            child: ListView.builder(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+              itemCount: _categories.length,
+              itemBuilder: (context, i) {
+                final cat = _categories[i];
+                final isSel = _selectedCategory == cat['code'];
+                return _TvCategoryItem(
+                  label: cat['label']!,
+                  icon: cat['icon']!,
+                  isSelected: isSel,
+                  onLeftArrow: widget.onRequestMenuFocus,
+                  onRightArrow: () {
+                    if (_filteredChannels.isNotEmpty) {
+                      _channelsScopeNode.requestFocus();
+                    }
+                  },
+                  onTap: () => _onCategorySelected(cat['code']!),
+                );
+              },
+            ),
           ),
         ),
 
@@ -801,20 +917,31 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
           width: 320,
           child: _filteredChannels.isEmpty
               ? _buildEmptyView()
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
-                  itemCount: _filteredChannels.length,
-                  itemBuilder: (context, i) {
-                    final ch = _filteredChannels[i];
-                    final isSel = _selectedChannel?.id == ch.id;
-                    final epg = _channelEpgMap[ch.id];
-                    return _TvChannelRowItem(
-                      channel: ch,
-                      epg: epg,
-                      isSelected: isSel,
-                      onTap: () => _onChannelSelected(ch),
-                    );
-                  },
+              : FocusScope(
+                  node: _channelsScopeNode,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
+                    itemCount: _filteredChannels.length,
+                    itemBuilder: (context, i) {
+                      final ch = _filteredChannels[i];
+                      final isSel = _selectedChannel?.id == ch.id;
+                      final epg = _channelEpgMap[ch.id];
+                      return _TvChannelRowItem(
+                        channel: ch,
+                        epg: epg,
+                        isSelected: isSel,
+                        onLeftArrow: () => _categoriesScopeNode.requestFocus(),
+                        onRightArrow: () => _rightPanelScopeNode.requestFocus(),
+                        onTap: () {
+                          if (isSel) {
+                            _openFullScreenPlayer(ch);
+                          } else {
+                            _onChannelSelected(ch);
+                          }
+                        },
+                      );
+                    },
+                  ),
                 ),
         ),
 
@@ -822,7 +949,18 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
 
         // ── 3. Reproductor / Vista previa (Derecha estilo Magis TV) ──
         Expanded(
-          child: _buildRightPlayerPanel(),
+          child: FocusScope(
+            node: _rightPanelScopeNode,
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+                _channelsScopeNode.requestFocus();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: _buildRightPlayerPanel(),
+          ),
         ),
       ],
     );
@@ -1120,12 +1258,16 @@ class _TvCategoryItem extends StatelessWidget {
   final String icon;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback? onLeftArrow;
+  final VoidCallback? onRightArrow;
 
   const _TvCategoryItem({
     required this.label,
     required this.icon,
     required this.isSelected,
     required this.onTap,
+    this.onLeftArrow,
+    this.onRightArrow,
   });
 
   @override
@@ -1133,36 +1275,72 @@ class _TvCategoryItem extends StatelessWidget {
     const kBrandOrange = Color(0xFFFF6B35);
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(10),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          decoration: BoxDecoration(
-            color: isSelected ? kBrandOrange.withValues(alpha: 0.18) : Colors.transparent,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: isSelected ? kBrandOrange.withValues(alpha: 0.6) : Colors.transparent,
-            ),
-          ),
-          child: Row(
-            children: [
-              Text(icon, style: const TextStyle(fontSize: 16)),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(
-                    color: isSelected ? kBrandOrange : Colors.white70,
-                    fontSize: 13,
-                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+      child: Focus(
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent) {
+            if (event.logicalKey == LogicalKeyboardKey.arrowLeft && onLeftArrow != null) {
+              onLeftArrow!();
+              return KeyEventResult.handled;
+            }
+            if (event.logicalKey == LogicalKeyboardKey.arrowRight && onRightArrow != null) {
+              onRightArrow!();
+              return KeyEventResult.handled;
+            }
+            if (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                event.logicalKey == LogicalKeyboardKey.space ||
+                event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+              onTap();
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Builder(
+          builder: (fCtx) {
+            final hasFocus = Focus.of(fCtx).hasFocus;
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: hasFocus
+                      ? kBrandOrange.withValues(alpha: 0.28)
+                      : (isSelected ? kBrandOrange.withValues(alpha: 0.16) : Colors.transparent),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: hasFocus
+                        ? kBrandOrange
+                        : (isSelected ? kBrandOrange.withValues(alpha: 0.5) : Colors.transparent),
+                    width: hasFocus ? 2.0 : 1.0,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                ),
+                child: Row(
+                  children: [
+                    Text(icon, style: const TextStyle(fontSize: 16)),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          color: hasFocus
+                              ? Colors.white
+                              : (isSelected ? kBrandOrange : Colors.white70),
+                          fontSize: 13,
+                          fontWeight: (isSelected || hasFocus) ? FontWeight.bold : FontWeight.normal,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            );
+          },
         ),
       ),
     );
@@ -1175,12 +1353,16 @@ class _TvChannelRowItem extends StatelessWidget {
   final _ChannelEpgState? epg;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback? onLeftArrow;
+  final VoidCallback? onRightArrow;
 
   const _TvChannelRowItem({
     required this.channel,
     required this.epg,
     required this.isSelected,
     required this.onTap,
+    this.onLeftArrow,
+    this.onRightArrow,
   });
 
   @override
@@ -1190,29 +1372,67 @@ class _TvChannelRowItem extends StatelessWidget {
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected ? const Color(0xFF222234) : const Color(0xFF161622),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: isSelected ? kBrandOrange : Colors.white.withValues(alpha: 0.06),
-              width: isSelected ? 2.0 : 1.0,
-            ),
-            boxShadow: isSelected
-                ? [
-                    BoxShadow(
-                      color: kBrandOrange.withValues(alpha: 0.25),
-                      blurRadius: 10,
-                      spreadRadius: 1,
-                    )
-                  ]
-                : null,
-          ),
-          child: Row(
+      child: Focus(
+        onKeyEvent: (node, event) {
+          if (event is KeyDownEvent) {
+            if (event.logicalKey == LogicalKeyboardKey.arrowLeft && onLeftArrow != null) {
+              onLeftArrow!();
+              return KeyEventResult.handled;
+            }
+            if (event.logicalKey == LogicalKeyboardKey.arrowRight && onRightArrow != null) {
+              onRightArrow!();
+              return KeyEventResult.handled;
+            }
+            if (event.logicalKey == LogicalKeyboardKey.select ||
+                event.logicalKey == LogicalKeyboardKey.enter ||
+                event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                event.logicalKey == LogicalKeyboardKey.space ||
+                event.logicalKey == LogicalKeyboardKey.gameButtonA) {
+              onTap();
+              return KeyEventResult.handled;
+            }
+          }
+          return KeyEventResult.ignored;
+        },
+        child: Builder(
+          builder: (fCtx) {
+            final hasFocus = Focus.of(fCtx).hasFocus;
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onTap,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 120),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: hasFocus
+                      ? const Color(0xFF2B2B42)
+                      : (isSelected ? const Color(0xFF222234) : const Color(0xFF161622)),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: hasFocus
+                        ? Colors.white
+                        : (isSelected ? kBrandOrange : Colors.white.withValues(alpha: 0.06)),
+                    width: (hasFocus || isSelected) ? 2.0 : 1.0,
+                  ),
+                  boxShadow: hasFocus
+                      ? [
+                          BoxShadow(
+                            color: kBrandOrange.withValues(alpha: 0.35),
+                            blurRadius: 12,
+                            spreadRadius: 1,
+                          )
+                        ]
+                      : (isSelected
+                          ? [
+                              BoxShadow(
+                                color: kBrandOrange.withValues(alpha: 0.2),
+                                blurRadius: 8,
+                                spreadRadius: 1,
+                              )
+                            ]
+                          : null),
+                ),
+                child: Row(
             children: [
               // Logo del canal
               Container(
@@ -1305,6 +1525,9 @@ class _TvChannelRowItem extends StatelessWidget {
               ),
             ],
           ),
+              ),
+            );
+          },
         ),
       ),
     );

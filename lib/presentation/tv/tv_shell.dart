@@ -697,6 +697,9 @@ class _MainHomeState extends State<MainHome> {
       case _kFuentesIndex:
         return LiveTvPageTv(
           onRequestMenuFocus: _focusMenu,
+          onMainFocusNodeCreated: (node) {
+            _fuentesContentFocusNode = node;
+          },
           isActive: _currentIndex == _kFuentesIndex,
         );
       case 3:
@@ -1008,7 +1011,12 @@ class _MainHomeState extends State<MainHome> {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _confirmExit();
+        if (didPop) return;
+        if (!_menuActive && !_menuFocusNodes.any((n) => n.hasFocus)) {
+          _focusMenu();
+        } else {
+          _confirmExit();
+        }
       },
       child: Scaffold(
         backgroundColor: Colors.black,

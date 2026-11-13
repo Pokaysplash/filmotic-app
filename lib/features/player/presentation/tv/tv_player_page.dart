@@ -288,6 +288,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _consecutiveServerFailures = 0;
   Timer? _loadingLongTimer;
   bool _showTryAnotherServer = false;
+  final FocusNode _tryAnotherServerFocusNode = FocusNode();
+  bool _isExitDialogOpen = false;
 
   // ── Bloque D.6: Resiliencia ante cortes de red en TV ──
   Timer? _reconnectTimer;
@@ -2948,63 +2950,60 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white54, size: 20),
-                        onPressed: () => Navigator.pop(ctx),
+                      ExcludeFocus(
+                        child: IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white54, size: 20),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 12),
                   Expanded(
-                    child: ListView.builder(
-                      controller: scrollController,
-                      itemCount: _allChannels.length,
-                      itemBuilder: (context, index) {
-                        final ch = _allChannels[index];
-                        final isSelected = index == _currentChannelIndex;
-                        final name = ch.name?.toString() ?? 'Canal ${index + 1}';
-                        final logo = ch.logo?.toString();
-                        final group = ch.group?.toString() ?? '';
+                    child: FocusTraversalGroup(
+                      policy: WidgetOrderTraversalPolicy(),
+                      child: ListView.builder(
+                        controller: scrollController,
+                        itemCount: _allChannels.length,
+                        itemBuilder: (context, index) {
+                          final ch = _allChannels[index];
+                          final isSelected = index == _currentChannelIndex;
+                          final name = ch.name?.toString() ?? 'Canal ${index + 1}';
+                          final logo = ch.logo?.toString();
+                          final group = ch.group?.toString() ?? '';
 
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Focus(
-                            autofocus: isSelected,
-                            onKeyEvent: (node, event) {
-                              if (event is KeyDownEvent) {
-                                if (event.logicalKey == LogicalKeyboardKey.select ||
-                                    event.logicalKey == LogicalKeyboardKey.enter ||
-                                    event.logicalKey == LogicalKeyboardKey.space ||
-                                    event.logicalKey == LogicalKeyboardKey.gameButtonA) {
-                                  Navigator.pop(ctx);
-                                  _switchToChannel(index);
-                                  return KeyEventResult.handled;
-                                }
-                                if (_isBackKey(event)) {
-                                  Navigator.pop(ctx);
-                                  return KeyEventResult.handled;
-                                }
-                              }
-                              return KeyEventResult.ignored;
-                            },
-                            child: Builder(
-                              builder: (fCtx) {
-                                final hasFocus = Focus.of(fCtx).hasFocus;
-                                return GestureDetector(
-                                  behavior: HitTestBehavior.opaque,
-                                  onTap: () {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Focus(
+                              autofocus: isSelected,
+                              onKeyEvent: (node, event) {
+                                if (event is KeyDownEvent) {
+                                  if (event.logicalKey == LogicalKeyboardKey.select ||
+                                      event.logicalKey == LogicalKeyboardKey.enter ||
+                                      event.logicalKey == LogicalKeyboardKey.numpadEnter ||
+                                      event.logicalKey == LogicalKeyboardKey.space ||
+                                      event.logicalKey == LogicalKeyboardKey.gameButtonA) {
                                     Navigator.pop(ctx);
                                     _switchToChannel(index);
-                                  },
-                                  child: Material(
-                                    color: Colors.transparent,
-                                    child: InkWell(
-                                      onTap: () {
-                                        Navigator.pop(ctx);
-                                        _switchToChannel(index);
-                                      },
-                                      borderRadius: BorderRadius.circular(10),
-                                  child: AnimatedContainer(
+                                    return KeyEventResult.handled;
+                                  }
+                                  if (_isBackKey(event)) {
+                                    Navigator.pop(ctx);
+                                    return KeyEventResult.handled;
+                                  }
+                                }
+                                return KeyEventResult.ignored;
+                              },
+                              child: Builder(
+                                builder: (fCtx) {
+                                  final hasFocus = Focus.of(fCtx).hasFocus;
+                                  return GestureDetector(
+                                    behavior: HitTestBehavior.opaque,
+                                    onTap: () {
+                                      Navigator.pop(ctx);
+                                      _switchToChannel(index);
+                                    },
+                                    child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 140),
                                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                                     decoration: BoxDecoration(
@@ -3097,28 +3096,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                       ],
                                     ),
                                   ),
-                                ),
-                              ),
-                            );
-                          },
+                                );
+                              },
                             ),
                           ),
                         );
                       },
                     ),
                   ),
+                ),
                 ],
               ),
             ),
           ),
         );
       },
-    );
-    _scheduleHideControls();
+    ).whenComplete(() {
+      scrollController.dispose();
+      if (mounted && !_isDisposing) {
+        _videoFocusNode.requestFocus();
+        _scheduleHideControls();
+      }
+    });
   }
 
   void _handleBackPressed() async {
-    if (_isReplacingPlayer) return;
+    if (_isDisposing || _isReplacingPlayer) return;
     final castState = CastService.instance.state;
     if (castState == CastState.casting || castState == CastState.connected) {
       await _showDlnaExitDialog();
@@ -3175,6 +3178,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _updateSkipIntroVisibility();
         _videoFocusNode.requestFocus();
       }
+    } else if (_isLoading ||
+        _isResolving ||
+        _isTryingNextServer ||
+        _errorMessage.isNotEmpty ||
+        (!_hasStartedPlaying && !_controllerReady)) {
+      _serverLoader.cancelCurrentRequests();
+      await _goBackToContent();
     } else {
       _showExitConfirmation();
     }
@@ -4342,10 +4352,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _controller.removeListener(_videoListener);
         } catch (_) {}
         try {
-          await _controller.pause();
+          await _controller.pause().timeout(const Duration(milliseconds: 400));
         } catch (_) {}
         try {
-          await _controller.dispose();
+          await _controller.dispose().timeout(const Duration(milliseconds: 400));
         } catch (_) {}
         _controllerReady = false;
       }
@@ -4450,12 +4460,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _showExitConfirmation() async {
+    if (_isExitDialogOpen || _isDisposing) return;
+    _isExitDialogOpen = true;
     final wasPlaying = _isPlaying;
     if (_isPlaying) {
       _controller.pause();
     }
 
-    final bool? confirm = await showDialog<bool>(
+    bool? confirm;
+    try {
+      confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
       builder: (context) {
@@ -4573,6 +4587,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         );
       },
     );
+    } finally {
+      _isExitDialogOpen = false;
+    }
 
     if (confirm == true) {
       await _saveCache();
@@ -4630,10 +4647,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _goBackToContent() async {
-    if (_isReplacingPlayer) return;
+    if (_isDisposing) return;
+    _isDisposing = true;
     _isReplacingPlayer = false;
     try {
-      await _saveCache();
+      _serverLoader.cancelCurrentRequests();
+    } catch (_) {}
+    try {
+      unawaited(_saveCache());
     } catch (_) {}
     _cancelPlayerTimers();
     await _killController();
@@ -4996,6 +5017,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _errorChannelListFocusNode.dispose();
     _errorServersFocusNode.dispose();
     _errorBackFocusNode.dispose();
+    _tryAnotherServerFocusNode.dispose();
     _exitContinueFocusNode.dispose();
     _exitConfirmFocusNode.dispose();
     _byProducirSiguienteFocusNode.dispose();
@@ -5028,7 +5050,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       autofocus: true,
       child: PopScope(
       canPop: false,
-      onPopInvoked: (didPop) {
+      onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         _handleBackPressed();
       },
@@ -5733,20 +5755,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
               if (_showTryAnotherServer) ...[
                 const SizedBox(height: 20),
-                OutlinedButton.icon(
-                  onPressed: () {
-                    _tryNextServer(reason: 'Solicitado por el usuario');
+                Focus(
+                  focusNode: _tryAnotherServerFocusNode,
+                  onKeyEvent: (node, event) {
+                    if (event is KeyDownEvent && _isBackKey(event)) {
+                      _handleBackPressed();
+                      return KeyEventResult.handled;
+                    }
+                    return KeyEventResult.ignored;
                   },
-                  icon: const Icon(Icons.sync_rounded, color: Colors.white, size: 20),
-                  label: const Text(
-                    'Probar otro servidor',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    side: const BorderSide(color: accentOrange, width: 2),
-                    backgroundColor: Colors.black54,
-                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      _tryNextServer(reason: 'Solicitado por el usuario');
+                    },
+                    icon: const Icon(Icons.sync_rounded, color: Colors.white, size: 20),
+                    label: const Text(
+                      'Probar otro servidor',
+                      style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: accentOrange, width: 2),
+                      backgroundColor: Colors.black54,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                    ),
                   ),
                 ),
               ],
