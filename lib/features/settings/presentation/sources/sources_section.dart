@@ -601,6 +601,7 @@ class _FuentesSectionState extends State<FuentesSection> {
       ('latino', 'Latino', Icons.record_voice_over_rounded),
       ('castellano', 'Castellano', Icons.record_voice_over_outlined),
       ('subtitulado', 'Subtitulado', Icons.subtitles_rounded),
+      ('original', 'Original + Subs', Icons.translate_rounded),
     ];
     return _card(
       child: Column(

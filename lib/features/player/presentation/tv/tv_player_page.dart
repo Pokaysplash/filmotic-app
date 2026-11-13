@@ -32,6 +32,8 @@ import '../../../../data/scrapers/base/buscador.dart';
 import '../../../discover/domain/mobile/derivar.dart';
 import '../../../live_tv/data/live_tv_service.dart';
 import '../../../../core/services/cast_service.dart';
+import '../../../../core/services/subtitle_auto_loader.dart';
+import '../../../../core/services/server_loader_shared.dart';
 import '../widgets/dlna_casting_overlay.dart';
 class _SubtitleCue {
   final Duration start;
@@ -485,6 +487,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Map<String, dynamic>? _apiData;
   String? _backdropUrl;
   String? _logoUrl;
+  String? _originalLanguage;
   String _tituloContenido = '';
   String? _tituloCapitulo;
   String? _capituloFmt;
@@ -1268,6 +1271,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
       setState(() {
         _apiData = data;
+        _originalLanguage = data['original_language']?.toString();
 
         _logoUrl = data['logo']?.toString();
         _backdropUrl = data['backdrop']?.toString();
@@ -1844,6 +1848,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           isMovie: widget.tipo.toLowerCase() != 'tv',
           season: widget.temporada ?? 0,
           episode: widget.capitulo ?? 0,
+          originalLanguage: _originalLanguage,
           context: mounted ? context : null,
         );
         if (playable != null && playable.url.isNotEmpty) {
@@ -1897,6 +1902,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         isMovie: widget.tipo.toLowerCase() != 'tv',
         season: widget.temporada ?? 0,
         episode: widget.capitulo ?? 0,
+        originalLanguage: _originalLanguage,
         context: mounted ? context : null,
       );
       _fallbackServers = servers;
@@ -1973,8 +1979,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (_apiData == null && !widget.isLive) {
         unawaited(_loadApiData());
       }
-      if (_subtitlesEnabled && _subtitleCues.isEmpty && !widget.isLive) {
-        unawaited(_loadSubtitles());
+      if (!widget.isLive && _subtitleCues.isEmpty) {
+        unawaited(_maybeAutoLoadSubtitles());
       }
       try {
         await _controller.setVolume(1.0);
@@ -2364,8 +2370,46 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
+  Future<void> _maybeAutoLoadSubtitles() async {
+    if (_subtitlesEnabled && _subtitleCues.isEmpty) {
+      await _loadSubtitles();
+      return;
+    }
+    if (_subtitleCues.isNotEmpty || widget.isLive) return;
+    final prefs = await ServerLoaderPrefs.load();
+    if (SubtitleAutoLoader.shouldAutoEnable(
+      serverIdioma: _idioma,
+      originalLanguage: _originalLanguage,
+      preferredAudio: prefs.idiomaAudioPredeterminado,
+    )) {
+      if (mounted && !_isDisposing) {
+        setState(() => _subtitlesEnabled = true);
+      }
+      await _loadSubtitles();
+    }
+  }
+
   Future<void> _loadSubtitles() async {
     try {
+      final tmdbId = widget.tmdbId ?? widget.idcontenido;
+      final autoSub = await SubtitleAutoLoader.instance.fetchBestSubtitle(
+        tmdbId: tmdbId,
+        imdbId: _apiData?['imdb_id']?.toString(),
+        isMovie: widget.tipo.toLowerCase() != 'tv',
+        season: widget.temporada ?? 1,
+        episode: widget.capitulo ?? 1,
+      );
+      if (autoSub != null) {
+        final cues = _parseVtt(autoSub.rawContent);
+        if (cues.isNotEmpty && mounted && !_isDisposing) {
+          setState(() {
+            _subtitleCues = cues;
+            _subtitlesEnabled = true;
+            _currentSubtitleId = autoSub.id;
+          });
+          return;
+        }
+      }
       final url =
           'https://modlyo.com/subtitulo/contenido/${widget.idcontenido}/es_MX.vtt';
       final response = await http.get(Uri.parse(url));

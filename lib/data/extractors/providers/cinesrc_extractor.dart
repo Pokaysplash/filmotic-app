@@ -79,16 +79,28 @@ class CineSrcService {
     return 'https://vsembed.ru/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode&color=e600e6&ds_lang=es?auto=1';
   }
 
-  static String buildZxcPrimeUrl({
+  static String buildVidLinkUrl({
     required int tmdbId,
     required bool isMovie,
     int season = 1,
     int episode = 1,
   }) {
     if (isMovie) {
-      return 'https://player.zxcprime.xyz/player/movie/$tmdbId?autoplay=true&server=0&back=false&dubLang=esla';
+      return 'https://vidlink.pro/movie/$tmdbId?autoplay=true';
     }
-    return 'https://player.zxcprime.xyz/player/tv/$tmdbId/$season/$episode?autoplay=true&server=0&back=false&dubLang=esla';
+    return 'https://vidlink.pro/tv/$tmdbId/$season/$episode?autoplay=true';
+  }
+
+  static String buildVidFastUrl({
+    required int tmdbId,
+    required bool isMovie,
+    int season = 1,
+    int episode = 1,
+  }) {
+    if (isMovie) {
+      return 'https://vidfast.vc/movie/$tmdbId?autoPlay=true';
+    }
+    return 'https://vidfast.vc/tv/$tmdbId/$season/$episode?autoPlay=true';
   }
 
   static String buildVimeusUrl({
@@ -162,8 +174,20 @@ class CineSrcService {
 
     yield CineSrcServer(
       lang: 'ingles',
-      name: 'ZxcPrime',
-      url: buildZxcPrimeUrl(
+      name: 'VidLink',
+      url: buildVidLinkUrl(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+      ),
+      idiomaCode: 'en_US',
+    );
+
+    yield CineSrcServer(
+      lang: 'ingles',
+      name: 'VidFast',
+      url: buildVidFastUrl(
         tmdbId: tmdbId,
         isMovie: isMovie,
         season: season,
@@ -269,8 +293,20 @@ class CineSrcService {
   }) async* {
     yield CineSrcServer(
       lang: 'ingles',
-      name: 'ZxcPrime',
-      url: buildZxcPrimeUrl(
+      name: 'VidLink',
+      url: buildVidLinkUrl(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+      ),
+      idiomaCode: 'en_US',
+    );
+
+    yield CineSrcServer(
+      lang: 'ingles',
+      name: 'VidFast',
+      url: buildVidFastUrl(
         tmdbId: tmdbId,
         isMovie: isMovie,
         season: season,

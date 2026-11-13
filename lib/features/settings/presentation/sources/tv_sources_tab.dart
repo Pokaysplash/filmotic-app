@@ -41,6 +41,7 @@ class FuentesTabState extends State<FuentesTab>
   late final FocusNode _btnAudioLat;
   late final FocusNode _btnAudioCas;
   late final FocusNode _btnAudioSub;
+  late final FocusNode _btnAudioOrig;
   late final FocusNode _btnSubSpa;
   late final FocusNode _btnSubEng;
   late final FocusNode _btnReutilizar;
@@ -78,6 +79,7 @@ class FuentesTabState extends State<FuentesTab>
     _btnAudioLat = FocusNode(debugLabel: 'cfg_audio_lat');
     _btnAudioCas = FocusNode(debugLabel: 'cfg_audio_cas');
     _btnAudioSub = FocusNode(debugLabel: 'cfg_audio_sub');
+    _btnAudioOrig = FocusNode(debugLabel: 'cfg_audio_orig');
     _btnSubSpa = FocusNode(debugLabel: 'cfg_sub_spa');
     _btnSubEng = FocusNode(debugLabel: 'cfg_sub_eng');
     _btnReutilizar = FocusNode(debugLabel: 'cfg_reutilizar');
@@ -108,6 +110,7 @@ class FuentesTabState extends State<FuentesTab>
     _btnAudioLat.dispose();
     _btnAudioCas.dispose();
     _btnAudioSub.dispose();
+    _btnAudioOrig.dispose();
     _btnSubSpa.dispose();
     _btnSubEng.dispose();
     _btnReutilizar.dispose();
@@ -710,6 +713,17 @@ class FuentesTabState extends State<FuentesTab>
               onUp: () => _btnModoManual.requestFocus(),
               onDown: () => _btnSubEng.requestFocus(),
               onLeft: () => _btnAudioCas.requestFocus(),
+              onRight: () => _btnAudioOrig.requestFocus(),
+            ),
+            const SizedBox(width: 12),
+            _chip(
+              focusNode: _btnAudioOrig,
+              selected: _idiomaAudio == 'original',
+              label: 'Original + Subs',
+              onTap: () => _setIdiomaAudio('original'),
+              onUp: () => _btnModoManual.requestFocus(),
+              onDown: () => _btnSubEng.requestFocus(),
+              onLeft: () => _btnAudioSub.requestFocus(),
               onRight: null,
             ),
           ],

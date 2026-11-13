@@ -19,7 +19,6 @@ import '../../data/extractors/providers/animeflv_extractor.dart';
 import '../../data/extractors/providers/vidsrc_extractor.dart';
 import '../../data/scrapers/seriesflix_scraper.dart';
 import '../../data/scrapers/cineby_scraper.dart';
-import '../../data/scrapers/thanhdattoday_scraper.dart';
 import '../../data/datasources/remote/sources/custom_api.dart';
 typedef SourceScraper = Stream<Map<String, dynamic>> Function({
   required int tmdbId,
@@ -540,29 +539,6 @@ final List<SourceDefinition> kRegisteredSources = [
       required episode,
     }) {
       return CinebyScraper.scrapeStream(
-        tmdbId: tmdbId,
-        isMovie: isMovie,
-        season: season,
-        episode: episode,
-      );
-    },
-  ),
-  SourceDefinition(
-    id: 'thanhdattoday',
-    label: 'HDToday',
-    prefsKey: 'thanhdattoday_enabled',
-    badgeColor: const Color(0xFF38BDF8),
-    badgeText: 'HDTODAY',
-    flagKey: 'es_thanhdattoday',
-    icon: Icons.public_rounded,
-    maxResults: 10,
-    scrape: ({
-      required tmdbId,
-      required isMovie,
-      required season,
-      required episode,
-    }) {
-      return ThanhDatTodayScraper.scrapeStream(
         tmdbId: tmdbId,
         isMovie: isMovie,
         season: season,

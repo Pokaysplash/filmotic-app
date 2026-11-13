@@ -80,6 +80,55 @@ class ServerLoaderPrefs {
     }
   }
 
+  String preferredIdiomaCodeFor(String? originalLanguage) {
+    if (idiomaAudioPredeterminado.toLowerCase() == 'original') {
+      final orig = (originalLanguage ?? '').trim().toLowerCase();
+      if (orig == 'es') return 'es_MX';
+      return 'en_US';
+    }
+    return preferredIdiomaCode;
+  }
+
+  List<String> idiomaFallbackOrderFor(String? originalLanguage) {
+    if (idiomaAudioPredeterminado.toLowerCase() == 'original') {
+      final orig = (originalLanguage ?? '').trim().toLowerCase();
+      if (orig == 'es') return ['es_MX', 'es_ES', 'en_US'];
+      return ['en_US', 'es_MX', 'es_ES'];
+    }
+    return idiomaFallbackOrder;
+  }
+
+  static String languageDisplayName(String? code) {
+    switch ((code ?? '').trim().toLowerCase()) {
+      case 'en':
+        return 'Inglés';
+      case 'es':
+        return 'Español';
+      case 'ja':
+        return 'Japonés';
+      case 'ko':
+        return 'Coreano';
+      case 'fr':
+        return 'Francés';
+      case 'pt':
+        return 'Portugués';
+      case 'it':
+        return 'Italiano';
+      case 'de':
+        return 'Alemán';
+      case 'tr':
+        return 'Turco';
+      case 'hi':
+        return 'Hindi';
+      case 'zh':
+        return 'Chino';
+      case 'ru':
+        return 'Ruso';
+      default:
+        return code != null && code.isNotEmpty ? code.toUpperCase() : 'Original';
+    }
+  }
+
   List<String> get idiomaFallbackOrder {
     switch (idiomaAudioPredeterminado.toLowerCase()) {
       case 'castellano':
@@ -215,11 +264,12 @@ class ServerLoader {
     int season = 0,
     int episode = 0,
     String? idioma,
+    String? originalLanguage,
     BuildContext? context,
     bool forceRefresh = false,
   }) async {
     await _ensureLoaded();
-    final preferred = idioma ?? _prefs!.preferredIdiomaCode;
+    final preferred = idioma ?? _prefs!.preferredIdiomaCodeFor(originalLanguage);
     final key = _cacheKey(
       contentId: contentId,
       season: isMovie ? 0 : season,
@@ -331,6 +381,7 @@ class ServerLoader {
     int season = 0,
     int episode = 0,
     String? idioma,
+    String? originalLanguage,
     BuildContext? context,
     bool forceRefresh = false,
     bool isBackground = false,
@@ -339,10 +390,10 @@ class ServerLoader {
       cancelCurrentRequests();
     }
     await _ensureLoaded();
-    final preferred = idioma ?? _prefs!.preferredIdiomaCode;
+    final preferred = idioma ?? _prefs!.preferredIdiomaCodeFor(originalLanguage);
     final order = <String>[
       preferred,
-      ..._prefs!.idiomaFallbackOrder.where((c) => c != preferred),
+      ..._prefs!.idiomaFallbackOrderFor(originalLanguage).where((c) => c != preferred),
     ];
     final s = isMovie ? 0 : season;
     final e = isMovie ? 0 : episode;

@@ -14,7 +14,7 @@ class LiveTvService {
   LiveTvService._internal();
 
   static const int _kTtlMillis = 24 * 60 * 60 * 1000; // 24h
-  static const String _kCacheVersion = 'v5_verified_';
+  static const String _kCacheVersion = 'v6_aac_verified_';
   String? lastEpgUrl;
 
   /// Carga canales aplicando filtros y caché Sembast.
@@ -405,6 +405,22 @@ class LiveTvService {
   }
 
   /// Enriquecer canales existentes con fuentes verificadas y canales de alta disponibilidad
+  static bool _isKnownMutedStream(String url) {
+    final u = url.trim().toLowerCase();
+    if (u.contains('138.121.15.230:9002/') && !u.contains('win-sport')) {
+      return true;
+    }
+    if (u.contains('181.78.17.228:8081/') ||
+        u.contains('181.78.14.26:4000/') ||
+        u.contains('181.78.211.244:8005/play/a09u') ||
+        u.contains('190.61.47.54:8000/play/a00v') ||
+        u.contains('190.109.2.92:8000/play/a010') ||
+        u.contains('181.78.12.119:16123/play/ch18')) {
+      return true;
+    }
+    return false;
+  }
+
   List<LiveChannel> _enrichWithVerifiedSources(
     List<LiveChannel> channels,
     String? country, {
@@ -469,7 +485,9 @@ class LiveTvService {
           if (!combined.contains(s)) combined.add(s);
         }
         for (final s in existing.allStreamUrls) {
-          if (!combined.contains(s)) combined.add(s);
+          if (!combined.contains(s) && !_isKnownMutedStream(s)) {
+            combined.add(s);
+          }
         }
 
         updated[matchIndex] = existing.copyWith(

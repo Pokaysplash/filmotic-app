@@ -48,6 +48,39 @@ class VidSrcService {
           continue;
         }
 
+        if (embedUrl.contains('vidlink.pro')) {
+          if (!seen.contains(embedUrl)) {
+            seen.add(embedUrl);
+            yield _map(
+              url: embedUrl,
+              name: 'VidLink Original',
+            );
+          }
+          continue;
+        }
+
+        if (embedUrl.contains('vidfast.vc')) {
+          if (!seen.contains(embedUrl)) {
+            seen.add(embedUrl);
+            yield _map(
+              url: embedUrl,
+              name: 'VidFast Original',
+            );
+          }
+          continue;
+        }
+
+        if (embedUrl.contains('vidsrc.to')) {
+          if (!seen.contains(embedUrl)) {
+            seen.add(embedUrl);
+            yield _map(
+              url: embedUrl,
+              name: 'VidSrc.to Original',
+            );
+          }
+          continue;
+        }
+
         if (embedUrl.contains('autoembed.cc')) {
           if (!seen.contains(embedUrl)) {
             seen.add(embedUrl);
@@ -144,20 +177,22 @@ class VidSrcService {
     if (isMovie) {
       return [
         'https://vidsrc.sh/embed/movie/$tmdbId',
-        'https://vidsrc.net/embed/movie/$tmdbId',
+        'https://vidsrc.to/embed/movie/$tmdbId',
+        'https://vidlink.pro/movie/$tmdbId',
+        'https://vidfast.vc/movie/$tmdbId',
         'https://www.2embed.cc/embed/$tmdbId',
         'https://multiembed.mov/?video_id=$tmdbId&tmdb=1',
         'https://vidsrc.me/embed/movie/$tmdbId',
-        'https://player.autoembed.cc/embed/movie/$tmdbId',
       ];
     }
     return [
       'https://vidsrc.sh/embed/tv/$tmdbId/$season-$episode',
-      'https://vidsrc.net/embed/tv/$tmdbId/$season-$episode',
+      'https://vidsrc.to/embed/tv/$tmdbId/$season/$episode',
+      'https://vidlink.pro/tv/$tmdbId/$season/$episode',
+      'https://vidfast.vc/tv/$tmdbId/$season/$episode',
       'https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode',
       'https://multiembed.mov/?video_id=$tmdbId&tmdb=1&s=$season&e=$episode',
       'https://vidsrc.me/embed/tv/$tmdbId/$season-$episode',
-      'https://player.autoembed.cc/embed/tv/$tmdbId/$season/$episode',
     ];
   }
 

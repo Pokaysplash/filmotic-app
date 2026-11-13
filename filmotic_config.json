@@ -119,23 +119,22 @@
         "group": "General",
         "country": "CO",
         "streams": [
-          "http://138.121.15.230:9002/RCN/index.m3u8",
           "https://rcntv-rcnmas-1-us.roku.wurl.tv/playlist.m3u8",
-          "http://181.78.17.228:8081/RCN-HD/index.m3u8"
+          "http://38.134.250.110:8000/play/a00i/index.m3u8",
+          "http://45.224.96.220:18000/play/a098/index.m3u8"
         ]
       },
       {
         "name": "Caracol TV",
-        "aliases": ["caracol", "caracol tv", "caracoltv", "caracol tv (1080p)"],
+        "aliases": ["caracol", "caracol tv", "caracoltv", "caracol tv (1080p)", "caracol internacional"],
         "logo": "https://i.imgur.com/4q2T2n6.png",
         "group": "General",
         "country": "CO",
         "streams": [
-          "http://38.190.100.202:8000/play/a09v/index.m3u8",
           "http://167.249.23.102:8000/play/a0i1/index.m3u8",
           "https://jmp2.uk/rok-c5c6a54fbd0328b108453e2537b7eee1.m3u8",
           "http://190.61.42.218:9000/play/a09n/index.m3u8",
-          "http://138.121.15.230:9002/CARACOL/index.m3u8"
+          "http://45.5.117.57:8200/play/a0e9/index.m3u8"
         ]
       },
       {
@@ -149,37 +148,24 @@
         ]
       },
       {
-        "name": "Cablenoticias",
-        "aliases": ["cablenoticias", "cable noticias", "cablenoticias (1080p)"],
-        "logo": "https://i.imgur.com/sWjXjU6.png",
-        "group": "News",
+        "name": "RCN Novelas",
+        "aliases": ["rcn novelas", "rcn novelas (1080p)"],
+        "logo": "https://i.imgur.com/5PhTaHp.png",
+        "group": "General",
         "country": "CO",
         "streams": [
-          "http://181.78.211.244:8005/play/a09u/index.m3u8",
-          "http://181.78.17.228:8081/CABLENOTICIAS-HD/index.m3u8"
+          "https://cdnlive.klicgo.net/rcnnovelas/live/playlist.m3u8"
         ]
       },
       {
         "name": "NTN24",
-        "aliases": ["ntn24", "ntn 24", "ntn24 (720p)"],
+        "aliases": ["ntn24", "ntn 24", "ntn24 (720p)", "ntn24 (1080p)"],
         "logo": "https://i.imgur.com/8QG9kX8.png",
         "group": "News",
         "country": "CO",
         "streams": [
-          "https://rcntv-ntn24-1-us.roku.wurl.tv/playlist.m3u8",
+          "https://stream1.bitred.cl/ntn24/index.m3u8",
           "http://181.78.12.119:16123/play/ch80/index.m3u8"
-        ]
-      },
-      {
-        "name": "Canal 1",
-        "aliases": ["canal 1", "canal uno", "canal 1 (1080p)"],
-        "logo": "https://i.imgur.com/YhW5qC2.png",
-        "group": "General",
-        "country": "CO",
-        "streams": [
-          "http://138.121.15.230:9002/CANAL-UNO/index.m3u8",
-          "https://streaming.canal1.com.co/hls/live.m3u8",
-          "http://181.78.17.228:8081/CANAL1-HD/index.m3u8"
         ]
       },
       {
@@ -189,100 +175,99 @@
         "group": "Sports",
         "country": "CO",
         "streams": [
-          "http://138.121.15.230:9002/WIN-SPORT/index.m3u8",
-          "http://181.78.12.119:16123/play/ch18/index.m3u8",
-          "http://15.204.146.163:8002/play/a00h/index.m3u8"
+          "http://138.121.15.230:9002/WIN-SPORT/index.m3u8"
         ]
       },
       {
-        "name": "Señal Colombia",
-        "aliases": ["señal colombia", "senal colombia", "senalcolombia"],
-        "logo": "https://i.imgur.com/KqW4V1n.png",
-        "group": "General",
-        "country": "CO",
-        "streams": [
-          "http://138.121.15.230:9002/SENAL-COLOMBIA/index.m3u8",
-          "https://rtvc-live1.tulix.tv/rtvc-senalcolombia/live.m3u8"
-        ]
-      },
-      {
-        "name": "Citytv",
-        "aliases": ["citytv", "city tv", "citytv bogota"],
-        "logo": "https://i.imgur.com/5Vl6rK9.png",
-        "group": "General",
-        "country": "CO",
-        "streams": [
-          "http://138.121.15.230:9002/CITY-TV/index.m3u8"
-        ]
-      },
-      {
-        "name": "Canal Institucional",
-        "aliases": ["canal institucional", "institucional"],
-        "logo": "https://i.imgur.com/4q2T2n6.png",
-        "group": "General",
-        "country": "CO",
-        "streams": [
-          "http://138.121.15.230:9002/CANAL-INSTITUCIONAL/index.m3u8"
-        ]
-      },
-      {
-        "name": "Canal Capital",
-        "aliases": ["canal capital", "capital"],
+        "name": "Canal 1",
+        "aliases": ["canal 1", "canal uno", "col• canal 1 (hd)"],
         "logo": "https://i.imgur.com/YhW5qC2.png",
         "group": "General",
         "country": "CO",
         "streams": [
-          "http://138.121.15.230:9002/CANAL-CAPITAL/index.m3u8"
+          "http://myultratv.com:8080/live/Marchant-8/Marisol-3/330.m3u8"
+        ]
+      },
+      {
+        "name": "Citytv",
+        "aliases": ["citytv", "city tv", "citytv bogota", "col• city tv (hd)"],
+        "logo": "https://i.imgur.com/5Vl6rK9.png",
+        "group": "General",
+        "country": "CO",
+        "streams": [
+          "http://myultratv.com:8080/live/Marchant-8/Marisol-3/337.m3u8",
+          "http://myultratv.com:8080/live/Marchant-8/Marisol-3/270523.m3u8"
         ]
       },
       {
         "name": "Teleantioquia",
-        "aliases": ["teleantioquia"],
+        "aliases": ["teleantioquia", "col• teleantioquia (hd)"],
         "logo": "https://i.imgur.com/5PhTaHp.png",
         "group": "General",
         "country": "CO",
         "streams": [
-          "http://138.121.15.230:9002/TELEANTIOQUIA/index.m3u8"
+          "http://myultratv.com:8080/live/Marchant-8/Marisol-3/351.m3u8"
         ]
       },
       {
-        "name": "Telecaribe",
-        "aliases": ["telecaribe"],
-        "logo": "https://i.imgur.com/4q2T2n6.png",
+        "name": "Canal Capital",
+        "aliases": ["canal capital", "capital", "col• canal capital (hd)"],
+        "logo": "https://i.imgur.com/YhW5qC2.png",
         "group": "General",
         "country": "CO",
         "streams": [
-          "http://138.121.15.230:9002/TELECARIBE/index.m3u8"
+          "http://myultratv.com:8080/live/Marchant-8/Marisol-3/328.m3u8"
         ]
       },
       {
-        "name": "Telepacífico",
-        "aliases": ["telepacifico", "telepacífico"],
-        "logo": "https://i.imgur.com/sWjXjU6.png",
+        "name": "Tele Mocoa Canal 10",
+        "aliases": ["tele mocoa", "tele mocoa canal 10"],
+        "logo": "https://i.imgur.com/5PhTaHp.png",
         "group": "General",
         "country": "CO",
         "streams": [
-          "http://138.121.15.230:9002/TELEPACIFICO/index.m3u8"
+          "https://live.amelbatv.co:81/telemocoalive/index.m3u8"
         ]
       },
       {
-        "name": "Telecafé",
-        "aliases": ["telecafe", "telecafé"],
-        "logo": "https://i.imgur.com/KqW4V1n.png",
-        "group": "General",
-        "country": "CO",
-        "streams": [
-          "http://138.121.15.230:9002/TELECAFE/index.m3u8"
-        ]
-      },
-      {
-        "name": "Red Bull TV",
-        "aliases": ["red bull tv", "redbull tv", "redbull"],
-        "logo": "https://i.imgur.com/x0HwNrn.png",
+        "name": "ESPN Latin America",
+        "aliases": ["espn", "espn latin america", "espn lat"],
+        "logo": "https://i.imgur.com/c6c39b7.png",
         "group": "Sports",
-        "country": "US",
+        "country": "CO",
         "streams": [
-          "https://rbmn-live.akamaized.net/hls/live/590964/BoRB-AT/master.m3u8"
+          "https://barinaslive1.boldmss.com/ESPN/ESPN.isml/ESPN.m3u8"
+        ]
+      },
+      {
+        "name": "ESPN 2 Latin America",
+        "aliases": ["espn 2", "espn 2 latin america", "espn2"],
+        "logo": "https://i.imgur.com/c6c39b7.png",
+        "group": "Sports",
+        "country": "CO",
+        "streams": [
+          "https://barinaslive1.boldmss.com/ESPN_2/ESPN_2.isml/ESPN_2.m3u8"
+        ]
+      },
+      {
+        "name": "ESPN 3 Latin America",
+        "aliases": ["espn 3", "espn 3 latin america", "espn3"],
+        "logo": "https://i.imgur.com/c6c39b7.png",
+        "group": "Sports",
+        "country": "CO",
+        "streams": [
+          "https://barinaslive1.boldmss.com/ESPN_3/ESPN_3.isml/ESPN_3.m3u8"
+        ]
+      },
+      {
+        "name": "ESPN Premium",
+        "aliases": ["espn premium", "espn premium hd"],
+        "logo": "https://i.imgur.com/c6c39b7.png",
+        "group": "Sports",
+        "country": "AR",
+        "streams": [
+          "http://45.134.141.161:2200/ARG/ESPN_Premium_Argentina_HD/tracks-v1a1/mono.m3u8",
+          "http://158.172.155.130:8000/play/a0ao/index.m3u8"
         ]
       },
       {
@@ -297,52 +282,12 @@
       },
       {
         "name": "France 24 Español",
-        "aliases": ["france 24", "france 24 español", "france24"],
+        "aliases": ["france 24", "france 24 español", "france 24 spanish", "france24"],
         "logo": "https://i.imgur.com/JkV1wU4.png",
         "group": "News",
         "country": "FR",
         "streams": [
-          "https://stream.france24.com/hls/es/main.m3u8"
-        ]
-      },
-      {
-        "name": "Runtime Cine y Series",
-        "aliases": ["runtime cine", "runtime", "runtime peliculas"],
-        "logo": "https://i.imgur.com/F3b8zO7.png",
-        "group": "Movies",
-        "country": "ES",
-        "streams": [
-          "https://runtime-es-cinema-1-es.samsung.wurl.tv/playlist.m3u8"
-        ]
-      },
-      {
-        "name": "Pluto TV Cine Estelar",
-        "aliases": ["pluto tv cine estelar", "pluto tv cine", "pluto cine"],
-        "logo": "https://i.imgur.com/L1d4TqS.png",
-        "group": "Movies",
-        "country": "ES",
-        "streams": [
-          "https://service-stitcher.clusters.pluto.tv/stitch/hls/channel/5d8a6064f2ee1a7192cb5bb7/master.m3u8"
-        ]
-      },
-      {
-        "name": "Pluto TV Kids",
-        "aliases": ["pluto tv kids", "pluto kids", "pluto infantil"],
-        "logo": "https://i.imgur.com/6UeK4vO.png",
-        "group": "Kids",
-        "country": "ES",
-        "streams": [
-          "https://service-stitcher.clusters.pluto.tv/stitch/hls/channel/5d8a652af2ee1a7192cb5bfa/master.m3u8"
-        ]
-      },
-      {
-        "name": "Pluto TV Anime",
-        "aliases": ["pluto tv anime", "pluto anime"],
-        "logo": "https://i.imgur.com/R3m7LwQ.png",
-        "group": "Kids",
-        "country": "ES",
-        "streams": [
-          "https://service-stitcher.clusters.pluto.tv/stitch/hls/channel/5d8a65acf2ee1a7192cb5c03/master.m3u8"
+          "https://live.france24.com/hls/live/2037220-b/F24_ES_HI_HLS/master_5000.m3u8"
         ]
       },
       {
