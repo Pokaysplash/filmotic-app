@@ -3702,15 +3702,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 4),
-                                const Row(
+                                Row(
                                   children: [
-                                    Icon(Icons.info_outline, size: 13, color: Color(0xFFFF6B00)),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'Cambia de servidor para otro idioma',
-                                      style: TextStyle(
-                                        color: Colors.white70,
-                                        fontSize: 11,
+                                    const Icon(Icons.info_outline, size: 13, color: Color(0xFFFF6B00)),
+                                    const SizedBox(width: 4),
+                                    Expanded(
+                                      child: Text(
+                                        (_originalLanguage != null && _originalLanguage!.isNotEmpty)
+                                            ? 'Original: ${ServerLoaderPrefs.languageDisplayName(_originalLanguage)} · Subtítulos auto en VOSE'
+                                            : 'Cambia de servidor para otro idioma',
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 11,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
                                   ],

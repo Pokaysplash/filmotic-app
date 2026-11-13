@@ -231,7 +231,7 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
 
   void _initPreviewChannel(LiveChannel channel, {int streamIndex = 0}) {
     _previewDebounceTimer?.cancel();
-    _previewDebounceTimer = Timer(const Duration(milliseconds: 250), () async {
+    _previewDebounceTimer = Timer(const Duration(milliseconds: 140), () async {
       if (!mounted) return;
 
       final streams = channel.allStreamUrls;
@@ -279,9 +279,9 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
         await controller.play();
         await controller.setLooping(true);
 
-        // ── Watchdog de pantalla negra (8 segundos) ──
+        // ── Watchdog de pantalla negra (6 segundos) ──
         _blackScreenWatchdogTimer?.cancel();
-        _blackScreenWatchdogTimer = Timer(const Duration(seconds: 8), () {
+        _blackScreenWatchdogTimer = Timer(const Duration(seconds: 6), () {
           if (!mounted || _selectedChannel?.id != channel.id) return;
           final ctrl = _previewController;
           if (ctrl == null || !ctrl.value.isInitialized) return;

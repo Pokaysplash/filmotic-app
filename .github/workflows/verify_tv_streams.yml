@@ -1,0 +1,17 @@
+name: Verify Live TV Streams
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Todos los lunes a las 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ffmpeg/ffprobe
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Probe verified_sources
+        run: python3 scripts/verify_tv_streams.py
+
