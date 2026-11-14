@@ -21,6 +21,7 @@ import '../../core/storage/app_database.dart';
 import '../../core/services/remote_config_service.dart';
 import '../../core/services/update_service.dart';
 import '../../features/live_tv/presentation/live_tv_page.dart';
+import '../../features/kids/presentation/kids_page.dart';
 import '../shared/modals/playback_setup_modal.dart';
 import '../shared/widgets/filmotic_welcome_dialog.dart';
 
@@ -41,7 +42,7 @@ class MainHome extends StatefulWidget {
 }
 
 class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
-  /// 0 Home | 1 Guardados | 2 Descargas | 3 Servicios | 4 Config | 5 Buscar
+  /// 0 Home | 1 Guardados | 2 Descargas | 3 Servicios | 4 Config | 5 Buscar | 6 LiveTV | 7 Zona Infantil
   int _currentIndex = 0;
 
   final GlobalKey _homeKey = GlobalKey();
@@ -53,6 +54,9 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
   bool _guardadosLoaded = false;
   bool _descargasLoaded = false;
   bool _serviciosLoaded = false;
+  bool _kidsLoaded = false;
+
+  bool get _isKidsProfile => AppDatabase.instance.activeProfile?.esInfantil == true;
 
   Map<String, dynamic>? _continueItem;
   bool _continueDismissed = false;
@@ -96,6 +100,11 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
     HistorialBus.version.addListener(_onContinueBus);
     DownloadNavBus.version.addListener(_onDownloadNavBus);
     AppDatabase.instance.activeProfileNotifier.addListener(_onActiveProfileChanged);
+    if (_isKidsProfile) {
+      _currentIndex = 7;
+      _kidsLoaded = true;
+      _homeLoaded = false;
+    }
     _loadContinueItem();
     _loadDownloadNavSettings();
 
@@ -395,9 +404,20 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
 
   void _onActiveProfileChanged() {
     if (!mounted) return;
+    final isKids = _isKidsProfile;
     setState(() {
       _continueDismissed = false;
-      _homeLoaded = true;
+      if (isKids) {
+        _currentIndex = 7;
+        _kidsLoaded = true;
+        _homeLoaded = false;
+        _serviciosLoaded = false;
+      } else {
+        if (_currentIndex == 7) {
+          _currentIndex = 0;
+        }
+        _homeLoaded = true;
+      }
     });
     _loadContinueItem();
     GuardadosBus.bump();
@@ -597,6 +617,8 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
       _descargasLoaded = true;
     } else if (index == 3) {
       _serviciosLoaded = true;
+    } else if (index == 7) {
+      _kidsLoaded = true;
     }
 
     if (_currentIndex == 0 && index != 0) {
@@ -607,6 +629,8 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
       _descargasLoaded = false;
     } else if (_currentIndex == 3 && index != 3) {
       _serviciosLoaded = false;
+    } else if (_currentIndex == 7 && index != 7) {
+      _kidsLoaded = false;
     }
 
     setState(() => _currentIndex = index);
@@ -677,6 +701,8 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
         return const BuscarPage(key: ValueKey('buscarPage'));
       case 6:
         return const LiveTvPage();
+      case 7:
+        return _kidsLoaded ? const KidsPage() : const SizedBox.shrink();
       default:
         return const SizedBox.shrink();
     }
@@ -891,8 +917,9 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
 
-        if (_currentIndex != 0) {
-          _selectTab(0);
+        final defaultHomeIndex = _isKidsProfile ? 7 : 0;
+        if (_currentIndex != defaultHomeIndex) {
+          _selectTab(defaultHomeIndex);
           return;
         }
 
@@ -920,6 +947,7 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
                         _buildPage(4),
                         _buildPage(5),
                         _buildPage(6),
+                        _buildPage(7),
                       ],
                     ),
                   ),
@@ -962,10 +990,16 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceAround,
                             children: [
+                              if (!_isKidsProfile)
+                                _NavIcon(
+                                  icon: Icons.home_rounded,
+                                  selected: _currentIndex == 0,
+                                  onTap: () => _selectTab(0),
+                                ),
                               _NavIcon(
-                                icon: Icons.home_rounded,
-                                selected: _currentIndex == 0,
-                                onTap: () => _selectTab(0),
+                                icon: Icons.child_care_rounded,
+                                selected: _currentIndex == 7,
+                                onTap: () => _selectTab(7),
                               ),
                               _NavIcon(
                                 icon: Icons.bookmark_rounded,
@@ -978,17 +1012,18 @@ class _MainHomeState extends State<MainHome> with WidgetsBindingObserver {
                                   selected: _currentIndex == 6,
                                   onTap: () => _selectTab(6),
                                 ),
-                              if (_showDescargasTab)
+                              if (!_isKidsProfile && _showDescargasTab)
                                 _NavIcon(
                                   icon: Icons.download_rounded,
                                   selected: _currentIndex == 2,
                                   onTap: () => _selectTab(2),
                                 ),
-                              _NavIcon(
-                                icon: Icons.grid_view_rounded,
-                                selected: _currentIndex == 3,
-                                onTap: () => _selectTab(3),
-                              ),
+                              if (!_isKidsProfile)
+                                _NavIcon(
+                                  icon: Icons.grid_view_rounded,
+                                  selected: _currentIndex == 3,
+                                  onTap: () => _selectTab(3),
+                                ),
                               _NavIcon(
                                 icon: Icons.settings_rounded,
                                 selected: _currentIndex == 4,

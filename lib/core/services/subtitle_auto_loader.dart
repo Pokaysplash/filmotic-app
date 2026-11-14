@@ -27,6 +27,25 @@ class SubtitleAutoLoader {
 
   final Map<String, String> _imdbCache = {};
 
+  /// Limpia etiquetas HTML/ASS/VTT y restos de formato roto (ej. `face="Trebuchet MS">`)
+  /// para mostrar subtítulos siempre en texto limpio.
+  static String cleanSubtitleText(String text) {
+    return text
+        .replaceAll(RegExp(r'<[^>]*>'), '')
+        .replaceAll(RegExp(r'\{\\[^}]*\}'), '')
+        .replaceAll(
+          RegExp(r'\b(?:face|color|size)\s*=\s*"[^"]*"\s*>?', caseSensitive: false),
+          '',
+        )
+        .replaceAll('&nbsp;', ' ')
+        .replaceAll('&amp;', '&')
+        .replaceAll('&lt;', '<')
+        .replaceAll('&gt;', '>')
+        .replaceAll('&quot;', '"')
+        .replaceAll('&#39;', "'")
+        .trim();
+  }
+
   /// Determina si conviene activar subtítulos automáticamente según el servidor
   /// que se está reproduciendo, el idioma original y las preferencias.
   static bool shouldAutoEnable({
@@ -173,3 +192,4 @@ class SubtitleAutoLoader {
     return null;
   }
 }
+

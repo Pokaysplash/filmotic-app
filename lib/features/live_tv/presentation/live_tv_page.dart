@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../core/services/ad_service.dart';
 import '../../../core/services/remote_config_service.dart';
+import '../../../core/storage/app_database.dart';
 import '../../player/presentation/player_page.dart';
 import '../data/epg_service.dart';
 import '../data/live_tv_service.dart';
@@ -59,6 +60,9 @@ class _LiveTvPageState extends State<LiveTvPage> {
     super.initState();
     final cfg = RemoteConfigService.instance.config.liveTv;
     _selectedCountry = cfg.defaultCountry.isNotEmpty ? cfg.defaultCountry : 'co';
+    if (AppDatabase.instance.activeProfile?.esInfantil == true) {
+      _selectedCategory = 'kids';
+    }
     _loadChannels();
 
     // Timer para refrescar "Now Playing" cada minuto
@@ -142,7 +146,10 @@ class _LiveTvPageState extends State<LiveTvPage> {
           final isOnline = LiveTvService.instance.isChannelOnline(c.id);
           if (isOnline == false) return false;
         }
-        if (_selectedCategory != null && _selectedCategory!.isNotEmpty) {
+        if (AppDatabase.instance.activeProfile?.esInfantil == true) {
+        _selectedCategory = 'kids';
+      }
+      if (_selectedCategory != null && _selectedCategory!.isNotEmpty) {
           if (!LiveTvService.matchesCategory(c, _selectedCategory)) return false;
         }
         if (query.isNotEmpty) {

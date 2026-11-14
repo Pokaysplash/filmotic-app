@@ -19,6 +19,7 @@ import '../../features/discover/presentation/discover_page.dart';
 import '../../core/services/remote_config_service.dart';
 import '../../core/services/update_service.dart';
 import '../../features/live_tv/presentation/live_tv_page_tv.dart';
+import '../../features/kids/presentation/tv_kids_page.dart';
 const _kAccentColor = Color(0xFFFF6B35);
 const _kSideAccent = Color(0xFF7B5CFF);
 
@@ -37,6 +38,7 @@ class _MainHomeState extends State<MainHome> {
 
   final FocusNode _profileFocusNode = FocusNode(debugLabel: 'menu_perfil');
   final FocusNode _homeTabFocusNode = FocusNode(debugLabel: 'menu_home');
+  final FocusNode _kidsTabFocusNode = FocusNode(debugLabel: 'menu_kids');
   final FocusNode _descubrirTabFocusNode =
       FocusNode(debugLabel: 'menu_descubrir');
   final FocusNode _fuentesTabFocusNode = FocusNode(debugLabel: 'menu_fuentes');
@@ -53,6 +55,7 @@ class _MainHomeState extends State<MainHome> {
   late final List<FocusNode> _menuFocusNodes;
 
   FocusNode? _homeContentFocusNode;
+  FocusNode? _kidsContentFocusNode;
   FocusNode? _descubrirContentFocusNode;
   FocusNode? _fuentesContentFocusNode;
   FocusNode? _guardadosContentFocusNode;
@@ -66,12 +69,29 @@ class _MainHomeState extends State<MainHome> {
   final GlobalKey _perfilKey = GlobalKey();
 
   bool _homeLoaded = true;
+  bool _kidsLoaded = false;
   bool _descubrirLoaded = false;
   bool _guardadosLoaded = false;
   bool _perfilLoaded = false;
 
   static const int _kPerfilIndex = 6;
   static const int _kFuentesIndex = 2;
+  static const int _kKidsIndex = 7;
+
+  bool get _isKidsProfile =>
+      AppDatabase.instance.activeProfile?.esInfantil == true;
+
+  List<FocusNode> get _visibleMenuFocusNodes => [
+        _profileFocusNode,
+        if (!_isKidsProfile) _homeTabFocusNode,
+        _kidsTabFocusNode,
+        if (!_isKidsProfile) _descubrirTabFocusNode,
+        if (RemoteConfigService.instance.config.liveTv.enabled)
+          _fuentesTabFocusNode,
+        _searchFocusNode,
+        _guardadosTabFocusNode,
+        _settingsFocusNode,
+      ];
   static const double _railWidth = 52;
 
   String _currentTime = '';
@@ -105,6 +125,7 @@ class _MainHomeState extends State<MainHome> {
     _menuFocusNodes = [
       _profileFocusNode,
       _homeTabFocusNode,
+      _kidsTabFocusNode,
       _descubrirTabFocusNode,
       _fuentesTabFocusNode,
       _searchFocusNode,
@@ -113,6 +134,13 @@ class _MainHomeState extends State<MainHome> {
     ];
     for (final node in _menuFocusNodes) {
       node.addListener(_handleMenuFocusChange);
+    }
+    AppDatabase.instance.activeProfileNotifier
+        .addListener(_onActiveProfileChanged);
+    if (_isKidsProfile) {
+      _currentIndex = _kKidsIndex;
+      _kidsLoaded = true;
+      _homeLoaded = false;
     }
     _updateTime();
     _clockTimer = Timer.periodic(
@@ -312,6 +340,25 @@ class _MainHomeState extends State<MainHome> {
     _focusContentOf(_currentIndex);
   }
 
+  void _onActiveProfileChanged() {
+    if (!mounted) return;
+    final isKids = _isKidsProfile;
+    setState(() {
+      if (isKids) {
+        _currentIndex = _kKidsIndex;
+        _kidsLoaded = true;
+        _homeLoaded = false;
+        _descubrirLoaded = false;
+      } else {
+        if (_currentIndex == _kKidsIndex) {
+          _currentIndex = 0;
+        }
+        _homeLoaded = true;
+      }
+    });
+    _focusContentOf(_currentIndex);
+  }
+
   void _updateTime() {
     final now = DateTime.now();
     final hour12 = now.hour % 12 == 0 ? 12 : now.hour % 12;
@@ -325,6 +372,8 @@ class _MainHomeState extends State<MainHome> {
 
   @override
   void dispose() {
+    AppDatabase.instance.activeProfileNotifier
+        .removeListener(_onActiveProfileChanged);
     _clockTimer?.cancel();
     _menuCollapseTimer?.cancel();
     _transferTimer?.cancel();
@@ -396,6 +445,8 @@ class _MainHomeState extends State<MainHome> {
         return _configContentFocusNode;
       case _kPerfilIndex:
         return _perfilContentFocusNode;
+      case _kKidsIndex:
+        return _kidsContentFocusNode;
       default:
         return null;
     }
@@ -417,8 +468,10 @@ class _MainHomeState extends State<MainHome> {
         return _settingsFocusNode;
       case _kPerfilIndex:
         return _profileFocusNode;
+      case _kKidsIndex:
+        return _kidsTabFocusNode;
       default:
-        return _homeTabFocusNode;
+        return _isKidsProfile ? _kidsTabFocusNode : _homeTabFocusNode;
     }
   }
 
@@ -489,6 +542,7 @@ class _MainHomeState extends State<MainHome> {
     if (index == 0) _homeLoaded = true;
     if (index == 1) _descubrirLoaded = true;
     if (index == 4) _guardadosLoaded = true;
+    if (index == _kKidsIndex) _kidsLoaded = true;
     if (index == _kPerfilIndex) {
       _perfilLoaded = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -538,20 +592,22 @@ class _MainHomeState extends State<MainHome> {
     }
 
     if (key == LogicalKeyboardKey.arrowDown) {
-      final i = _menuFocusNodes.indexOf(node);
-      if (i >= 0 && i < _menuFocusNodes.length - 1) {
+      final visible = _visibleMenuFocusNodes;
+      final i = visible.indexOf(node);
+      if (i >= 0 && i < visible.length - 1) {
         _navigatingMenu = true;
-        _menuFocusNodes[i + 1].requestFocus();
+        visible[i + 1].requestFocus();
         _navigatingMenu = false;
       }
       return KeyEventResult.handled;
     }
 
     if (key == LogicalKeyboardKey.arrowUp) {
-      final i = _menuFocusNodes.indexOf(node);
+      final visible = _visibleMenuFocusNodes;
+      final i = visible.indexOf(node);
       if (i > 0) {
         _navigatingMenu = true;
-        _menuFocusNodes[i - 1].requestFocus();
+        visible[i - 1].requestFocus();
         _navigatingMenu = false;
       }
       return KeyEventResult.handled;
@@ -729,6 +785,14 @@ class _MainHomeState extends State<MainHome> {
                 onRequestMenuFocus: _focusMenu,
                 onMainFocusNodeCreated: (node) =>
                     _perfilContentFocusNode = node,
+              )
+            : const SizedBox.shrink();
+      case _kKidsIndex:
+        return _kidsLoaded
+            ? KidsPageTv(
+                onRequestMenuFocus: _focusMenu,
+                onMainFocusNodeCreated: (node) =>
+                    _kidsContentFocusNode = node,
               )
             : const SizedBox.shrink();
       default:
@@ -1030,8 +1094,7 @@ class _MainHomeState extends State<MainHome> {
                     child: Padding(
                       padding: const EdgeInsets.only(left: _railWidth),
                       child: IndexedStack(
-                        index:
-                            _currentIndex == _kPerfilIndex ? 6 : _currentIndex,
+                        index: _currentIndex,
                         children: [
                           _buildPage(0),
                           _buildPage(1),
@@ -1040,6 +1103,7 @@ class _MainHomeState extends State<MainHome> {
                           _buildPage(4),
                           _buildPage(5),
                           _buildPage(_kPerfilIndex),
+                          _buildPage(_kKidsIndex),
                         ],
                       ),
                     ),
@@ -1063,10 +1127,12 @@ class _MainHomeState extends State<MainHome> {
                     child: _SideMenu(
                       expanded: _menuActive,
                       currentIndex: _currentIndex,
+                      isKidsProfile: _isKidsProfile,
                       profileSelected: profileSelected,
                       currentTime: _currentTime,
                       profileFocus: _profileFocusNode,
                       homeFocus: _homeTabFocusNode,
+                      kidsFocus: _kidsTabFocusNode,
                       descubrirFocus: _descubrirTabFocusNode,
                       fuentesFocus: _fuentesTabFocusNode,
                       searchFocus: _searchFocusNode,
@@ -1367,10 +1433,12 @@ class _AbiPickerDialogState extends State<_AbiPickerDialog> {
 class _SideMenu extends StatelessWidget {
   final bool expanded;
   final int currentIndex;
+  final bool isKidsProfile;
   final bool profileSelected;
   final String currentTime;
   final FocusNode profileFocus;
   final FocusNode homeFocus;
+  final FocusNode kidsFocus;
   final FocusNode descubrirFocus;
   final FocusNode fuentesFocus;
   final FocusNode searchFocus;
@@ -1382,10 +1450,12 @@ class _SideMenu extends StatelessWidget {
   const _SideMenu({
     required this.expanded,
     required this.currentIndex,
+    required this.isKidsProfile,
     required this.profileSelected,
     required this.currentTime,
     required this.profileFocus,
     required this.homeFocus,
+    required this.kidsFocus,
     required this.descubrirFocus,
     required this.fuentesFocus,
     required this.searchFocus,
@@ -1479,24 +1549,35 @@ class _SideMenu extends StatelessWidget {
                     const SizedBox(height: 8),
                   ] else
                     const SizedBox(height: 8),
+                  if (!isKidsProfile)
+                    _SideItem(
+                      expanded: expanded,
+                      icon: Icons.home_rounded,
+                      label: 'Inicio',
+                      focusNode: homeFocus,
+                      selected: currentIndex == 0,
+                      onKeyEvent: (n, e) => onKeyEvent(n, e, 0),
+                      onTap: () => onSelect(0),
+                    ),
                   _SideItem(
                     expanded: expanded,
-                    icon: Icons.home_rounded,
-                    label: 'Inicio',
-                    focusNode: homeFocus,
-                    selected: currentIndex == 0,
-                    onKeyEvent: (n, e) => onKeyEvent(n, e, 0),
-                    onTap: () => onSelect(0),
+                    icon: Icons.child_care_rounded,
+                    label: 'Infantil',
+                    focusNode: kidsFocus,
+                    selected: currentIndex == 7,
+                    onKeyEvent: (n, e) => onKeyEvent(n, e, 7),
+                    onTap: () => onSelect(7),
                   ),
-                  _SideItem(
-                    expanded: expanded,
-                    icon: Icons.explore_rounded,
-                    label: 'Descubrir',
-                    focusNode: descubrirFocus,
-                    selected: currentIndex == 1,
-                    onKeyEvent: (n, e) => onKeyEvent(n, e, 1),
-                    onTap: () => onSelect(1),
-                  ),
+                  if (!isKidsProfile)
+                    _SideItem(
+                      expanded: expanded,
+                      icon: Icons.explore_rounded,
+                      label: 'Descubrir',
+                      focusNode: descubrirFocus,
+                      selected: currentIndex == 1,
+                      onKeyEvent: (n, e) => onKeyEvent(n, e, 1),
+                      onTap: () => onSelect(1),
+                    ),
                   if (RemoteConfigService.instance.config.liveTv.enabled)
                     _SideItem(
                       expanded: expanded,

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import '../../../core/services/remote_config_service.dart';
+import '../../../core/storage/app_database.dart';
 import '../data/epg_service.dart';
 import '../data/live_tv_service.dart';
 import '../domain/channel.dart';
@@ -95,6 +96,9 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
     });
     final cfg = RemoteConfigService.instance.config.liveTv;
     _selectedCountry = cfg.defaultCountry.isNotEmpty ? cfg.defaultCountry : 'co';
+    if (AppDatabase.instance.activeProfile?.esInfantil == true) {
+      _selectedCategory = 'kids';
+    }
     _loadChannels();
 
     _nowTimer = Timer.periodic(const Duration(minutes: 1), (_) {
@@ -201,10 +205,12 @@ class _LiveTvPageTvState extends State<LiveTvPageTv>
   }
 
   void _onCategorySelected(String code) {
-    if (_selectedCategory == code) return;
+    final effectiveCode =
+        AppDatabase.instance.activeProfile?.esInfantil == true ? 'kids' : code;
+    if (_selectedCategory == effectiveCode) return;
     setState(() {
-      _selectedCategory = code;
-      _filteredChannels = _applyCategoryFilter(_allChannels, code);
+      _selectedCategory = effectiveCode;
+      _filteredChannels = _applyCategoryFilter(_allChannels, effectiveCode);
       if (_filteredChannels.isNotEmpty) {
         _selectedChannel = _filteredChannels.first;
         _selectedStreamIndex = 0;

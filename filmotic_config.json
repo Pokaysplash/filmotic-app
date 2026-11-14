@@ -57,9 +57,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.33",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.33/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.33: Corrección definitiva del OSD/reproductor en Xbox y Smart TVs al transmitir por DLNA (modo silencioso tras iniciar reproducción), además de todas las mejoras de TV en Vivo AAC y subtítulos automáticos.",
+    "latest_version": "1.0.0-beta.34",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.34/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.34: Nueva Zona Infantil conectada al Perfil Infantil (Móvil y TV) con Disney/Pixar, DreamWorks/Illumination y Studio Ghibli, TV en Vivo filtrada para niños, limpieza de subtítulos y atajos numéricos 0-9 en control TV.",
     "force_update": false,
     "is_beta": true
   },

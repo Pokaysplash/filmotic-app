@@ -2564,7 +2564,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  String _stripVttTags(String text) => text.replaceAll(RegExp(r'<[^>]*>'), '');
+  String _stripVttTags(String text) => SubtitleAutoLoader.cleanSubtitleText(text);
 
   // ─── Actualizar subtítulo con OFFSET ────────────────────────────────────
   void _updateCurrentSubtitle() {

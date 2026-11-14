@@ -59,6 +59,15 @@ void main() {
         isTrue,
       );
     });
+
+    test('cleanSubtitleText strips broken HTML/ASS tags and entities', () {
+      const dirty =
+          r'{\an8}<font face="Trebuchet MS">Hola &amp; bienvenidos</font> face="Arial">!';
+      expect(
+        SubtitleAutoLoader.cleanSubtitleText(dirty),
+        'Hola & bienvenidos !',
+      );
+    });
   });
 
   group('M3UParser', () {

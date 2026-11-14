@@ -2462,7 +2462,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 
-  String _stripVttTags(String text) => text.replaceAll(RegExp(r'<[^>]*>'), '');
+  String _stripVttTags(String text) => SubtitleAutoLoader.cleanSubtitleText(text);
 
   void _updateCurrentSubtitle() {
     if (!_subtitlesEnabled || _subtitleCues.isEmpty) {
@@ -5160,6 +5160,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
               if (_isBackKey(event)) {
                 _handleBackPressed();
                 return KeyEventResult.handled;
+              }
+              if (event.logicalKey == LogicalKeyboardKey.mediaStop) {
+                _goBackToContent();
+                return KeyEventResult.handled;
+              }
+              if (!widget.isLive &&
+                  _controllerReady &&
+                  _totalDuration.inSeconds > 10) {
+                final digitMap = <LogicalKeyboardKey, int>{
+                  LogicalKeyboardKey.digit0: 0,
+                  LogicalKeyboardKey.digit1: 1,
+                  LogicalKeyboardKey.digit2: 2,
+                  LogicalKeyboardKey.digit3: 3,
+                  LogicalKeyboardKey.digit4: 4,
+                  LogicalKeyboardKey.digit5: 5,
+                  LogicalKeyboardKey.digit6: 6,
+                  LogicalKeyboardKey.digit7: 7,
+                  LogicalKeyboardKey.digit8: 8,
+                  LogicalKeyboardKey.digit9: 9,
+                };
+                final digit = digitMap[event.logicalKey];
+                if (digit != null) {
+                  final targetSec =
+                      (_totalDuration.inSeconds * (digit / 10.0)).round();
+                  _controller.seekTo(Duration(seconds: targetSec));
+                  setState(() => _showControls = true);
+                  _scheduleHideControls();
+                  return KeyEventResult.handled;
+                }
               }
               if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
                 if (_showScreensaver) {
