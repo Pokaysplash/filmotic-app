@@ -57,9 +57,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.32",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.32/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.32: Canales de TV en Vivo con audio AAC verificado (sin canales silenciados) y zapping más rápido, nuevas fuentes rápidas (VidLink, VidFast, VidSrc.to), detección de idioma original y carga automática de subtítulos (VOSE / Original + Subs).",
+    "latest_version": "1.0.0-beta.33",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.33/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.33: Corrección definitiva del OSD/reproductor en Xbox y Smart TVs al transmitir por DLNA (modo silencioso tras iniciar reproducción), además de todas las mejoras de TV en Vivo AAC y subtítulos automáticos.",
     "force_update": false,
     "is_beta": true
   },

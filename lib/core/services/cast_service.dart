@@ -68,13 +68,15 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
 
   DateTime? _lastVolumePollAt;
   int _lastVolume = 50;
+  bool _hasInitialVolume = false;
+  int _confirmPollsRemaining = 2;
 
-  static const Duration _kPollNetworkInterval = Duration(seconds: 15);
-  static const Duration _kVolumePollInterval = Duration(seconds: 30);
+  static const Duration _kConfirmPollInterval = Duration(seconds: 3);
 
-  void invalidateCache() {
+  void invalidateCache({int confirmPolls = 2}) {
     _lastPositionPollAt = null;
     _lastTransportPollAt = null;
+    _confirmPollsRemaining = confirmPolls;
   }
 
   @override
@@ -91,21 +93,24 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
         action == 'Stop' ||
         action == 'Seek' ||
         action == 'SetAVTransportURI') {
-      invalidateCache();
+      invalidateCache(
+        confirmPolls: (action == 'Pause' || action == 'Stop') ? 0 : 2,
+      );
       if (action == 'Play') _lastTransportState = 'PLAYING';
       if (action == 'Pause') _lastTransportState = 'PAUSED_PLAYBACK';
       if (action == 'Stop') _lastTransportState = 'STOPPED';
     }
 
-    // 1. Evitar consultar GetVolume cada segundo
+    // 1. Consultar GetVolume solo una vez al inicio (nunca en bucle pasivo),
+    // ya que en Xbox y varios Smart TVs GetVolume despierta el OSD en pantalla.
     if (action == 'GetVolume') {
-      if (_lastVolumePollAt != null &&
-          now.difference(_lastVolumePollAt!) < _kVolumePollInterval) {
+      if (_hasInitialVolume || _lastVolumePollAt != null) {
         return _buildSyntheticVolumeXml(_lastVolume);
       }
       try {
         final xml = await _postSoap(controlUrl, serviceType, action, body);
         _lastVolume = dc.DlnaSoapParser.parseVolume(xml);
+        _hasInitialVolume = true;
         _lastVolumePollAt = now;
         return xml;
       } catch (_) {
@@ -114,23 +119,25 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
       }
     }
 
-    // 2. Throttle de GetPositionInfo a 1 vez cada 15s (interpolando suavemente en medio).
-    // Previene que televisores LG webOS, Samsung Tizen o TCL muestren el OSD o la rueda
-    // de carga cada segundo en respuesta a peticiones SOAP continuas.
+    // 2. Una vez confirmada la reproducción (PLAYING), silenciar el polling
+    // pasivo de GetPositionInfo e interpolar localmente para no despertar el
+    // reproductor/OSD de Xbox ni de Smart TVs durante la película.
     if (action == 'GetPositionInfo') {
-      if (_lastPositionPollAt != null &&
-          now.difference(_lastPositionPollAt!) < _kPollNetworkInterval) {
-        final elapsed = _lastTransportState == 'PLAYING'
+      final shouldSkipNetwork = _lastPositionPollAt != null &&
+          (_confirmPollsRemaining <= 0 ||
+              now.difference(_lastPositionPollAt!) < _kConfirmPollInterval);
+      if (shouldSkipNetwork) {
+        final elapsed = (_lastTransportState == 'PLAYING' && _lastPositionPollAt != null)
             ? now.difference(_lastPositionPollAt!)
             : Duration.zero;
         final interpolated = _lastKnownPosition + elapsed;
+        _lastKnownPosition = interpolated;
+        _lastPositionPollAt = now;
         return _buildSyntheticPositionXml(interpolated, _lastKnownDuration);
       }
       try {
         final xml = await _postSoap(controlUrl, serviceType, action, body);
         final parsed = dc.DlnaSoapParser.parsePositionInfo(xml);
-        // Si el TV reporta posición 0 o 1s para un stream en vivo/piped pero ya
-        // teníamos un avance real, preservar el avance interpolado.
         if (parsed.position <= const Duration(seconds: 1) &&
             _lastKnownPosition > const Duration(seconds: 3)) {
           final elapsed = _lastTransportState == 'PLAYING' && _lastPositionPollAt != null
@@ -154,11 +161,13 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
       }
     }
 
-    // 3. Throttle de GetTransportInfo a 1 vez cada 15s e ignorar TRANSITIONING
-    // y BUFFERING transitorios para que no active ni parpadee el reproductor ni el OSD.
+    // 3. Confirmar PLAYING al iniciar/buscar y luego silenciar GetTransportInfo
+    // para no enviar peticiones SOAP periódicas a la Xbox mientras reproduce.
     if (action == 'GetTransportInfo') {
-      if (_lastTransportPollAt != null &&
-          now.difference(_lastTransportPollAt!) < _kPollNetworkInterval) {
+      final shouldSkipNetwork = _lastTransportPollAt != null &&
+          (_confirmPollsRemaining <= 0 ||
+              now.difference(_lastTransportPollAt!) < _kConfirmPollInterval);
+      if (shouldSkipNetwork) {
         return _buildSyntheticTransportXml(_lastTransportState);
       }
       try {
@@ -166,12 +175,14 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
         final rawState = dc.DlnaSoapParser.parseTransportInfo(xml);
         if ((rawState == 'TRANSITIONING' || rawState == 'BUFFERING') &&
             _lastTransportState == 'PLAYING') {
-          // Mantener PLAYING durante micro-transiciones o absorción de buffer en el TV
           _lastTransportPollAt = now;
           return _buildSyntheticTransportXml('PLAYING');
         }
         if (rawState != 'UNKNOWN') {
           _lastTransportState = rawState;
+        }
+        if (_lastTransportState == 'PLAYING' && _confirmPollsRemaining > 0) {
+          _confirmPollsRemaining--;
         }
         _lastTransportPollAt = now;
         return xml;
