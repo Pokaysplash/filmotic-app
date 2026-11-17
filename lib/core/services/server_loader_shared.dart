@@ -916,7 +916,7 @@ class ServerLoader {
       if (resolved || bestFallbackPlayable == null || bestFallbackServer == null) {
         return;
       }
-      if ((preferredGraceElapsed || isStreamDone) && !hasPendingPreferred()) {
+      if (preferredGraceElapsed || (isStreamDone && !hasPendingPreferred())) {
         unawaited(onWin(bestFallbackPlayable!, bestFallbackServer!, bestFallbackPhase));
       }
     }
@@ -1297,19 +1297,26 @@ class ServerLoader {
         return aIsDirect ? -1 : 1;
       }
 
-      // 0.08. Priorizar CDNs nativos rápidos con respuesta en <500ms
-      final aIsFastCdn = aName.contains('streamwish') ||
-          aName.contains('filelions') ||
-          aName.contains('voe') ||
-          aName.contains('vidmoly') ||
-          aName.contains('luluvdo') ||
-          aName.contains('waaw');
-      final bIsFastCdn = bName.contains('streamwish') ||
-          bName.contains('filelions') ||
-          bName.contains('voe') ||
-          bName.contains('vidmoly') ||
-          bName.contains('luluvdo') ||
-          bName.contains('waaw');
+      // 0.08. Priorizar CDNs y embeds rápidos (<500ms - 1.5s)
+      bool isFastHost(String name) =>
+          name.contains('streamwish') ||
+          name.contains('filelions') ||
+          name.contains('voe') ||
+          name.contains('vidmoly') ||
+          name.contains('luluvdo') ||
+          name.contains('waaw') ||
+          name.contains('pstream') ||
+          name.contains('vidbinge') ||
+          name.contains('vidsrc.net') ||
+          name.contains('mapple') ||
+          name.contains('nontongo') ||
+          name.contains('2embed') ||
+          name.contains('primesrc') ||
+          name.contains('111movies') ||
+          name.contains('vidlink') ||
+          name.contains('vidfast');
+      final aIsFastCdn = isFastHost(aName);
+      final bIsFastCdn = isFastHost(bName);
       if (aIsFastCdn != bIsFastCdn) {
         return aIsFastCdn ? -1 : 1;
       }

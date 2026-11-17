@@ -20,6 +20,9 @@ class TmdbChristmasApi {
   List<Map<String, dynamic>>? _cachedMovies;
   DateTime? _cachedAt;
   bool? _cachedKidsMode;
+  List<Map<String, dynamic>>? _cachedSeries;
+  DateTime? _cachedSeriesAt;
+  bool? _cachedSeriesKidsMode;
   static const Duration _cacheTtl = Duration(minutes: 25);
 
   Future<List<Map<String, dynamic>>> fetchAllChristmasMovies({
@@ -120,10 +123,84 @@ class TmdbChristmasApi {
     return merged;
   }
 
+  Future<List<Map<String, dynamic>>> fetchAllChristmasSeries({
+    bool forceRefresh = false,
+  }) async {
+    final isKids = AppDatabase.instance.activeProfile?.esInfantil == true;
+    if (!forceRefresh &&
+        _cachedSeries != null &&
+        _cachedSeriesAt != null &&
+        _cachedSeriesKidsMode == isKids &&
+        DateTime.now().difference(_cachedSeriesAt!) < _cacheTtl) {
+      return _cachedSeries!;
+    }
+
+    final apiKey = await TmdbApis.getApiKey();
+    final language = await TmdbApis.getLanguage();
+
+    final batches = await Future.wait([
+      _fetchList(
+        '/discover/tv',
+        apiKey: apiKey,
+        language: language,
+        query: {
+          'with_keywords': '207317',
+          'sort_by': 'popularity.desc',
+          'page': '1',
+        },
+      ),
+      _fetchList(
+        '/discover/tv',
+        apiKey: apiKey,
+        language: language,
+        query: {
+          'with_keywords': '207317',
+          'sort_by': 'vote_count.desc',
+          'page': '1',
+        },
+      ),
+      _fetchList(
+        '/discover/tv',
+        apiKey: apiKey,
+        language: language,
+        query: {
+          'with_keywords': '65',
+          'sort_by': 'popularity.desc',
+          'page': '1',
+        },
+      ),
+      _fetchList(
+        '/search/tv',
+        apiKey: apiKey,
+        language: language,
+        query: {'query': 'Navidad', 'page': '1'},
+      ),
+      _fetchList(
+        '/search/tv',
+        apiKey: apiKey,
+        language: language,
+        query: {'query': 'Christmas', 'page': '1'},
+      ),
+    ]);
+
+    final merged = mergeUniqueChristmasMovies(
+      batches,
+      isKids: isKids,
+      mediaType: 'tv',
+    );
+    if (merged.isNotEmpty) {
+      _cachedSeries = merged;
+      _cachedSeriesAt = DateTime.now();
+      _cachedSeriesKidsMode = isKids;
+    }
+    return merged;
+  }
+
   /// Une listas de TMDB eliminando cualquier duplicado por `id` y ordenando por popularidad.
   static List<Map<String, dynamic>> mergeUniqueChristmasMovies(
     List<List<Map<String, dynamic>>> batches, {
     bool isKids = false,
+    String mediaType = 'movie',
   }) {
     final seenIds = <int>{};
     final out = <Map<String, dynamic>>[];
@@ -158,7 +235,7 @@ class TmdbChristmasApi {
         final normalized = Map<String, dynamic>.from(raw);
         normalized['id'] = id;
         normalized['tmdb_id'] = id;
-        normalized['media_type'] = 'movie';
+        normalized['media_type'] = mediaType;
         normalized['titulo'] = title;
         out.add(normalized);
       }

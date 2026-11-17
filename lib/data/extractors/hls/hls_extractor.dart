@@ -96,6 +96,7 @@ class NativeResolvers {
     if (s.contains('pixeldrain')) return 'pixeldrain';
     if (s.contains('buzzheavier') || s.contains('bzh.sh')) return 'buzzheavier';
     if (s.contains('ok.ru') || s.contains('okru')) return 'okru';
+    if (s.contains('2embed.skin') || s.contains('2embed.cc')) return '2embed';
     if (s.contains('vidsrc') || s.contains('moviesapi')) return 'vidsrc';
 
     // Heurística basada en serverHint si el dominio no coincidió
@@ -276,6 +277,8 @@ class NativeResolvers {
           return await _resolveDropcdn(url).timeout(timeout);
         case 'okru':
           return await _resolveOkRu(url).timeout(timeout);
+        case '2embed':
+          return await _resolveTwoEmbed(url).timeout(timeout);
         default:
           return null;
       }
@@ -288,6 +291,35 @@ class NativeResolvers {
 
 
   // ---------- FILEMOON ----------
+  static Future<StreamResult?> _resolveTwoEmbed(String url) async {
+    try {
+      final res = await http.get(
+        Uri.parse(url),
+        headers: {'User-Agent': _ua, 'Referer': Uri.parse(url).origin},
+      );
+      if (res.statusCode != 200) return null;
+      final iframes = RegExp(
+        r'<iframe[^>]+src=["\x27]([^"\x27]+)["\x27]',
+        caseSensitive: false,
+      ).allMatches(res.body);
+      for (final m in iframes) {
+        final src = m.group(1)?.trim() ?? '';
+        if (src.isEmpty) continue;
+        if (src.contains('swish') || src.contains('streamwish')) {
+          final resolved = await _resolveStreamWish(src);
+          if (resolved != null) return resolved;
+        } else if (src.contains('vidhide')) {
+          final resolved = await _resolveVidHide(src);
+          if (resolved != null) return resolved;
+        } else if (src.contains('filemoon')) {
+          final resolved = await _resolveFilemoon(src);
+          if (resolved != null) return resolved;
+        }
+      }
+    } catch (_) {}
+    return null;
+  }
+
   static Future<StreamResult?> _resolveFilemoon(String url) async {
     try {
       final res = await http.get(

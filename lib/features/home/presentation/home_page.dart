@@ -50,6 +50,7 @@ class _HomePageState extends State<HomePage>
   List<Map<String, dynamic>> _historial = [];
 
   int _recentTab = 0;
+  int _christmasTab = 0;
   int _topTab = 0;
   int _popularTab = 0;
   int _genreTab = 0;
@@ -710,48 +711,17 @@ class _HomePageState extends State<HomePage>
               ),
               const SliverToBoxAdapter(child: SizedBox(height: 4)),
             ],
-            if (_itemsOf('christmas_movies').isNotEmpty) ...[
-              SliverToBoxAdapter(
-                child: _SectionHeader(
-                  title: _titleOf('christmas_movies', '🎄 Especial de Navidad'),
-                  trailing: 'Ver Todo',
-                  trailingColor: kAccentColor,
-                  onTrailingTap: () {
-                    _openCategoryList(
-                      title: _titleOf(
-                        'christmas_movies',
-                        '🎄 Especial de Navidad',
-                      ),
-                      items: _itemsOf('christmas_movies'),
-                      isMovie: true,
-                      categoryKey: 'christmas_movies',
-                    );
-                  },
-                ),
+            if (_itemsOf('christmas_movies').isNotEmpty ||
+                _itemsOf('christmas_tv').isNotEmpty)
+              _tabbedSliver(
+                title: '🎄 Especial de Navidad',
+                selectedTab: _christmasTab,
+                onTabChanged: (i) => setState(() => _christmasTab = i),
+                items: _christmasTab == 0
+                    ? _itemsOf('christmas_movies')
+                    : _itemsOf('christmas_tv'),
+                categoryKeyPrefix: 'christmas',
               ),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 190,
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    physics: const BouncingScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
-                    itemCount: _itemsOf('christmas_movies').length.clamp(0, 30),
-                    cacheExtent: 200,
-                    itemBuilder: (context, index) {
-                      final item = _itemsOf('christmas_movies')[index];
-                      return _PosterCard(
-                        item: item,
-                        showRating: true,
-                        onTap: () => _openContent(item),
-                        onLongPress: () => _showOpcionesModal(item),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 8)),
-            ],
             _tabbedSliver(
               title: 'Agregados Recientemente',
               selectedTab: _recentTab,

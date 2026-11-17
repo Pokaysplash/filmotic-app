@@ -146,6 +146,7 @@ class _HomePageState extends State<HomePage>
 
     addSection('continue_watching', isMovie: true);
     addSection('christmas_movies', isMovie: true);
+    addSection('christmas_tv', isMovie: false);
     addSection('popular_movies', isMovie: true);
     addSection('trending_movies', isMovie: true);
     addSection('popular_tv', isMovie: false);

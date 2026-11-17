@@ -745,6 +745,8 @@ class TmdbHomeMobileService {
 
     futures['christmas_movies'] =
         TmdbChristmasApi.instance.fetchAllChristmasMovies();
+    futures['christmas_tv'] =
+        TmdbChristmasApi.instance.fetchAllChristmasSeries();
 
     final keys = futures.keys.toList();
     final results = await Future.wait(futures.values);
@@ -819,6 +821,13 @@ class TmdbHomeMobileService {
       data['christmas_movies'] = {
         'title': '🎄 Especial de Navidad',
         'items': christmasRaw.map((e) => _mapItem(e, isMovie: true)).toList(),
+      };
+    }
+    final christmasTvRaw = rawMap['christmas_tv'];
+    if (christmasTvRaw != null && christmasTvRaw.isNotEmpty) {
+      data['christmas_tv'] = {
+        'title': '🎄 Especial de Navidad - Series',
+        'items': christmasTvRaw.map((e) => _mapItem(e, isMovie: false)).toList(),
       };
     }
 

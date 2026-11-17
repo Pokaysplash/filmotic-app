@@ -57,9 +57,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.36",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.36/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.36: Cast/DLNA persistente en segundo plano para TV y Xbox (no se corta al salir de la app o bloquear pantalla), nuevas fuentes rápidas priorizadas y corrección de etiquetas de idioma.",
+    "latest_version": "1.0.0-beta.37",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.37/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.37: Especial de Navidad con Películas y Series funcionales (Móvil y TV), arranque inmediato de nuevas fuentes rápidas (sin bloqueo por cola WebView) y extracción nativa para 2embed.",
     "force_update": false,
     "is_beta": true
   },
