@@ -245,11 +245,17 @@ class TmdbKidsApi {
     required Map<String, String> query,
     required String mediaType,
   }) async {
+    final now = DateTime.now();
+    final todayStr =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    final dateFilterKey =
+        mediaType == 'movie' ? 'release_date.lte' : 'first_air_date.lte';
     final uri = Uri.parse('$_base$path').replace(
       queryParameters: {
         'api_key': apiKey,
         'language': language,
         'include_adult': 'false',
+        dateFilterKey: todayStr,
         'page': '1',
         ...query,
       },

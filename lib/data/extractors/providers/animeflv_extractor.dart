@@ -198,6 +198,7 @@ class AnimeFlvService {
     required int season,
   }) async {
     final titles = <String>{};
+    bool isEligibleAnime = false;
 
     Future<void> fetchDetail(String? lang) async {
       try {
@@ -212,6 +213,16 @@ class AnimeFlvService {
         if (res.statusCode == 200) {
           final data = jsonDecode(res.body);
           if (data is Map<String, dynamic>) {
+            final origLang =
+                (data['original_language'] ?? '').toString().toLowerCase();
+            final genres = data['genres'];
+            final hasAnimationGenre = genres is List &&
+                genres.any((g) => g is Map && (g['id'] == 16));
+            if (hasAnimationGenre &&
+                (origLang == 'ja' || origLang == 'zh' || origLang == 'ko')) {
+              isEligibleAnime = true;
+            }
+
             final t = data['title']?.toString() ?? data['name']?.toString();
             if (t != null && t.trim().isNotEmpty) titles.add(t.trim());
 
@@ -228,6 +239,10 @@ class AnimeFlvService {
       fetchDetail('en-US'),
       fetchDetail(null), // Idioma original
     ]);
+
+    if (!isEligibleAnime) {
+      return const [];
+    }
 
     // Si es serie y temporada > 1, intentar obtener el nombre de la temporada
     if (mediaType == 'tv' && season > 1) {

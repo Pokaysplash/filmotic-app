@@ -470,9 +470,15 @@ class UpdateService {
       final installPerm = await Permission.requestInstallPackages.status;
       if (!installPerm.isGranted) {
         debugPrint('[UpdateService] Permiso REQUEST_INSTALL_PACKAGES pendiente. Solicitando...');
-        await Permission.requestInstallPackages.request();
+        final reqRes = await Permission.requestInstallPackages.request();
+        if (!reqRes.isGranted) {
+          throw Exception(
+            'Permiso requerido: activa "Instalar aplicaciones desconocidas" para Filmotic en Ajustes y vuelve a pulsar Instalar.',
+          );
+        }
       }
     } catch (e) {
+      if (e.toString().contains('Permiso requerido')) rethrow;
       debugPrint('[UpdateService] Solicitud de permiso REQUEST_INSTALL_PACKAGES omitida: $e');
     }
 

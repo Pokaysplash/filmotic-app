@@ -145,11 +145,15 @@ class MainActivity : FlutterActivity() {
         return try {
             val file = File(filePath)
             if (!file.exists()) return false
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                return false
+            }
             file.setReadable(true, false)
 
             val intent = Intent(Intent.ACTION_VIEW)
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             intent.addCategory(Intent.CATEGORY_DEFAULT)
+            intent.putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 val authority = "$packageName.fileProvider"
