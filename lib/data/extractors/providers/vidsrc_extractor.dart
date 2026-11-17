@@ -26,6 +26,15 @@ class VidSrcService {
       final seen = <String>{};
 
       for (final embedUrl in embedUrls) {
+        final fastLabel = _fastDirectLabelFor(embedUrl);
+        if (fastLabel != null) {
+          if (!seen.contains(embedUrl)) {
+            seen.add(embedUrl);
+            yield _map(url: embedUrl, name: fastLabel);
+          }
+          continue;
+        }
+
         if (embedUrl.contains('multiembed.mov')) {
           if (!seen.contains(embedUrl)) {
             seen.add(embedUrl);
@@ -141,9 +150,21 @@ class VidSrcService {
           yield _map(url: embedUrl, name: 'VidSrc');
         }
 
-        if (seen.length >= 6) break;
+        if (seen.length >= 14) break;
       }
     } catch (_) {}
+  }
+
+  static String? _fastDirectLabelFor(String url) {
+    if (url.contains('pstream.org')) return 'PStream Fast';
+    if (url.contains('vidbinge.dev')) return 'VidBinge Fast';
+    if (url.contains('vidsrc.net')) return 'VidSrc.net Fast';
+    if (url.contains('mapple.tv')) return 'Mapple Fast';
+    if (url.contains('nontongo.win')) return 'Nontongo Fast';
+    if (url.contains('2embed.skin')) return '2Embed.skin Fast';
+    if (url.contains('primesrc.me')) return 'PrimeSrc Fast';
+    if (url.contains('111movies.com')) return '111Movies Fast';
+    return null;
   }
 
   static Map<String, dynamic> _map({
@@ -156,8 +177,8 @@ class VidSrcService {
       'servidor': name,
       'servidor_nombre': name,
       'server': 'VidSrc',
-      'idioma': 'sub',
-      'language': 'sub',
+      'idioma': 'en_US',
+      'language': 'en_US',
       'type': 'embed',
       'headers': {
         'User-Agent': _ua,
@@ -176,20 +197,36 @@ class VidSrcService {
   ) {
     if (isMovie) {
       return [
-        'https://vidsrc.sh/embed/movie/$tmdbId',
-        'https://vidsrc.to/embed/movie/$tmdbId',
+        'https://pstream.org/media/tmdb-movie-$tmdbId',
+        'https://vidbinge.dev/embed/movie/$tmdbId',
+        'https://vidsrc.net/embed/movie/$tmdbId',
+        'https://mapple.tv/watch/movie/$tmdbId',
+        'https://www.nontongo.win/embed/movie/$tmdbId',
+        'https://www.2embed.skin/embed/$tmdbId',
+        'https://primesrc.me/embed/movie?tmdb=$tmdbId',
+        'https://111movies.com/movie/$tmdbId',
         'https://vidlink.pro/movie/$tmdbId',
         'https://vidfast.vc/movie/$tmdbId',
+        'https://vidsrc.to/embed/movie/$tmdbId',
+        'https://vidsrc.sh/embed/movie/$tmdbId',
         'https://www.2embed.cc/embed/$tmdbId',
         'https://multiembed.mov/?video_id=$tmdbId&tmdb=1',
         'https://vidsrc.me/embed/movie/$tmdbId',
       ];
     }
     return [
-      'https://vidsrc.sh/embed/tv/$tmdbId/$season-$episode',
-      'https://vidsrc.to/embed/tv/$tmdbId/$season/$episode',
+      'https://pstream.org/media/tmdb-tv-$tmdbId/$season/$episode',
+      'https://vidbinge.dev/embed/tv/$tmdbId/$season/$episode',
+      'https://vidsrc.net/embed/tv/$tmdbId/$season/$episode',
+      'https://mapple.tv/watch/tv/$tmdbId/$season/$episode',
+      'https://www.nontongo.win/embed/tv/$tmdbId/$season/$episode',
+      'https://www.2embed.skin/embedtv/$tmdbId&s=$season&e=$episode',
+      'https://primesrc.me/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode',
+      'https://111movies.com/tv/$tmdbId/$season/$episode',
       'https://vidlink.pro/tv/$tmdbId/$season/$episode',
       'https://vidfast.vc/tv/$tmdbId/$season/$episode',
+      'https://vidsrc.to/embed/tv/$tmdbId/$season/$episode',
+      'https://vidsrc.sh/embed/tv/$tmdbId/$season-$episode',
       'https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode',
       'https://multiembed.mov/?video_id=$tmdbId&tmdb=1&s=$season&e=$episode',
       'https://vidsrc.me/embed/tv/$tmdbId/$season-$episode',

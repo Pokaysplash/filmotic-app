@@ -57,9 +57,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.35",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.35/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.35: Nueva categoría prioritaria Especial de Navidad en Inicio (Móvil y TV) sin duplicados, carga rápida y confiable de servidores (sin falsos bloqueos de CDN) y corrección definitiva del reproductor DLNA en Xbox.",
+    "latest_version": "1.0.0-beta.36",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.36/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.36: Cast/DLNA persistente en segundo plano para TV y Xbox (no se corta al salir de la app o bloquear pantalla), nuevas fuentes rápidas priorizadas y corrección de etiquetas de idioma.",
     "force_update": false,
     "is_beta": true
   },

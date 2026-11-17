@@ -17,6 +17,7 @@ import 'presentation/shared/widgets/filmotic_update_dialog.dart';
 import 'core/storage/app_database.dart';
 
 // Cast: botones de la notificación (play/pause/seek)
+import 'core/services/cast_service.dart';
 import 'features/player/presentation/widgets/cast_manager.dart';
 // ⚠ Ajusta la ruta de import al sitio real de cast_manager.dart en tu proyecto.
 //    Ejemplos posibles:
@@ -61,7 +62,12 @@ void main() async {
   // Escuchar botones de la notificación del Cast (vienen del isolate del servicio)
   FlutterForegroundTask.addTaskDataCallback((data) {
     if (data is Map && data['cast_btn'] is String) {
-      CastManager().handleNotificationButton(data['cast_btn'] as String);
+      final btn = data['cast_btn'] as String;
+      if (CastService.instance.activeSession != null) {
+        CastService.instance.handleNotificationButton(btn);
+      } else {
+        CastManager().handleNotificationButton(btn);
+      }
     }
   });
 

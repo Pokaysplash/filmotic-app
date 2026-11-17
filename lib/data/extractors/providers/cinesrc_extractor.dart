@@ -125,7 +125,7 @@ class CineSrcService {
     if (tmdbId <= 0) return;
 
     yield CineSrcServer(
-      lang: 'latino',
+      lang: 'ingles',
       name: 'CineSRC',
       url: buildEmbedUrl(
         tmdbId: tmdbId,
@@ -133,11 +133,11 @@ class CineSrcService {
         season: season,
         episode: episode,
       ),
-      idiomaCode: 'es_MX',
+      idiomaCode: 'en_US',
     );
 
     yield CineSrcServer(
-      lang: 'latino',
+      lang: 'ingles',
       name: 'VideoApp',
       url: buildVideoAppUrl(
         tmdbId: tmdbId,
@@ -145,11 +145,11 @@ class CineSrcService {
         season: season,
         episode: episode,
       ),
-      idiomaCode: 'es_MX',
+      idiomaCode: 'en_US',
     );
 
     yield CineSrcServer(
-      lang: 'latino',
+      lang: 'ingles',
       name: 'VidSrc',
       url: buildVidSrcUrl(
         tmdbId: tmdbId,
@@ -157,7 +157,7 @@ class CineSrcService {
         season: season,
         episode: episode,
       ),
-      idiomaCode: 'es_MX',
+      idiomaCode: 'en_US',
     );
 
     yield CineSrcServer(
@@ -169,6 +169,42 @@ class CineSrcService {
         season: season,
         episode: episode,
       ),
+      idiomaCode: 'en_US',
+    );
+
+    yield CineSrcServer(
+      lang: 'ingles',
+      name: 'VidBinge Fast',
+      url: isMovie
+          ? 'https://vidbinge.dev/embed/movie/$tmdbId'
+          : 'https://vidbinge.dev/embed/tv/$tmdbId/$season/$episode',
+      idiomaCode: 'en_US',
+    );
+
+    yield CineSrcServer(
+      lang: 'ingles',
+      name: 'VidSrc.net Fast',
+      url: isMovie
+          ? 'https://vidsrc.net/embed/movie/$tmdbId'
+          : 'https://vidsrc.net/embed/tv/$tmdbId/$season/$episode',
+      idiomaCode: 'en_US',
+    );
+
+    yield CineSrcServer(
+      lang: 'ingles',
+      name: 'Nontongo Fast',
+      url: isMovie
+          ? 'https://www.nontongo.win/embed/movie/$tmdbId'
+          : 'https://www.nontongo.win/embed/tv/$tmdbId/$season/$episode',
+      idiomaCode: 'en_US',
+    );
+
+    yield CineSrcServer(
+      lang: 'ingles',
+      name: 'PrimeSrc Fast',
+      url: isMovie
+          ? 'https://primesrc.me/embed/movie?tmdb=$tmdbId'
+          : 'https://primesrc.me/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode',
       idiomaCode: 'en_US',
     );
 
@@ -216,7 +252,7 @@ class CineSrcService {
     int episode = 1,
   }) async* {
     yield CineSrcServer(
-      lang: 'latino',
+      lang: 'ingles',
       name: 'CineSRC',
       url: buildEmbedUrl(
         tmdbId: tmdbId,
@@ -224,7 +260,7 @@ class CineSrcService {
         season: season,
         episode: episode,
       ),
-      idiomaCode: 'es_MX',
+      idiomaCode: 'en_US',
     );
   }
 
@@ -235,7 +271,7 @@ class CineSrcService {
     int episode = 1,
   }) async* {
     yield CineSrcServer(
-      lang: 'latino',
+      lang: 'ingles',
       name: 'VideoApp',
       url: buildVideoAppUrl(
         tmdbId: tmdbId,
@@ -243,7 +279,7 @@ class CineSrcService {
         season: season,
         episode: episode,
       ),
-      idiomaCode: 'es_MX',
+      idiomaCode: 'en_US',
     );
   }
 
@@ -254,7 +290,7 @@ class CineSrcService {
     int episode = 1,
   }) async* {
     yield CineSrcServer(
-      lang: 'latino',
+      lang: 'ingles',
       name: 'VidSrc',
       url: buildVidSrcUrl(
         tmdbId: tmdbId,
@@ -262,7 +298,7 @@ class CineSrcService {
         season: season,
         episode: episode,
       ),
-      idiomaCode: 'es_MX',
+      idiomaCode: 'en_US',
     );
   }
 

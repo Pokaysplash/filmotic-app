@@ -55,6 +55,33 @@ class SourceDefinition {
 
 final List<SourceDefinition> kRegisteredSources = [
   SourceDefinition(
+    id: 'vidsrc',
+    label: 'VidSrc Fast',
+    prefsKey: 'vidsrc_enabled',
+    badgeColor: const Color(0xFF8B5CF6),
+    badgeText: 'FAST',
+    flagKey: 'es_vidsrc',
+    icon: Icons.bolt_rounded,
+    maxResults: 14,
+    scrape: ({
+      required tmdbId,
+      required isMovie,
+      required season,
+      required episode,
+    }) {
+      return VidSrcService.scrape(
+        tmdbId: tmdbId,
+        isMovie: isMovie,
+        season: season,
+        episode: episode,
+      ).map((map) {
+        final m = Map<String, dynamic>.from(map);
+        m['es_vidsrc'] = true;
+        return m;
+      });
+    },
+  ),
+  SourceDefinition(
     id: 'embed69',
     label: 'Embed69',
     prefsKey: 'embed69_enabled',
@@ -494,33 +521,6 @@ final List<SourceDefinition> kRegisteredSources = [
         season: season,
         episode: episode,
       );
-    },
-  ),
-  SourceDefinition(
-    id: 'vidsrc',
-    label: 'VidSrc',
-    prefsKey: 'vidsrc_enabled',
-    badgeColor: const Color(0xFF8B5CF6),
-    badgeText: 'VIDSRC',
-    flagKey: 'es_vidsrc',
-    icon: Icons.ondemand_video_rounded,
-    maxResults: 12,
-    scrape: ({
-      required tmdbId,
-      required isMovie,
-      required season,
-      required episode,
-    }) {
-      return VidSrcService.scrape(
-        tmdbId: tmdbId,
-        isMovie: isMovie,
-        season: season,
-        episode: episode,
-      ).map((map) {
-        final m = Map<String, dynamic>.from(map);
-        m['es_vidsrc'] = true;
-        return m;
-      });
     },
   ),
   SourceDefinition(

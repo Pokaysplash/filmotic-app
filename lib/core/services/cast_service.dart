@@ -5,6 +5,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:http/http.dart' as http;
 import 'package:dart_cast/dart_cast.dart' as dc;
 
@@ -1597,6 +1598,7 @@ class CastService {
           _activeSession = null;
           _connectedDevice = null;
           stateNotifier.value = CastState.idle;
+          unawaited(_stopKeepAliveService());
           break;
       }
     });
@@ -1687,6 +1689,12 @@ class CastService {
 
       await _activeSession!.loadMedia(media);
       isRemotePlaying.value = true;
+      unawaited(
+        _startKeepAliveService(
+          title: title ?? 'Reproduciendo en TV',
+          deviceName: _connectedDevice?.friendlyName ?? 'TV / Xbox',
+        ),
+      );
       return true;
     } catch (e) {
       debugPrint('[CastService] castMedia error: $e');
@@ -1726,6 +1734,7 @@ class CastService {
       await _activeSession!.stop();
       isRemotePlaying.value = false;
       stateNotifier.value = CastState.connected;
+      await _stopKeepAliveService();
     } catch (e) {
       debugPrint('[CastService] stop error: $e');
     }
@@ -1763,12 +1772,81 @@ class CastService {
     }
 
     await _CastStreamAccelerator.instance.stop();
+    await _stopKeepAliveService();
 
     _connectedDevice = null;
     _position = Duration.zero;
     _duration = Duration.zero;
     isRemotePlaying.value = false;
     stateNotifier.value = CastState.idle;
+  }
+
+  Future<void> _startKeepAliveService({
+    required String title,
+    required String deviceName,
+  }) async {
+    try {
+      final buttons = [
+        NotificationButton(
+          id: isRemotePlaying.value ? 'cast_pause' : 'cast_play',
+          text: isRemotePlaying.value ? 'Pausar' : 'Reanudar',
+        ),
+        const NotificationButton(id: 'cast_stop', text: 'Detener'),
+      ];
+      final notifTitle = 'Transmitiendo en $deviceName';
+      final notifText = title.trim().isNotEmpty ? title.trim() : 'Video en curso';
+
+      if (await FlutterForegroundTask.isRunningService) {
+        await FlutterForegroundTask.updateService(
+          notificationTitle: notifTitle,
+          notificationText: notifText,
+          notificationButtons: buttons,
+        );
+        return;
+      }
+
+      await FlutterForegroundTask.startService(
+        notificationTitle: notifTitle,
+        notificationText: notifText,
+        notificationButtons: buttons,
+        callback: startCastServiceKeepAliveCallback,
+      );
+    } catch (e) {
+      debugPrint('[CastService] keepAlive start error: $e');
+    }
+  }
+
+  Future<void> _stopKeepAliveService() async {
+    try {
+      if (await FlutterForegroundTask.isRunningService) {
+        await FlutterForegroundTask.stopService();
+      }
+    } catch (e) {
+      debugPrint('[CastService] keepAlive stop error: $e');
+    }
+  }
+
+  Future<void> handleNotificationButton(String id) async {
+    if (_activeSession == null) return;
+    switch (id) {
+      case 'cast_play':
+        await play();
+        await _startKeepAliveService(
+          title: 'Reproduciendo en TV',
+          deviceName: _connectedDevice?.friendlyName ?? 'TV / Xbox',
+        );
+        break;
+      case 'cast_pause':
+        await pause();
+        await _startKeepAliveService(
+          title: 'En pausa',
+          deviceName: _connectedDevice?.friendlyName ?? 'TV / Xbox',
+        );
+        break;
+      case 'cast_stop':
+        await disconnect();
+        break;
+    }
   }
 
   static Future<dc.CastMediaType> _detectAndWarmupMediaType(
@@ -1815,4 +1893,28 @@ class CastService {
     }
     return dc.CastMediaType.mp4;
   }
+}
+
+@pragma('vm:entry-point')
+void startCastServiceKeepAliveCallback() {
+  FlutterForegroundTask.setTaskHandler(_CastKeepAliveTaskHandler());
+}
+
+class _CastKeepAliveTaskHandler extends TaskHandler {
+  @override
+  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {}
+
+  @override
+  void onRepeatEvent(DateTime timestamp) {}
+
+  @override
+  Future<void> onDestroy(DateTime timestamp) async {}
+
+  @override
+  void onNotificationButtonPressed(String id) {
+    FlutterForegroundTask.sendDataToMain({'cast_btn': id});
+  }
+
+  @override
+  void onNotificationPressed() {}
 }
