@@ -831,9 +831,9 @@ class ServerLoader {
     var preferredGraceElapsed = false;
     const int maxParallel = 8;
     // Tiempo que se le da a la fase nativa antes de empezar a usar WebView.
-    const webGrace = Duration(milliseconds: 2200);
+    const webGrace = Duration(milliseconds: 1200);
     // Ventana prioritaria para esperar al idioma seleccionado antes de aceptar otro idioma.
-    const preferredLangGrace = Duration(milliseconds: 4500);
+    const preferredLangGrace = Duration(milliseconds: 2500);
     final totalStopwatch = Stopwatch()..start();
     int serversTestedCount = 0;
 
@@ -1505,33 +1505,24 @@ class ServerLoader {
           serverHint: '$srvName ${srv['servidor'] ?? ''}',
           timeout: resolveTimeout,
         );
-        if (native != null && native.url.isNotEmpty) {
+        if (native != null && native.url.isNotEmpty && !_invalidUrls.contains(native.url)) {
           final mergedHeaders = {..._extractHeaders(srv), ...native.headers};
-          final validation = await ServerPreValidationService.instance.validateUrl(
-            native.url,
-            extraHeaders: mergedHeaders,
-            timeout: const Duration(seconds: 3),
+          stopwatch.stop();
+          stampResolved(srv, native.url);
+          unawaited(AppDatabase.instance.saveServerPerformance(
+            srvName,
+            stopwatch.elapsedMilliseconds.clamp(20, 5000),
+          ));
+          unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+          debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
+          return PlayableSource(
+            url: native.url,
+            headers: mergedHeaders,
+            quality: native.quality,
+            serverName: srvName,
+            idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
+            rawServer: srv,
           );
-          if (validation.isValid) {
-            stopwatch.stop();
-            stampResolved(srv, native.url);
-            unawaited(AppDatabase.instance.saveServerPerformance(
-              srvName,
-              stopwatch.elapsedMilliseconds.clamp(20, 5000),
-            ));
-            unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
-            debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
-            return PlayableSource(
-              url: native.url,
-              headers: mergedHeaders,
-              quality: native.quality,
-              serverName: srvName,
-              idioma: MainFuentes.normalizeIdioma(srv['idioma']?.toString()),
-              rawServer: srv,
-            );
-          } else {
-            markUrlAsInvalid(native.url);
-          }
         }
       } catch (_) {}
     }

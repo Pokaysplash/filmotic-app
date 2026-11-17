@@ -57,9 +57,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.34",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.34/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.34: Nueva Zona Infantil conectada al Perfil Infantil (Móvil y TV) con Disney/Pixar, DreamWorks/Illumination y Studio Ghibli, TV en Vivo filtrada para niños, limpieza de subtítulos y atajos numéricos 0-9 en control TV.",
+    "latest_version": "1.0.0-beta.35",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.35/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.35: Nueva categoría prioritaria Especial de Navidad en Inicio (Móvil y TV) sin duplicados, carga rápida y confiable de servidores (sin falsos bloqueos de CDN) y corrección definitiva del reproductor DLNA en Xbox.",
     "force_update": false,
     "is_beta": true
   },

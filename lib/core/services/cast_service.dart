@@ -69,11 +69,11 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
   DateTime? _lastVolumePollAt;
   int _lastVolume = 50;
   bool _hasInitialVolume = false;
-  int _confirmPollsRemaining = 2;
+  int _confirmPollsRemaining = 1;
 
-  static const Duration _kConfirmPollInterval = Duration(seconds: 3);
+  static const Duration _kConfirmPollInterval = Duration(seconds: 5);
 
-  void invalidateCache({int confirmPolls = 2}) {
+  void invalidateCache({int confirmPolls = 1}) {
     _lastPositionPollAt = null;
     _lastTransportPollAt = null;
     _confirmPollsRemaining = confirmPolls;
@@ -94,7 +94,7 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
         action == 'Seek' ||
         action == 'SetAVTransportURI') {
       invalidateCache(
-        confirmPolls: (action == 'Pause' || action == 'Stop') ? 0 : 2,
+        confirmPolls: (action == 'Pause' || action == 'Stop') ? 0 : 1,
       );
       if (action == 'Play') _lastTransportState = 'PLAYING';
       if (action == 'Pause') _lastTransportState = 'PAUSED_PLAYBACK';
@@ -173,6 +173,9 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
       try {
         final xml = await _postSoap(controlUrl, serviceType, action, body);
         final rawState = dc.DlnaSoapParser.parseTransportInfo(xml);
+        if (_confirmPollsRemaining > 0) {
+          _confirmPollsRemaining--;
+        }
         if ((rawState == 'TRANSITIONING' || rawState == 'BUFFERING') &&
             _lastTransportState == 'PLAYING') {
           _lastTransportPollAt = now;
@@ -181,12 +184,12 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
         if (rawState != 'UNKNOWN') {
           _lastTransportState = rawState;
         }
-        if (_lastTransportState == 'PLAYING' && _confirmPollsRemaining > 0) {
-          _confirmPollsRemaining--;
-        }
         _lastTransportPollAt = now;
         return xml;
       } catch (_) {
+        if (_confirmPollsRemaining > 0) {
+          _confirmPollsRemaining--;
+        }
         _lastTransportPollAt = now;
         return _buildSyntheticTransportXml(_lastTransportState);
       }

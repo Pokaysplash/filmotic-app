@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:lol/core/services/server_loader_shared.dart';
 import 'package:lol/core/services/subtitle_auto_loader.dart';
+import 'package:lol/data/datasources/remote/tmdb/tmdb_christmas_api.dart';
 import 'package:lol/features/live_tv/data/m3u_parser.dart';
 
 void main() {
@@ -84,6 +85,52 @@ https://rcntv-rcnmas-1-us.roku.wurl.tv/playlist.m3u8
         result.channels.first.streamUrl,
         'https://rcntv-rcnmas-1-us.roku.wurl.tv/playlist.m3u8',
       );
+    });
+  });
+
+  group('TmdbChristmasApi.mergeUniqueChristmasMovies', () {
+    test('deduplicates by id across batches and sorts by popularity', () {
+      final batch1 = [
+        {
+          'id': 771,
+          'title': 'Home Alone',
+          'poster_path': '/a.jpg',
+          'popularity': 120.0,
+          'genre_ids': [35, 10751],
+        },
+        {
+          'id': 562,
+          'title': 'Die Hard',
+          'poster_path': '/b.jpg',
+          'popularity': 90.0,
+          'genre_ids': [28, 53],
+        },
+      ];
+      final batch2 = [
+        {
+          'id': 771,
+          'title': 'Home Alone (dup)',
+          'poster_path': '/a.jpg',
+          'popularity': 999.0,
+          'genre_ids': [35, 10751],
+        },
+        {
+          'id': 508965,
+          'title': 'Klaus',
+          'poster_path': '/c.jpg',
+          'popularity': 150.0,
+          'genre_ids': [16, 10751],
+        },
+      ];
+
+      final merged = TmdbChristmasApi.mergeUniqueChristmasMovies([batch1, batch2]);
+      expect(merged.map((m) => m['id']).toList(), [508965, 771, 562]);
+
+      final kidsOnly = TmdbChristmasApi.mergeUniqueChristmasMovies(
+        [batch1, batch2],
+        isKids: true,
+      );
+      expect(kidsOnly.map((m) => m['id']).toList(), [508965, 771]);
     });
   });
 }

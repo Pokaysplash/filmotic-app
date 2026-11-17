@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../../core/constants/tmdb_apis.dart';
 import '../../../../core/storage/app_database.dart';
+import 'tmdb_christmas_api.dart';
 
 /// Servicio de Home alimentado por la API de TMDB.
 /// Aplica las preferencias de ConfigPage (SharedPreferences).
@@ -750,6 +751,9 @@ class TmdbHomeService {
       max: 40,
     );
 
+    futures['christmas_movies'] =
+        TmdbChristmasApi.instance.fetchAllChristmasMovies();
+
     final keys = futures.keys.toList();
     final results = await Future.wait(futures.values);
     final rawMap = <String, List<Map<String, dynamic>>>{};
@@ -807,6 +811,14 @@ class TmdbHomeService {
       isMovie: false,
     );
     if (topT != null) data['top_tv'] = topT;
+
+    final christmasRaw = rawMap['christmas_movies'];
+    if (christmasRaw != null && christmasRaw.isNotEmpty) {
+      data['christmas_movies'] = {
+        'title': '🎄 Especial de Navidad',
+        'items': christmasRaw.map((e) => _mapItem(e, isMovie: true)).toList(),
+      };
+    }
 
     final popM = await section(
       'Populares - Películas',

@@ -161,7 +161,11 @@ class ServerPreValidationService {
       timestamp: DateTime.now(),
     );
 
-    await saveCachedResult(cleanUrl, result);
+    // No cachear fallos transitorios (timeout/red o 403 anti-bot de CDN)
+    // para no bloquear servidores que sí reproducen en ExoPlayer.
+    if (isValid || statusCode == 404 || statusCode == 410) {
+      await saveCachedResult(cleanUrl, result);
+    }
     return result;
   }
 

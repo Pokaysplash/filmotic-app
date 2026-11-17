@@ -145,6 +145,7 @@ class _HomePageState extends State<HomePage>
     }
 
     addSection('continue_watching', isMovie: true);
+    addSection('christmas_movies', isMovie: true);
     addSection('popular_movies', isMovie: true);
     addSection('trending_movies', isMovie: true);
     addSection('popular_tv', isMovie: false);
@@ -202,6 +203,7 @@ class _HomePageState extends State<HomePage>
   Map<String, dynamic>? _pickInitialFocusedItem(Map<String, dynamic> data) {
     const candidates = [
       'continue_watching',
+      'christmas_movies',
       'popular_movies',
       'trending_movies',
       'popular_tv',

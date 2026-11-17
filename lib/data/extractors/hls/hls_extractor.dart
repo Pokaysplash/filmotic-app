@@ -617,9 +617,6 @@ class NativeResolvers {
           if (!finalUrl.startsWith('http')) {
             finalUrl = '${Uri.parse(mirror).origin}$finalUrl';
           }
-          if (!finalUrl.contains('referer=')) {
-            finalUrl += '${finalUrl.contains('?') ? '&' : '?'}referer=embed69.org';
-          }
 
           return StreamResult(
             url: finalUrl,
