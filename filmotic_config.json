@@ -57,9 +57,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.39",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.39/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.39: Corrige el actualizador, prioriza los servidores que funcionan y deja al final los lentos o caídos, búsqueda sin títulos repetidos, series de Navidad más limpias y envío más estable a Xbox/DLNA.",
+    "latest_version": "1.0.0-beta.40",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.40/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.40: Reparación completa de servidores (SeriesKao/Embed69, Poseidon, Cuevana, StreamWish, VidHide y VOE), descifrado rápido de enlaces y actualizador automático verificado.",
     "force_update": false,
     "is_beta": true
   },

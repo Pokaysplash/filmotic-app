@@ -279,20 +279,24 @@ class Embed69Service {
     final dataLink = _extractDataLink(html);
     if (dataLink == null) return null;
 
-    final powConstants = _extractPowConstants(html);
-    if (powConstants['challenge'] == null) return null;
+    final linkKey = _extractLinkKey(html);
+    Uint8List? aesKey = linkKey;
+    if (aesKey == null) {
+      final powConstants = _extractPowConstants(html);
+      if (powConstants['challenge'] == null) return null;
 
-    final nonce = _solvePow(
-      powConstants['challenge']!,
-      powConstants['difficulty'] ?? 3,
-    );
-    if (nonce == null) return null;
+      final nonce = _solvePow(
+        powConstants['challenge']!,
+        powConstants['difficulty'] ?? 3,
+      );
+      if (nonce == null) return null;
 
-    final aesKey = _generateAesKey(
-      powConstants['challenge']!,
-      nonce,
-      powConstants['salt'] ?? '',
-    );
+      aesKey = _generateAesKey(
+        powConstants['challenge']!,
+        nonce,
+        powConstants['salt'] ?? '',
+      );
+    }
 
     final servers = _procesarEnlacesSeriesKao(
       dataLink,
@@ -394,6 +398,23 @@ class Embed69Service {
       }
     }
 
+    return null;
+  }
+
+  // ─── Extraer clave directa LINK_CHALLENGE + LINK_SALT (SeriesKao 2026) ───
+
+  static Uint8List? _extractLinkKey(String html) {
+    final chMatch = RegExp(
+      r'''LINK_CHALLENGE\s*=\s*['"]([a-f0-9]+)['"]''',
+    ).firstMatch(html);
+    final saltMatch = RegExp(
+      r'''LINK_SALT\s*=\s*['"]([a-f0-9]+)['"]''',
+    ).firstMatch(html);
+    if (chMatch != null && saltMatch != null) {
+      final raw = '${chMatch.group(1)}${saltMatch.group(1)}';
+      final digest = sha256.convert(utf8.encode(raw));
+      return Uint8List.fromList(digest.bytes);
+    }
     return null;
   }
 
@@ -510,7 +531,7 @@ class Embed69Service {
     int episode,
   ) {
     final results = <Embed69Server>[];
-    final servidoresFiltrados = ['voe', 'rapidvideo'];
+    final servidoresFiltrados = ['rapidvideo'];
 
     for (final item in dataLink) {
       final idioma = item['video_language']?.toString() ?? 'DESCONOCIDO';
@@ -532,8 +553,13 @@ class Embed69Service {
 
           urlReal = urlReal
               .replaceAll('`', '')
-              .replaceAll('hglink.to', 'vibuxer.com')
-              .replaceAll('filelions.to', 'callistanise.com');
+              .trim()
+              .replaceAll('hglink.to', 'embedwish.com')
+              .replaceAll('streamwish.to', 'embedwish.com')
+              .replaceAll('strwish.com', 'embedwish.com')
+              .replaceAll('filelions.to', 'callistanise.com')
+              .replaceAll('vidhidepro.com', 'callistanise.com')
+              .replaceAll('vidhidepre.com', 'callistanise.com');
 
           results.add(
             Embed69Server(

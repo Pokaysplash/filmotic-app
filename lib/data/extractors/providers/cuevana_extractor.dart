@@ -21,12 +21,20 @@ class CuevanaService {
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
-  /// Servidores permitidos (mismo filtro que tu PHP).
+  /// Servidores permitidos (mismo filtro que tu PHP + mirrors estables).
   static const _kAllowed = [
     'streamwish',
     'vidhide',
     'filelions',
     'vidhidepro',
+    'voe',
+    'voesx',
+    'voe.sx',
+    'doodstream',
+    'dood',
+    'filemoon',
+    'mixdrop',
+    'streamtape',
     'streamwish.to',
     'vidhidepro.com',
     'filelions.com',

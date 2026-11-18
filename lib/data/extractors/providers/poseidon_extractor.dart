@@ -19,11 +19,17 @@ class PoseidonService {
 
   /// Dominios a reemplazar en la URL final resuelta.
   static const _kDomainMap = <String, String>{
-    'streamwish.to': 'hgplaycdn.com',
+    'streamwish.to': 'embedwish.com',
+    'strwish.com': 'embedwish.com',
+    'hlswish.com': 'embedwish.com',
+    'hglink.to': 'embedwish.com',
     'vidhidepro.com': 'callistanise.com',
+    'vidhidepre.com': 'callistanise.com',
+    'vidhidevip.com': 'callistanise.com',
+    'vidhide.com': 'callistanise.com',
     'filelions.to': 'callistanise.com',
-    'voe.sx': 'eugenemakedraw.com',
-    'doodstream.com': 'playmogo.com',
+    'filelions.com': 'callistanise.com',
+    'filelions.live': 'callistanise.com',
   };
 
   /// Emite servidores listos (mismo formato que CuevanaServer).

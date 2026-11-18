@@ -148,6 +148,8 @@ class NativeResolvers {
     'hglink.to',
     'audinifer',
     'embedwish',
+    'hgplaycdn',
+    'sfastwish',
     'awish',
     'dwish',
     'strwish',
@@ -483,15 +485,17 @@ class NativeResolvers {
         rawId = rawId.split('?').first;
       }
     }
-    final mirrors = [
+    final mirrors = <String>[
       'https://embedwish.com/e/$rawId',
-      'https://awish.pro/e/$rawId',
-      'https://wishfast.top/e/$rawId',
-      'https://hanerix.com/e/$rawId',
-      'https://hglink.to/e/$rawId',
-      url,
-      'https://streamwish.to/e/$rawId',
-      'https://strwish.com/e/$rawId',
+      'https://hgplaycdn.com/e/$rawId',
+      'https://wishembed.pro/e/$rawId',
+      'https://sfastwish.com/e/$rawId',
+      if (!url.contains('streamwish.to') &&
+          !url.contains('strwish.com') &&
+          !url.contains('hlswish.com') &&
+          !url.contains('hglink.to') &&
+          !url.contains('filelions.to'))
+        url,
     ];
 
     for (final mirror in mirrors) {
@@ -579,13 +583,17 @@ class NativeResolvers {
         rawId = rawId.split('?').first;
       }
     }
-    final mirrors = [
+    final mirrors = <String>[
       'https://callistanise.com/v/$rawId',
-      'https://vidhide.com/v/$rawId',
-      'https://vidhidepro.com/v/$rawId',
-      'https://vidhidepre.com/v/$rawId',
-      'https://vidhidevip.com/v/$rawId',
-      url,
+      'https://callistanise.com/embed/$rawId',
+      if (!url.contains('vidhide.com') &&
+          !url.contains('vidhidepro.com') &&
+          !url.contains('vidhidepre.com') &&
+          !url.contains('vidhidevip.com') &&
+          !url.contains('filelions.to') &&
+          !url.contains('filelions.com') &&
+          !url.contains('callistanise.com'))
+        url,
     ];
 
     for (final mirror in mirrors) {
