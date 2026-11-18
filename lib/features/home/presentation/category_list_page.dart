@@ -66,7 +66,21 @@ class _CategoryListPageState extends State<CategoryListPage> {
     if (catKey == 'all' || catKey == 'todos' || titleLower.contains('todo') || titleLower.contains('catálogo')) {
       return const ['Todos', 'Películas', 'Series', 'Novelas', 'Anime'];
     }
+    // Si la lista solo trae un tipo (p. ej. "Navidad - Series"), no mostrar
+    // la pestaña del otro tipo, que quedaría vacía.
+    final hasMovies = widget.items.any(_isMovieItem);
+    final hasSeries = widget.items.any((i) => !_isMovieItem(i));
+    if (hasMovies && !hasSeries) return const ['Películas'];
+    if (hasSeries && !hasMovies) return const ['Series'];
     return const ['Películas', 'Series'];
+  }
+
+  /// Tipo de un item: usa el campo de tipo si existe; solo si falta, deduce
+  /// por `title`/`name` (TMDB usa `title` en películas y `name` en series).
+  static bool _isMovieItem(Map<String, dynamic> i) {
+    final t = (i['tipo'] ?? i['type'] ?? i['media_type'] ?? '').toString().toLowerCase().trim();
+    if (t.isNotEmpty) return t == 'movie' || t == 'pelicula' || t == 'película';
+    return i['title'] != null && i['name'] == null;
   }
 
   @override
@@ -84,12 +98,14 @@ class _CategoryListPageState extends State<CategoryListPage> {
       _fetchCategory('Anime');
     } else if (catKey == 'all' || catKey == 'todos') {
       _selectedCategory = 'Todos';
+    } else if (_visibleCategories.length == 1) {
+      _selectedCategory = _visibleCategories.first;
     } else if (widget.isMovie) {
       _selectedCategory = 'Películas';
-    } else if (catKey == 'series' || titleLower.contains('serie')) {
-      _selectedCategory = 'Series';
     } else {
-      _selectedCategory = _visibleCategories.first;
+      // Lista de series (aunque el título no diga "serie": "Capítulos
+      // recientes", "Navidad"...). Antes caía en Películas y salía vacía.
+      _selectedCategory = 'Series';
     }
   }
 
@@ -184,15 +200,9 @@ class _CategoryListPageState extends State<CategoryListPage> {
   List<Map<String, dynamic>> get _currentItems {
     switch (_selectedCategory) {
       case 'Películas':
-        return _localItems.where((i) {
-          final t = (i['tipo'] ?? i['type'] ?? i['media_type'] ?? '').toString().toLowerCase();
-          return t == 'movie' || t == 'pelicula' || (i['title'] != null && i['name'] == null);
-        }).toList();
+        return _localItems.where(_isMovieItem).toList();
       case 'Series':
-        return _localItems.where((i) {
-          final t = (i['tipo'] ?? i['type'] ?? i['media_type'] ?? '').toString().toLowerCase();
-          return t == 'tv' || t == 'serie' || (i['name'] != null && i['title'] == null);
-        }).toList();
+        return _localItems.where((i) => !_isMovieItem(i)).toList();
       case 'Novelas':
         if (_categoryCache.containsKey('Novelas') && _categoryCache['Novelas']!.isNotEmpty) {
           return _categoryCache['Novelas']!;

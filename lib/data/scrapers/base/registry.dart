@@ -29,6 +29,7 @@ import '../animeflv_api_scraper.dart';
 import 'buscador.dart';
 import '../../../core/services/remote_config_service.dart';
 import '../../../core/services/source_health_service.dart';
+import '../../../core/utils/search_merge.dart';
 
 /// Todas las fuentes disponibles (listado + búsqueda) agrupadas por categoría.
 final List<Fuente> fuentesRegistry = [
@@ -597,8 +598,9 @@ Future<BuscadorResult> buscarEnFuentes({
   // Deduplicar por título normalizado, priorizando la fuente más saludable y rápida
   final deduplicados = <String, BuscadorItem>{};
   for (final item in todosLosItems) {
-    final normTitle = item.titulo.toLowerCase().replaceAll(RegExp(r'\s+'), '');
-    final key = '${item.tipo}_$normTitle';
+    final normTitle = normalizeSearchTitle(item.titulo);
+    final tipoKey = item.tipo == 'movie' ? 'movie' : 'tv';
+    final key = '${tipoKey}_${normTitle.isEmpty ? item.url : normTitle}';
 
     if (deduplicados.containsKey(key)) {
       final existente = deduplicados[key]!;

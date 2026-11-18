@@ -1017,17 +1017,30 @@ class _CastStreamAccelerator {
         break;
       }
 
-      final bytes = await track.getOrFetch(
-        i,
-        (url) => _fetchBytes(url, session.headers),
-      );
+      // Reintentar el segmento antes de saltarlo: un hueco en el TS hace que
+      // la Xbox/Smart TV vuelva a cargar y muestre su reproductor en bucle.
+      Uint8List? bytes;
+      for (int attempt = 0; attempt < 4; attempt++) {
+        bytes = await track.getOrFetch(
+          i,
+          (url) => _fetchBytes(url, session.headers),
+        );
+        if (bytes != null && bytes.isNotEmpty) break;
+        if (clientDisconnected || session.activeDlnaStreamGen != myGen) break;
+        await Future.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+      }
       if (clientDisconnected) break;
-      if (bytes == null || bytes.isEmpty) continue;
+      if (bytes == null || bytes.isEmpty) {
+        debugPrint('[CastStreamAccelerator] Segmento $i omitido tras 4 intentos');
+        continue;
+      }
 
       try {
         response.add(bytes);
-        // NO llamamos response.flush() en cada segmento para permitir que el buffer
-        // del socket fluya en paralelo a la descarga del siguiente segmento sin pausas.
+        // Esperar a que el socket acepte el segmento: da control de flujo al
+        // ritmo del TV (sin acumular la película entera en RAM). La descarga
+        // anticipada sigue en paralelo, así que no introduce pausas.
+        await response.flush();
       } catch (_) {
         // El Smart TV cerró el socket (p. ej. fin del probe inicial o Stop).
         clientDisconnected = true;

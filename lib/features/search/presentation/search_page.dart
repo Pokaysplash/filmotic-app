@@ -10,6 +10,7 @@ import '../../../data/scrapers/base/registry.dart';
 import '../../../data/scrapers/base/buscador.dart';
 import '../../../core/services/guardados_bus.dart';
 import '../../../core/utils/navigation_helper.dart';
+import '../../../core/utils/search_merge.dart';
 // Modal de opciones móvil
 import '../../content/presentation/content_options_modal.dart';
 const kAccentColor = Color(0xFFFF6B35);
@@ -128,13 +129,6 @@ class BuscarPageState extends State<BuscarPage>
     });
   }
 
-  String _normTitle(String t) {
-    return t
-        .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9]'), '')
-        .trim();
-  }
-
   Future<void> _doSearch([String? forceQuery]) async {
     final q = (forceQuery ?? _controller.text).trim();
     if (q.isEmpty) return;
@@ -160,64 +154,24 @@ class BuscarPageState extends State<BuscarPage>
       final tmdbJson = searchResults[0] as Map<String, dynamic>;
       final fedResult = searchResults[1] as BuscadorResult;
 
-      final mapByTitle = <String, Map<String, dynamic>>{};
-
-      // 1. Agregar resultados TMDB
+      final tmdbItems = <Map<String, dynamic>>[];
       if (tmdbJson['success'] == true) {
         final raw = tmdbJson['data']?['items'];
         if (raw is List) {
           for (final e in raw) {
-            if (e is Map) {
-              final map = Map<String, dynamic>.from(e);
-              final title = (map['title'] ?? map['name'] ?? map['titulo'] ?? '').toString();
-              final norm = _normTitle(title);
-              final type = canonicalMediaType(map['media_type'] ?? (map['name'] != null ? 'tv' : 'movie'));
-              final key = '${type}_$norm';
-
-              map['fuentes_agrupadas'] = <Map<String, String>>[];
-              mapByTitle[key] = map;
-            }
+            if (e is Map) tmdbItems.add(Map<String, dynamic>.from(e));
           }
         }
       }
-
-      // 2. Combinar con resultados de scrapers federados
-      final fedItems = fedResult.resultados['todas'] ?? [];
-      for (final fItem in fedItems) {
-        final norm = _normTitle(fItem.titulo);
-        final type = fItem.tipo == 'anime' || fItem.tipo == 'tv' ? 'tv' : 'movie';
-        final isExternalScraper = fItem.sitio.isNotEmpty && (fItem.tmdbId == null || fItem.tmdbId == 0);
-        final key = isExternalScraper ? '${fItem.sitio}_${type}_$norm' : '${type}_$norm';
-
-        if (!isExternalScraper && mapByTitle.containsKey(key)) {
-          final existing = mapByTitle[key]!;
-          final fuentes = List<Map<String, String>>.from(existing['fuentes_agrupadas'] ?? []);
-          if (fItem.fuentesAgrupadas != null) {
-            fuentes.addAll(fItem.fuentesAgrupadas!);
-          } else {
-            fuentes.add({'sitio': fItem.sitio, 'url': fItem.url});
-          }
-          existing['fuentes_agrupadas'] = fuentes;
-        } else {
-          // Agregar elemento web-originado no presente en TMDB
-          mapByTitle[key] = {
-            'id': fItem.tmdbId ?? 0,
-            'tmdb_id': fItem.tmdbId,
-            'title': fItem.titulo,
-            'name': fItem.titulo,
-            'media_type': type,
-            'poster_path': fItem.imagen,
-            'vote_average': fItem.rating ?? 0.0,
-            'release_date': fItem.anio != null ? '${fItem.anio}-01-01' : null,
-            'fuentes_agrupadas': fItem.fuentesAgrupadas ?? [{'sitio': fItem.sitio, 'url': fItem.url}],
-            'sitio': fItem.sitio,
-            'url': fItem.url,
-          };
-        }
-      }
+      // Un solo resultado por título (sin repetir por fuente). Al reproducir,
+      // la ficha elige el mejor servidor entre todas las fuentes.
+      final merged = mergeSearchResults(
+        tmdbItems: tmdbItems,
+        fedItems: fedResult.resultados['todas'] ?? const [],
+      );
 
       setState(() {
-        _items = mapByTitle.values.toList();
+        _items = merged;
         _loading = false;
         if (_items.isEmpty && fedResult.error != null) {
           _error = fedResult.error;

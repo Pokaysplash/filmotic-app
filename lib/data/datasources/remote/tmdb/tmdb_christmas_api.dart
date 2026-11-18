@@ -12,6 +12,8 @@ class TmdbChristmasApi {
 
   static const String _base = 'https://api.themoviedb.org/3';
   static const Set<int> _kKidsExcludedGenres = {27, 80, 53, 10752, 10768};
+  static const Set<int> _kTvExcludedGenres = {10764, 10767, 10763, 10766};
+  static const Set<String> _kPreferredLangs = {'es', 'en'};
   static const Map<String, String> _headers = {
     'Accept': 'application/json',
     'User-Agent': 'Filmotic/1.0',
@@ -138,37 +140,30 @@ class TmdbChristmasApi {
     final apiKey = await TmdbApis.getApiKey();
     final language = await TmdbApis.getLanguage();
 
+    // Keywords: christmas, holiday, christmas eve, christmas spirit, christmas story.
+    const tvKeywords = '207317|65|260365|193048|196450';
+    // Sin reality, talk shows, noticias ni telenovelas: casi nunca están en
+    // las fuentes y al abrirlos no aparecía nada.
+    const tvExcludedGenres = '10764,10767,10763,10766';
+    Future<List<Map<String, dynamic>>> discoverTv(String sort, String page) =>
+        _fetchList(
+          '/discover/tv',
+          apiKey: apiKey,
+          language: language,
+          query: {
+            'with_keywords': tvKeywords,
+            'without_genres': tvExcludedGenres,
+            'vote_count.gte': '3',
+            'sort_by': sort,
+            'page': page,
+          },
+        );
+
     final batches = await Future.wait([
-      _fetchList(
-        '/discover/tv',
-        apiKey: apiKey,
-        language: language,
-        query: {
-          'with_keywords': '207317',
-          'sort_by': 'popularity.desc',
-          'page': '1',
-        },
-      ),
-      _fetchList(
-        '/discover/tv',
-        apiKey: apiKey,
-        language: language,
-        query: {
-          'with_keywords': '207317',
-          'sort_by': 'vote_count.desc',
-          'page': '1',
-        },
-      ),
-      _fetchList(
-        '/discover/tv',
-        apiKey: apiKey,
-        language: language,
-        query: {
-          'with_keywords': '65',
-          'sort_by': 'popularity.desc',
-          'page': '1',
-        },
-      ),
+      discoverTv('popularity.desc', '1'),
+      discoverTv('popularity.desc', '2'),
+      discoverTv('popularity.desc', '3'),
+      discoverTv('vote_count.desc', '1'),
       _fetchList(
         '/search/tv',
         apiKey: apiKey,
@@ -227,6 +222,19 @@ class TmdbChristmasApi {
           }
         }
 
+        if (mediaType == 'tv') {
+          final gids = raw['genre_ids'];
+          if (gids is List &&
+              gids.any((g) {
+                final gid = g is num ? g.toInt() : int.tryParse('$g');
+                return gid != null && _kTvExcludedGenres.contains(gid);
+              })) {
+            continue;
+          }
+          final votes = raw['vote_count'] is num ? (raw['vote_count'] as num).toInt() : 0;
+          if (votes < 3) continue;
+        }
+
         final title = (raw['title'] ?? raw['name'] ?? raw['titulo'] ?? '')
             .toString()
             .trim();
@@ -248,7 +256,10 @@ class TmdbChristmasApi {
       final popB = (b['popularity'] is num)
           ? (b['popularity'] as num).toDouble()
           : double.tryParse('${b['popularity']}') ?? 0.0;
-      return popB.compareTo(popA);
+      // Español/inglés primero: son los que realmente tienen las fuentes.
+      final langA = _kPreferredLangs.contains('${a['original_language']}') ? 1.0 : 0.35;
+      final langB = _kPreferredLangs.contains('${b['original_language']}') ? 1.0 : 0.35;
+      return (popB * langB).compareTo(popA * langA);
     });
 
     return out;

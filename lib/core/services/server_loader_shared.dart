@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show max, min;
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -523,6 +524,9 @@ class ServerLoader {
   }
 
   void markServerAsInvalid(Map<String, dynamic> server) {
+    // Un servidor que resolvió pero no reprodujo cuenta como fallo real para
+    // que baje en el ranking (fuente y host de video).
+    _recordFailure(server, 'Reproducción fallida');
     final url = server['servidor_url']?.toString() ??
         server['resolved_m3u8']?.toString() ??
         '';
@@ -1254,6 +1258,85 @@ class ServerLoader {
     return grouped;
   }
   
+  /// Id de salud de la fuente (sitio) de un servidor.
+  static String _sourceIdFor(Map<String, dynamic> srv) {
+    final name = srv['fuente_label']?.toString() ??
+        srv['servidor_nombre']?.toString() ??
+        srv['server']?.toString() ??
+        srv['servidor']?.toString() ??
+        'Server';
+    return SourceHealthService.normalizeSourceId(
+      srv['fuente_id']?.toString() ??
+          srv['fuente']?.toString() ??
+          srv['sitio']?.toString() ??
+          srv['source']?.toString() ??
+          name,
+    );
+  }
+
+  /// Id de salud del host de video (streamwish, voe, vidsrc...). Permite
+  /// detectar un embed caído aunque la fuente que lo lista funcione bien.
+  static String hostKeyFor(Map<String, dynamic> srv) {
+    final raw = (srv['servidor_url'] ?? srv['url'] ?? '').toString().trim();
+    if (raw.isEmpty) return '';
+    final host = Uri.tryParse(raw)?.host.toLowerCase() ?? '';
+    if (host.isEmpty) return '';
+    final parts = host.split('.').where((p) => p.isNotEmpty && p != 'www').toList();
+    if (parts.isEmpty) return '';
+    final label = parts.length >= 2 ? parts[parts.length - 2] : parts.first;
+    return 'host:$label';
+  }
+
+  void _recordSuccess(Map<String, dynamic> srv, int latencyMs) {
+    unawaited(SourceHealthService.instance.recordSuccess(_sourceIdFor(srv), latencyMs));
+    final hk = hostKeyFor(srv);
+    if (hk.isNotEmpty) {
+      unawaited(SourceHealthService.instance.recordSuccess(hk, latencyMs));
+    }
+  }
+
+  void _recordFailure(Map<String, dynamic> srv, String reason) {
+    unawaited(SourceHealthService.instance.recordFailure(_sourceIdFor(srv), reason));
+    final hk = hostKeyFor(srv);
+    if (hk.isNotEmpty) {
+      unawaited(SourceHealthService.instance.recordFailure(hk, reason));
+    }
+  }
+
+  /// Umbral a partir del cual una fuente/host se considera lenta.
+  static const int _kSlowLatencyMs = 4000;
+
+  /// 0 = buena, 1 = degradada o lenta, 2 = caída. Toma lo peor entre la
+  /// fuente y el host de video. Un caído cuyo backoff expiró pasa a 1 para
+  /// poder recuperarse.
+  static int healthTierFor(Map<String, dynamic> srv) {
+    int tierOf(String id) {
+      if (id.isEmpty) return 0;
+      final svc = SourceHealthService.instance;
+      final h = svc.getHealth(id);
+      switch (h.healthStatus) {
+        case HealthStatus.down:
+          return svc.canRetryDownSource(id) ? 1 : 2;
+        case HealthStatus.degraded:
+          return 1;
+        case HealthStatus.healthy:
+          final slow = h.successfulResponses >= 2 && h.avgLatencyMs > _kSlowLatencyMs;
+          return slow ? 1 : 0;
+      }
+    }
+
+    return max(tierOf(_sourceIdFor(srv)), tierOf(hostKeyFor(srv)));
+  }
+
+  /// Score de rendimiento (confiabilidad + latencia); el peor de fuente y host.
+  static double healthScoreFor(Map<String, dynamic> srv) {
+    final svc = SourceHealthService.instance;
+    final a = svc.getHealth(_sourceIdFor(srv)).priorityScore;
+    final hk = hostKeyFor(srv);
+    if (hk.isEmpty) return a;
+    return min(a, svc.getHealth(hk).priorityScore);
+  }
+
   void _sortServersByPriority(
     List<Map<String, dynamic>> servers, {
     String? preferredLang,
@@ -1283,6 +1366,13 @@ class ServerLoader {
       if (aMatchesPreferred != bMatchesPreferred) {
         return aMatchesPreferred ? -1 : 1;
       }
+
+      // 0.02. Salud medida (fuente + host): caídos al final, lentos/degradados
+      // después de los buenos. Va antes de los atajos estáticos para que un
+      // host "rápido" que está fallando no quede primero.
+      final aTier = healthTierFor(a);
+      final bTier = healthTierFor(b);
+      if (aTier != bTier) return aTier.compareTo(bTier);
 
       // 0.05. Priorizar streams directos o ya resueltos (m3u8/mp4) para reproducción instantánea (<100ms)
       final aUrl = (a['servidor_url'] ?? a['url'] ?? '').toString();
@@ -1321,27 +1411,9 @@ class ServerLoader {
         return aIsFastCdn ? -1 : 1;
       }
 
-      // 0.1. Priorizar por estado de salud de la fuente (healthy > degraded > down)
-      final aSrcId = SourceHealthService.normalizeSourceId(
-        a['fuente_id']?.toString() ?? a['fuente']?.toString() ?? a['sitio']?.toString() ?? aName,
-      );
-      final bSrcId = SourceHealthService.normalizeSourceId(
-        b['fuente_id']?.toString() ?? b['fuente']?.toString() ?? b['sitio']?.toString() ?? bName,
-      );
-      final aHealth = SourceHealthService.instance.getHealth(aSrcId);
-      final bHealth = SourceHealthService.instance.getHealth(bSrcId);
-
-      final aRank = aHealth.healthStatus == HealthStatus.healthy
-          ? 0
-          : (aHealth.healthStatus == HealthStatus.degraded ? 1 : 2);
-      final bRank = bHealth.healthStatus == HealthStatus.healthy
-          ? 0
-          : (bHealth.healthStatus == HealthStatus.degraded ? 1 : 2);
-      if (aRank != bRank) return aRank.compareTo(bRank);
-
-      // Score dinámico de rendimiento de la fuente (mayor es mejor)
-      final pDiff = bHealth.priorityScore.compareTo(aHealth.priorityScore);
-      if ((pDiff.abs() > 0.05)) return pDiff;
+      // 0.1. Score dinámico de rendimiento (confiabilidad 60% + latencia 40%)
+      final pDiff = healthScoreFor(b).compareTo(healthScoreFor(a));
+      if (pDiff.abs() > 0.05) return pDiff;
 
       // Si el idioma preferido es VOS / Inglés Subtitulado, priorizar servidores de Seriesflix y Cineby
       if (isVosTarget) {
@@ -1440,7 +1512,7 @@ class ServerLoader {
           srvName,
           stopwatch.elapsedMilliseconds.clamp(10, 5000),
         ));
-        unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+        _recordSuccess(srv, stopwatch.elapsedMilliseconds);
         debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
         return PlayableSource(
           url: already,
@@ -1459,7 +1531,7 @@ class ServerLoader {
 
     final url = srv['servidor_url']?.toString() ?? '';
     if (url.isEmpty) {
-      unawaited(SourceHealthService.instance.recordFailure(sourceId, 'Empty URL'));
+      _recordFailure(srv, 'Empty URL');
       return null;
     }
 
@@ -1481,7 +1553,7 @@ class ServerLoader {
       if (!validation.isValid) {
         stopwatch.stop();
         markUrlAsInvalid(url);
-        unawaited(SourceHealthService.instance.recordFailure(sourceId, 'Direct stream unreachable'));
+        _recordFailure(srv, 'Direct stream unreachable');
         return null;
       }
 
@@ -1490,7 +1562,7 @@ class ServerLoader {
         srvName,
         stopwatch.elapsedMilliseconds.clamp(10, 5000),
       ));
-      unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+      _recordSuccess(srv, stopwatch.elapsedMilliseconds);
       debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
       return PlayableSource(
         url: url,
@@ -1520,7 +1592,7 @@ class ServerLoader {
             srvName,
             stopwatch.elapsedMilliseconds.clamp(20, 5000),
           ));
-          unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+          _recordSuccess(srv, stopwatch.elapsedMilliseconds);
           debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
           return PlayableSource(
             url: native.url,
@@ -1554,7 +1626,7 @@ class ServerLoader {
             srvName,
             stopwatch.elapsedMilliseconds.clamp(50, 7000),
           ));
-          unawaited(SourceHealthService.instance.recordSuccess(sourceId, stopwatch.elapsedMilliseconds));
+          _recordSuccess(srv, stopwatch.elapsedMilliseconds);
           debugPrint('[SourceHealth] $sourceId priorizada: reliability ${health.reliabilityScore.toStringAsFixed(2)}, latency ${stopwatch.elapsedMilliseconds}ms');
           return PlayableSource(
             url: m3u8,
@@ -1571,7 +1643,7 @@ class ServerLoader {
     }
 
     stopwatch.stop();
-    unawaited(SourceHealthService.instance.recordFailure(sourceId, 'No playable stream found'));
+    _recordFailure(srv, 'No playable stream found');
     return null;
   }
 
