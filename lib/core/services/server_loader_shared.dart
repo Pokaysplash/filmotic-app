@@ -1390,8 +1390,12 @@ class ServerLoader {
       // 0.08. Priorizar CDNs y embeds rápidos (<500ms - 1.5s)
       bool isFastHost(String name) =>
           name.contains('streamwish') ||
+          name.contains('embedwish') ||
+          name.contains('vidhide') ||
+          name.contains('callistanise') ||
           name.contains('filelions') ||
           name.contains('voe') ||
+          name.contains('vidcore') ||
           name.contains('vidmoly') ||
           name.contains('luluvdo') ||
           name.contains('waaw') ||

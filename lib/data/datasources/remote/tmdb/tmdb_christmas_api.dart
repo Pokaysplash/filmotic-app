@@ -14,6 +14,72 @@ class TmdbChristmasApi {
   static const Set<int> _kKidsExcludedGenres = {27, 80, 53, 10752, 10768};
   static const Set<int> _kTvExcludedGenres = {10764, 10767, 10763, 10766};
   static const Set<String> _kPreferredLangs = {'es', 'en'};
+  static const Set<String> _kAnimeLangs = {'ja', 'ko', 'zh'};
+
+  /// Falsos positivos frecuentes en TMDB que traen la etiqueta "christmas"
+  /// o "holiday" pero NO son películas/series navideñas (ej. Coco, El extraño
+  /// mundo de Jack, Terrifier 3, Mujercitas, Hawkeye, Amagami SS, etc.).
+  static const Set<int> _kExcludedChristmasIds = {
+    354912, // Coco (Día de Muertos)
+    9479,   // El extraño mundo de Jack (Halloween)
+    1034541, // Terrifier 3 (Terror)
+    331482, // Mujercitas
+    927,    // Gremlins
+    562,    // Duro de matar (Die Hard)
+    52083,  // Amagami SS (Anime)
+    88329,  // Hawkeye
+    242977, // La Palma
+    33153,  // Fanny och Alexander
+  };
+
+  /// Clásicos navideños garantizados que siempre pasan el filtro aunque
+  /// su título en español no contenga la palabra "Navidad".
+  static const Set<int> _kGuaranteedChristmasIds = {
+    771,    // Mi pobre angelito
+    772,    // Mi pobre angelito 2
+    8871,   // El Grinch (2000)
+    360920, // El Grinch (2018)
+    508965, // Klaus
+    5255,   // El expreso polar
+    10719,  // Elf, el duende
+    17979,  // Los fantasmas de Scrooge
+    508,    // Realmente amor
+    1581,   // El descanso (The Holiday)
+    1585,   // ¡Qué bello es vivir!
+    527435, // Crónicas de Navidad
+    654028, // Crónicas de Navidad 2
+    11395,  // Santa Cláusula
+    9279,   // El regalo prometido
+    845781, // Código: Traje rojo
+    5825,   // Vacaciones de Navidad
+    111625, // Dash y Lily
+    95612,  // Navidad en casa
+    155631, // Santa Cláusula: Un nuevo Santa
+    261317, // Mistletoe Murders
+    94587,  // Feliz lo que quieras
+  };
+
+  static final RegExp _kChristmasSignalRe = RegExp(
+    r'navidad|navideñ|christmas|xmas|santa\b|santa\s*claus|pap[aá]\s*noel|noel\b|'
+    r'nochebuena|nochevieja|a[ñn]o\s*nuevo|fin\s*de\s*a[ñn]o|new\s*year|'
+    r'thanksgiving|acci[oó]n\s*de\s*gracias|'
+    r'grinch|scrooge|klaus|mu[eé]rdago|mistletoe|villancic|trineo|polo\s*norte|'
+    r'north\s*pole|expreso\s*polar|polar\s*express|mi\s*pobre\s*angelito|'
+    r'home\s*alone|solo\s*en\s*casa|regalo\s*prometido|jingle|kringle|'
+    r'frosty|rudolph|rodolfo|snowman|muñeco\s*de\s*nieve|cascanueces|'
+    r'nutcracker|noche\s*de\s*paz|silent\s*night|duende|elf\b|renos?\b|'
+    r'reindeer|julkalender|snøfall|sunes\s*jul|tidsrejsen|felices\s*fiestas|'
+    r'esp[ií]ritu\s*navideñ|christmas\s*eve|v[ií]spera\s*de\s*navidad',
+    caseSensitive: false,
+  );
+
+  static String _todayIso() {
+    final now = DateTime.now();
+    final y = now.year.toString().padLeft(4, '0');
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
   static const Map<String, String> _headers = {
     'Accept': 'application/json',
     'User-Agent': 'Filmotic/1.0',
@@ -41,15 +107,23 @@ class TmdbChristmasApi {
 
     final apiKey = await TmdbApis.getApiKey();
     final language = await TmdbApis.getLanguage();
+    final today = _todayIso();
+
+    // Keywords festivas genuinas: christmas (207317), santa claus (1991),
+    // thanksgiving (4543), new year (252123), christmas eve (260365).
+    const movieKeywords = '207317|1991|4543|252123|260365';
 
     final batches = await Future.wait([
-      // 1. Keyword principal "christmas" (207317) ordenado por popularidad (páginas 1-3)
+      // 1. Catálogo principal Navidad / Santa / Acción de Gracias / Año Nuevo (páginas 1-3)
+      //    Excluimos terror (27) y estrenos futuros que aún no tienen servidores.
       _fetchList(
         '/discover/movie',
         apiKey: apiKey,
         language: language,
         query: {
-          'with_keywords': '207317',
+          'with_keywords': movieKeywords,
+          'without_genres': '27',
+          'release_date.lte': today,
           'sort_by': 'popularity.desc',
           'page': '1',
           if (isKids) ...{'certification_country': 'US', 'certification.lte': 'PG'},
@@ -60,7 +134,9 @@ class TmdbChristmasApi {
         apiKey: apiKey,
         language: language,
         query: {
-          'with_keywords': '207317',
+          'with_keywords': movieKeywords,
+          'without_genres': '27',
+          'release_date.lte': today,
           'sort_by': 'popularity.desc',
           'page': '2',
           if (isKids) ...{'certification_country': 'US', 'certification.lte': 'PG'},
@@ -71,37 +147,29 @@ class TmdbChristmasApi {
         apiKey: apiKey,
         language: language,
         query: {
-          'with_keywords': '207317',
+          'with_keywords': movieKeywords,
+          'without_genres': '27',
+          'release_date.lte': today,
           'sort_by': 'popularity.desc',
           'page': '3',
           if (isKids) ...{'certification_country': 'US', 'certification.lte': 'PG'},
         },
       ),
-      // 2. Clásicos navideños con más votos de todos los tiempos
+      // 2. Clásicos navideños y de fin de año con más votos de todos los tiempos
       _fetchList(
         '/discover/movie',
         apiKey: apiKey,
         language: language,
         query: {
-          'with_keywords': '207317',
+          'with_keywords': movieKeywords,
+          'without_genres': '27',
+          'release_date.lte': today,
           'sort_by': 'vote_count.desc',
           'page': '1',
           if (isKids) ...{'certification_country': 'US', 'certification.lte': 'PG'},
         },
       ),
-      // 3. Keyword complementaria "holiday" (65)
-      _fetchList(
-        '/discover/movie',
-        apiKey: apiKey,
-        language: language,
-        query: {
-          'with_keywords': '65',
-          'sort_by': 'popularity.desc',
-          'page': '1',
-          if (isKids) ...{'certification_country': 'US', 'certification.lte': 'PG'},
-        },
-      ),
-      // 4. Búsqueda directa por título "Navidad" y "Christmas" para estrenos sin keyword
+      // 3. Búsqueda directa por título "Navidad", "Christmas" y "Santa" para estrenos sin keyword
       _fetchList(
         '/search/movie',
         apiKey: apiKey,
@@ -113,6 +181,12 @@ class TmdbChristmasApi {
         apiKey: apiKey,
         language: language,
         query: {'query': 'Christmas', 'page': '1'},
+      ),
+      _fetchList(
+        '/search/movie',
+        apiKey: apiKey,
+        language: language,
+        query: {'query': 'Santa', 'page': '1'},
       ),
     ]);
 
@@ -139,9 +213,11 @@ class TmdbChristmasApi {
 
     final apiKey = await TmdbApis.getApiKey();
     final language = await TmdbApis.getLanguage();
+    final today = _todayIso();
 
-    // Keywords: christmas, holiday, christmas eve, christmas spirit, christmas story.
-    const tvKeywords = '207317|65|260365|193048|196450';
+    // Keywords estrictamente de temporada navideña / fin de año / Santa / Acción de Gracias
+    // (sin 65="holiday" que mete anime y otras fiestas no relacionadas).
+    const tvKeywords = '207317|1991|4543|252123|260365|193048|196450';
     // Sin reality, talk shows, noticias ni telenovelas: casi nunca están en
     // las fuentes y al abrirlos no aparecía nada.
     const tvExcludedGenres = '10764,10767,10763,10766';
@@ -153,6 +229,7 @@ class TmdbChristmasApi {
           query: {
             'with_keywords': tvKeywords,
             'without_genres': tvExcludedGenres,
+            'first_air_date.lte': today,
             'vote_count.gte': '3',
             'sort_by': sort,
             'page': page,
@@ -210,35 +287,64 @@ class TmdbChristmasApi {
             ? (raw['id'] as num).toInt()
             : int.tryParse('${raw['id']}') ?? 0;
         if (id <= 0 || !seenIds.add(id)) continue;
+        if (_kExcludedChristmasIds.contains(id)) continue;
 
-        if (isKids) {
-          final gids = raw['genre_ids'];
-          if (gids is List &&
-              gids.any((g) {
-                final gid = g is num ? g.toInt() : int.tryParse('$g');
-                return gid != null && _kKidsExcludedGenres.contains(gid);
-              })) {
-            continue;
+        final gidsRaw = raw['genre_ids'];
+        final gids = <int>{};
+        if (gidsRaw is List) {
+          for (final g in gidsRaw) {
+            final gid = g is num ? g.toInt() : int.tryParse('$g');
+            if (gid != null) gids.add(gid);
           }
         }
 
+        // Nunca terror en el Especial de Navidad
+        if (gids.contains(27)) continue;
+
+        if (isKids) {
+          if (gids.any(_kKidsExcludedGenres.contains)) continue;
+        }
+
         if (mediaType == 'tv') {
-          final gids = raw['genre_ids'];
-          if (gids is List &&
-              gids.any((g) {
-                final gid = g is num ? g.toInt() : int.tryParse('$g');
-                return gid != null && _kTvExcludedGenres.contains(gid);
-              })) {
-            continue;
-          }
+          if (gids.any(_kTvExcludedGenres.contains)) continue;
           final votes = raw['vote_count'] is num ? (raw['vote_count'] as num).toInt() : 0;
           if (votes < 3) continue;
+        }
+
+        // Excluir estrenos futuros (aún no disponibles en servidores)
+        final dateStr = (raw['release_date'] ?? raw['first_air_date'] ?? '')
+            .toString()
+            .trim();
+        if (dateStr.length >= 10 && dateStr.compareTo(_todayIso()) > 0) {
+          continue;
         }
 
         final title = (raw['title'] ?? raw['name'] ?? raw['titulo'] ?? '')
             .toString()
             .trim();
         if (title.isEmpty) continue;
+
+        final origTitle =
+            (raw['original_title'] ?? raw['original_name'] ?? '').toString();
+        final overview = (raw['overview'] ?? '').toString();
+        final origLang =
+            (raw['original_language'] ?? '').toString().trim().toLowerCase();
+
+        // Excluir anime asiático no navideño colado por etiquetas genéricas
+        if (gids.contains(16) && _kAnimeLangs.contains(origLang)) {
+          if (!_kChristmasSignalRe.hasMatch('$title $origTitle')) {
+            continue;
+          }
+        }
+
+        // Verificar que realmente sea contenido navideño (clásico garantizado
+        // o mención navideña explícita en título/sinopsis).
+        final isGuaranteed = _kGuaranteedChristmasIds.contains(id);
+        final hasSignal =
+            _kChristmasSignalRe.hasMatch('$title $origTitle $overview');
+        if (!isGuaranteed && !hasSignal) {
+          continue;
+        }
 
         final normalized = Map<String, dynamic>.from(raw);
         normalized['id'] = id;

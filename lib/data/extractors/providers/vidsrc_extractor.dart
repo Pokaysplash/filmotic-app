@@ -156,6 +156,9 @@ class VidSrcService {
   }
 
   static String? _fastDirectLabelFor(String url) {
+    if (url.contains('vidcore.io') || url.contains('vidcore.net')) {
+      return 'VidCore Sub';
+    }
     if (url.contains('pstream.org')) return 'PStream Fast';
     if (url.contains('vidbinge.dev')) return 'VidBinge Fast';
     if (url.contains('vidsrc.net')) return 'VidSrc.net Fast';
@@ -197,11 +200,13 @@ class VidSrcService {
   ) {
     if (isMovie) {
       return [
+        'https://vidcore.io/movie/$tmdbId?autoPlay=true&sub=es',
         'https://pstream.org/media/tmdb-movie-$tmdbId',
         'https://vidbinge.dev/embed/movie/$tmdbId',
         'https://vidsrc.net/embed/movie/$tmdbId',
         'https://mapple.tv/watch/movie/$tmdbId',
         'https://www.nontongo.win/embed/movie/$tmdbId',
+        'https://www.2embed.cc/embed/$tmdbId',
         'https://www.2embed.skin/embed/$tmdbId',
         'https://primesrc.me/embed/movie?tmdb=$tmdbId',
         'https://111movies.com/movie/$tmdbId',
@@ -209,17 +214,17 @@ class VidSrcService {
         'https://vidfast.vc/movie/$tmdbId',
         'https://vidsrc.to/embed/movie/$tmdbId',
         'https://vidsrc.sh/embed/movie/$tmdbId',
-        'https://www.2embed.cc/embed/$tmdbId',
-        'https://multiembed.mov/?video_id=$tmdbId&tmdb=1',
         'https://vidsrc.me/embed/movie/$tmdbId',
       ];
     }
     return [
+      'https://vidcore.io/tv/$tmdbId/$season/$episode?autoPlay=true&sub=es',
       'https://pstream.org/media/tmdb-tv-$tmdbId/$season/$episode',
       'https://vidbinge.dev/embed/tv/$tmdbId/$season/$episode',
       'https://vidsrc.net/embed/tv/$tmdbId/$season/$episode',
       'https://mapple.tv/watch/tv/$tmdbId/$season/$episode',
       'https://www.nontongo.win/embed/tv/$tmdbId/$season/$episode',
+      'https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode',
       'https://www.2embed.skin/embedtv/$tmdbId&s=$season&e=$episode',
       'https://primesrc.me/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode',
       'https://111movies.com/tv/$tmdbId/$season/$episode',
@@ -227,8 +232,6 @@ class VidSrcService {
       'https://vidfast.vc/tv/$tmdbId/$season/$episode',
       'https://vidsrc.to/embed/tv/$tmdbId/$season/$episode',
       'https://vidsrc.sh/embed/tv/$tmdbId/$season-$episode',
-      'https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode',
-      'https://multiembed.mov/?video_id=$tmdbId&tmdb=1&s=$season&e=$episode',
       'https://vidsrc.me/embed/tv/$tmdbId/$season-$episode',
     ];
   }

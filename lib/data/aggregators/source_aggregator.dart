@@ -32,6 +32,7 @@ import '../extractors/hls/hls_extractor.dart';
 import '../extractors/providers/pelisplus_extractor.dart';
 import '../extractors/providers/vidsrc_extractor.dart';
 import '../extractors/providers/hackstore_extractor.dart';
+import '../extractors/providers/gnula_extractor.dart';
 import '../scrapers/seriesflix_scraper.dart';
 import '../scrapers/cineby_scraper.dart';
 import '../scrapers/thanhdattoday_scraper.dart';
@@ -90,6 +91,7 @@ enum FuenteId {
   smartpelis,
   cinesrc,
   hackstore,
+  gnula,
   thanhdattoday,
   customapi, // APIs del usuario (códigos PHP ilimitados)
 }
@@ -135,6 +137,8 @@ extension FuenteIdX on FuenteId {
         return 'Cineby';
       case FuenteId.hackstore:
         return 'HackStore';
+      case FuenteId.gnula:
+        return 'Gnula';
       case FuenteId.thanhdattoday:
         return 'HDToday';
       case FuenteId.customapi:
@@ -182,6 +186,8 @@ extension FuenteIdX on FuenteId {
         return 'es_cineby';
       case FuenteId.hackstore:
         return 'es_hackstore';
+      case FuenteId.gnula:
+        return 'es_gnula';
       case FuenteId.thanhdattoday:
         return 'es_thanhdattoday';
       case FuenteId.customapi:
@@ -229,6 +235,8 @@ extension FuenteIdX on FuenteId {
         return const Color(0xFF06B6D4);
       case FuenteId.hackstore:
         return const Color(0xFF10B981);
+      case FuenteId.gnula:
+        return const Color(0xFFEF4444);
       case FuenteId.thanhdattoday:
         return const Color(0xFF38BDF8);
       case FuenteId.customapi:
@@ -260,6 +268,7 @@ class FuentesConfig {
   final bool seriesflixEnabled;
   final bool cinebyEnabled;
   final bool hackstoreEnabled;
+  final bool gnulaEnabled;
   final bool thanhdattodayEnabled;
   final bool customApiEnabled;
 
@@ -291,6 +300,7 @@ class FuentesConfig {
     this.seriesflixEnabled = true,
     this.cinebyEnabled = true,
     this.hackstoreEnabled = true,
+    this.gnulaEnabled = true,
     this.thanhdattodayEnabled = true,
     required this.customApiEnabled,
     required this.verificarServidores,
@@ -334,6 +344,7 @@ class FuentesConfig {
       seriesflixEnabled: prefs.getBool('seriesflix_enabled') ?? true,
       cinebyEnabled: prefs.getBool('cineby_enabled') ?? true,
       hackstoreEnabled: prefs.getBool('hackstore_enabled') ?? true,
+      gnulaEnabled: prefs.getBool('gnula_enabled') ?? true,
       thanhdattodayEnabled: prefs.getBool('thanhdattoday_enabled') ?? true,
       customApiEnabled: prefs.getBool('custom_api_enabled') ?? false,
       verificarServidores: prefs.getBool('verificar_servidores') ?? true,
@@ -358,6 +369,7 @@ class FuentesConfig {
     if (tioplusEnabled) list.add(FuenteId.tioplus);
     if (seriesflixEnabled) list.add(FuenteId.seriesflix);
     if (embed69Enabled) list.add(FuenteId.embed69);
+    if (gnulaEnabled) list.add(FuenteId.gnula);
     if (canelaEnabled) list.add(FuenteId.canela);
     if (vidsrcEnabled) list.add(FuenteId.vidsrc);
     if (animeflvEnabled) list.add(FuenteId.animeflv);
@@ -874,6 +886,16 @@ class MainFuentes {
           episode: episode,
         )) {
           yield map;
+        }
+        break;
+      case FuenteId.gnula:
+        await for (final s in GnulaService.scrape(
+          tmdbId: tmdbId,
+          isMovie: isMovie,
+          season: season,
+          episode: episode,
+        )) {
+          yield s.toModalMap();
         }
         break;
       case FuenteId.thanhdattoday:

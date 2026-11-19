@@ -40,6 +40,7 @@
       "seriesmetro",
       "smartpelis",
       "hackstore",
+      "gnula",
       "cuevana_eu",
       "hdfull",
       "sololatino",
@@ -57,9 +58,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.40",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.40/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.40: Reparación completa de servidores (SeriesKao/Embed69, Poseidon, Cuevana, StreamWish, VidHide y VOE), descifrado rápido de enlaces y actualizador automático verificado.",
+    "latest_version": "1.0.0-beta.41",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.41/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.41: Nuevas fuentes rápidas con subtítulos y audio Latino/Castellano (VidCore + Gnula), y Especial de Navidad y Fin de Año filtrado (Navidad, Santa, Acción de Gracias y Año Nuevo sin títulos ajenos ni terror).",
     "force_update": false,
     "is_beta": true
   },
