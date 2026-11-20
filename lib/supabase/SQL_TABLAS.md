@@ -38,6 +38,34 @@ create policy "all tv_link"
   for all
   using (true)
   with check (true);
+
+-- Reportes de servidores caídos y solicitudes de contenido
+create table if not exists public.reportes_servidores (
+  id uuid primary key default gen_random_uuid(),
+  tmdb_id integer not null,
+  titulo text not null,
+  media_type text not null default 'movie',
+  temporada integer,
+  episodio integer,
+  tipo_reporte text not null default 'sin_servidores',
+  servidor_nombre text,
+  servidor_url text,
+  fuente text,
+  detalle text,
+  app_version text,
+  plataforma text default 'mobile',
+  created_at timestamptz default now()
+);
+
+create index if not exists idx_reportes_tmdb on public.reportes_servidores (tmdb_id, created_at desc);
+create index if not exists idx_reportes_tipo on public.reportes_servidores (tipo_reporte, created_at desc);
+
+alter table public.reportes_servidores enable row level security;
+
+create policy "insert reportes_servidores"
+  on public.reportes_servidores
+  for insert
+  with check (true);
 ```
 
 Los usuarios **no** ponen estos datos. Solo el admin de la app.

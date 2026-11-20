@@ -7,7 +7,7 @@ import 'base/base_home_scraper.dart';
 import 'base/buscador.dart';
 
 class ThanhDatTodayScraper {
-  static const String base = 'https://thanhdattoday.online';
+  static const String base = 'https://today2hd.com';
 
   static const List<String> generos = [
     'action',
@@ -229,8 +229,20 @@ class ThanhDatTodayScraper {
     if (isMovie) {
       return [
         DetalleServidor(
-          nombre: 'HDToday · Vidcore',
-          url: 'https://vidcore.net/movie/$tmdbId?autoPlay=true&sub=en',
+          nombre: 'HDToday · VidCore',
+          url: 'https://vidcore.io/movie/$tmdbId?autoPlay=true&sub=es',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · 2Embed',
+          url: 'https://www.2embed.cc/embed/$tmdbId',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · VidBinge',
+          url: 'https://vidbinge.dev/embed/movie/$tmdbId',
           idioma: 'subtitulado',
           calidad: '1080p',
         ),
@@ -240,42 +252,30 @@ class ThanhDatTodayScraper {
           idioma: 'subtitulado',
           calidad: '1080p',
         ),
-        DetalleServidor(
-          nombre: 'HDToday · MultiEmbed',
-          url: 'https://multiembed.mov/directstream.php?video_id=$tmdbId&tmdb=1',
-          idioma: 'subtitulado',
-          calidad: 'HD',
-        ),
-        DetalleServidor(
-          nombre: 'HDToday · VidSrc Pro',
-          url: 'https://vidsrc.pro/embed/movie/$tmdbId',
-          idioma: 'subtitulado',
-          calidad: '1080p',
-        ),
       ];
     } else {
       return [
         DetalleServidor(
-          nombre: 'HDToday · Vidcore',
-          url: 'https://vidcore.net/tv/$tmdbId/$season/$episode?autoPlay=true&sub=en',
+          nombre: 'HDToday · VidCore',
+          url: 'https://vidcore.io/tv/$tmdbId/$season/$episode?autoPlay=true&sub=es',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · 2Embed',
+          url: 'https://www.2embed.cc/embedtv/$tmdbId&s=$season&e=$episode',
+          idioma: 'subtitulado',
+          calidad: '1080p',
+        ),
+        DetalleServidor(
+          nombre: 'HDToday · VidBinge',
+          url: 'https://vidbinge.dev/embed/tv/$tmdbId/$season/$episode',
           idioma: 'subtitulado',
           calidad: '1080p',
         ),
         DetalleServidor(
           nombre: 'HDToday · VidSrc',
           url: 'https://vidsrc.me/embed/tv?tmdb=$tmdbId&season=$season&episode=$episode',
-          idioma: 'subtitulado',
-          calidad: '1080p',
-        ),
-        DetalleServidor(
-          nombre: 'HDToday · MultiEmbed',
-          url: 'https://multiembed.mov/directstream.php?video_id=$tmdbId&tmdb=1&s=$season&e=$episode',
-          idioma: 'subtitulado',
-          calidad: 'HD',
-        ),
-        DetalleServidor(
-          nombre: 'HDToday · VidSrc Pro',
-          url: 'https://vidsrc.pro/embed/tv/$tmdbId/$season/$episode',
           idioma: 'subtitulado',
           calidad: '1080p',
         ),

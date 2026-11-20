@@ -20,23 +20,28 @@ class TmdbChristmasApi {
   /// o "holiday" pero NO son películas/series navideñas (ej. Coco, El extraño
   /// mundo de Jack, Terrifier 3, Mujercitas, Hawkeye, Amagami SS, etc.).
   static const Set<int> _kExcludedChristmasIds = {
-    354912, // Coco (Día de Muertos)
-    9479,   // El extraño mundo de Jack (Halloween)
+    354912,  // Coco (Día de Muertos)
+    9479,    // El extraño mundo de Jack (Halloween)
     1034541, // Terrifier 3 (Terror)
-    331482, // Mujercitas
-    927,    // Gremlins
-    562,    // Duro de matar (Die Hard)
-    52083,  // Amagami SS (Anime)
-    88329,  // Hawkeye
-    242977, // La Palma
-    33153,  // Fanny och Alexander
+    331482,  // Mujercitas
+    927,     // Gremlins
+    562,     // Duro de matar (Die Hard)
+    1573,    // Duro de matar 2
+    240,     // El Padrino II
+    364,     // Batman regresa
+    52083,   // Amagami SS (Anime)
+    88329,   // Hawkeye
+    242977,  // La Palma
+    33153,   // Fanny och Alexander
   };
 
   /// Clásicos navideños garantizados que siempre pasan el filtro aunque
-  /// su título en español no contenga la palabra "Navidad".
+  /// su título en español no contenga la palabra "Navidad" y que tienen
+  /// alta disponibilidad en servidores.
   static const Set<int> _kGuaranteedChristmasIds = {
     771,    // Mi pobre angelito
     772,    // Mi pobre angelito 2
+    9714,   // Mi pobre angelito 3
     8871,   // El Grinch (2000)
     360920, // El Grinch (2018)
     508965, // Klaus
@@ -49,9 +54,22 @@ class TmdbChristmasApi {
     527435, // Crónicas de Navidad
     654028, // Crónicas de Navidad 2
     11395,  // Santa Cláusula
+    9021,   // Santa Cláusula 2
+    13767,  // Santa Cláusula 3
     9279,   // El regalo prometido
     845781, // Código: Traje rojo
     5825,   // Vacaciones de Navidad
+    81188,  // El origen de los guardianes
+    51052,  // Operación Regalo (Arthur Christmas)
+    9745,   // Jack Frost
+    11881,  // Milagro en la calle 34
+    13673,  // Una Navidad de locos
+    12193,  // Cuatro Navidades
+    615666, // El chico que salvó la Navidad
+    557940, // Intercambio de princesas
+    715931, // Spirited: El espíritu de las fiestas
+    756199, // La familia Claus
+    529203, // El caballero de la Navidad
     111625, // Dash y Lily
     95612,  // Navidad en casa
     155631, // Santa Cláusula: Un nuevo Santa
@@ -113,63 +131,40 @@ class TmdbChristmasApi {
     // thanksgiving (4543), new year (252123), christmas eve (260365).
     const movieKeywords = '207317|1991|4543|252123|260365';
 
+    Future<List<Map<String, dynamic>>> discoverMovies(
+      String sortBy,
+      String page, {
+      String minVotes = '50',
+    }) =>
+        _fetchList(
+          '/discover/movie',
+          apiKey: apiKey,
+          language: language,
+          query: {
+            'with_keywords': movieKeywords,
+            'without_genres': '27',
+            'release_date.lte': today,
+            'vote_count.gte': minVotes,
+            'sort_by': sortBy,
+            'page': page,
+            if (isKids) ...{
+              'certification_country': 'US',
+              'certification.lte': 'PG',
+            },
+          },
+        );
+
     final batches = await Future.wait([
-      // 1. Catálogo principal Navidad / Santa / Acción de Gracias / Año Nuevo (páginas 1-3)
-      //    Excluimos terror (27) y estrenos futuros que aún no tienen servidores.
-      _fetchList(
-        '/discover/movie',
-        apiKey: apiKey,
-        language: language,
-        query: {
-          'with_keywords': movieKeywords,
-          'without_genres': '27',
-          'release_date.lte': today,
-          'sort_by': 'popularity.desc',
-          'page': '1',
-          if (isKids) ...{'certification_country': 'US', 'certification.lte': 'PG'},
-        },
-      ),
-      _fetchList(
-        '/discover/movie',
-        apiKey: apiKey,
-        language: language,
-        query: {
-          'with_keywords': movieKeywords,
-          'without_genres': '27',
-          'release_date.lte': today,
-          'sort_by': 'popularity.desc',
-          'page': '2',
-          if (isKids) ...{'certification_country': 'US', 'certification.lte': 'PG'},
-        },
-      ),
-      _fetchList(
-        '/discover/movie',
-        apiKey: apiKey,
-        language: language,
-        query: {
-          'with_keywords': movieKeywords,
-          'without_genres': '27',
-          'release_date.lte': today,
-          'sort_by': 'popularity.desc',
-          'page': '3',
-          if (isKids) ...{'certification_country': 'US', 'certification.lte': 'PG'},
-        },
-      ),
-      // 2. Clásicos navideños y de fin de año con más votos de todos los tiempos
-      _fetchList(
-        '/discover/movie',
-        apiKey: apiKey,
-        language: language,
-        query: {
-          'with_keywords': movieKeywords,
-          'without_genres': '27',
-          'release_date.lte': today,
-          'sort_by': 'vote_count.desc',
-          'page': '1',
-          if (isKids) ...{'certification_country': 'US', 'certification.lte': 'PG'},
-        },
-      ),
-      // 3. Búsqueda directa por título "Navidad", "Christmas" y "Santa" para estrenos sin keyword
+      // 1. Clásicos y películas conocidas con alta disponibilidad en servidores (páginas 1-4)
+      discoverMovies('vote_count.desc', '1', minVotes: '50'),
+      discoverMovies('vote_count.desc', '2', minVotes: '50'),
+      discoverMovies('vote_count.desc', '3', minVotes: '50'),
+      discoverMovies('vote_count.desc', '4', minVotes: '50'),
+      // 2. Populares recientes y de temporada que ya tienen votos reales (páginas 1-3)
+      discoverMovies('popularity.desc', '1', minVotes: '40'),
+      discoverMovies('popularity.desc', '2', minVotes: '40'),
+      discoverMovies('popularity.desc', '3', minVotes: '40'),
+      // 3. Búsqueda directa por título para completar catálogo amplio
       _fetchList(
         '/search/movie',
         apiKey: apiKey,
@@ -311,6 +306,15 @@ class TmdbChristmasApi {
           if (votes < 3) continue;
         }
 
+        // En películas, exigir un mínimo de votos cuando está presente para
+        // evitar películas oscuras sin servidores en español/subtitulado.
+        if (mediaType == 'movie' && !_kGuaranteedChristmasIds.contains(id)) {
+          final rawVotes = raw['vote_count'];
+          if (rawVotes is num && rawVotes.toInt() < 25) {
+            continue;
+          }
+        }
+
         // Excluir estrenos futuros (aún no disponibles en servidores)
         final dateStr = (raw['release_date'] ?? raw['first_air_date'] ?? '')
             .toString()
@@ -362,10 +366,19 @@ class TmdbChristmasApi {
       final popB = (b['popularity'] is num)
           ? (b['popularity'] as num).toDouble()
           : double.tryParse('${b['popularity']}') ?? 0.0;
-      // Español/inglés primero: son los que realmente tienen las fuentes.
+      final votesA = (a['vote_count'] is num)
+          ? (a['vote_count'] as num).toDouble()
+          : 0.0;
+      final votesB = (b['vote_count'] is num)
+          ? (b['vote_count'] as num).toDouble()
+          : 0.0;
+      // Combinar popularidad + fama real (votos) y priorizar español/inglés
+      // para que arriba salgan siempre títulos que sí tienen servidores.
+      final scoreA = popA + (votesA * 0.025);
+      final scoreB = popB + (votesB * 0.025);
       final langA = _kPreferredLangs.contains('${a['original_language']}') ? 1.0 : 0.35;
       final langB = _kPreferredLangs.contains('${b['original_language']}') ? 1.0 : 0.35;
-      return (popB * langB).compareTo(popA * langA);
+      return (scoreB * langB).compareTo(scoreA * langA);
     });
 
     return out;

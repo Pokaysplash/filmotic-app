@@ -59,6 +59,9 @@ const String _kDlnaMp4Features =
 /// perezosos cuando reciben 180 POSTs UPnP por minuto.
 class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
   final http.Client _rawClient = http.Client();
+  final bool silentPassivePolling;
+
+  _ThrottledDlnaHttpClient({this.silentPassivePolling = false});
 
   DateTime? _lastPositionPollAt;
   Duration _lastKnownPosition = Duration.zero;
@@ -77,7 +80,7 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
   void invalidateCache({int confirmPolls = 1}) {
     _lastPositionPollAt = null;
     _lastTransportPollAt = null;
-    _confirmPollsRemaining = confirmPolls;
+    _confirmPollsRemaining = silentPassivePolling ? 0 : confirmPolls;
   }
 
   @override
@@ -103,9 +106,9 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
     }
 
     // 1. Consultar GetVolume solo una vez al inicio (nunca en bucle pasivo),
-    // ya que en Xbox y varios Smart TVs GetVolume despierta el OSD en pantalla.
+    // y en Xbox silenciarlo por completo para no despertar el OSD en pantalla.
     if (action == 'GetVolume') {
-      if (_hasInitialVolume || _lastVolumePollAt != null) {
+      if (silentPassivePolling || _hasInitialVolume || _lastVolumePollAt != null) {
         return _buildSyntheticVolumeXml(_lastVolume);
       }
       try {
@@ -124,9 +127,10 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
     // pasivo de GetPositionInfo e interpolar localmente para no despertar el
     // reproductor/OSD de Xbox ni de Smart TVs durante la película.
     if (action == 'GetPositionInfo') {
-      final shouldSkipNetwork = _lastPositionPollAt != null &&
-          (_confirmPollsRemaining <= 0 ||
-              now.difference(_lastPositionPollAt!) < _kConfirmPollInterval);
+      final shouldSkipNetwork = silentPassivePolling ||
+          (_lastPositionPollAt != null &&
+              (_confirmPollsRemaining <= 0 ||
+                  now.difference(_lastPositionPollAt!) < _kConfirmPollInterval));
       if (shouldSkipNetwork) {
         final elapsed = (_lastTransportState == 'PLAYING' && _lastPositionPollAt != null)
             ? now.difference(_lastPositionPollAt!)
@@ -165,9 +169,10 @@ class _ThrottledDlnaHttpClient extends dc.DlnaHttpClient {
     // 3. Confirmar PLAYING al iniciar/buscar y luego silenciar GetTransportInfo
     // para no enviar peticiones SOAP periódicas a la Xbox mientras reproduce.
     if (action == 'GetTransportInfo') {
-      final shouldSkipNetwork = _lastTransportPollAt != null &&
-          (_confirmPollsRemaining <= 0 ||
-              now.difference(_lastTransportPollAt!) < _kConfirmPollInterval);
+      final shouldSkipNetwork = silentPassivePolling ||
+          (_lastTransportPollAt != null &&
+              (_confirmPollsRemaining <= 0 ||
+                  now.difference(_lastTransportPollAt!) < _kConfirmPollInterval));
       if (shouldSkipNetwork) {
         return _buildSyntheticTransportXml(_lastTransportState);
       }
@@ -1035,8 +1040,11 @@ class _CastStreamAccelerator {
         continue;
       }
 
+      final cleanTs = _sanitizeMpegTsSegment(bytes);
+      if (cleanTs.isEmpty) continue;
+
       try {
-        response.add(bytes);
+        response.add(cleanTs);
         // Esperar a que el socket acepte el segmento: da control de flujo al
         // ritmo del TV (sin acumular la película entera en RAM). La descarga
         // anticipada sigue en paralelo, así que no introduce pausas.
@@ -1051,6 +1059,38 @@ class _CastStreamAccelerator {
     try {
       await response.close();
     } catch (_) {}
+  }
+
+  /// Recorta cabeceras disfrazadas (PNG/GIF/JPEG/ID3 que usan algunos hosts
+  /// HLS) hasta el primer paquete MPEG-TS válido (`0x47` alineado cada 188
+  /// bytes) y ajusta la longitud a múltiplo exacto de 188 bytes. Esto evita
+  /// que Xbox / Smart TV pierdan sincronía del demuxer en cada cambio de
+  /// segmento y muestren el reproductor/OSD cada pocos segundos.
+  static Uint8List _sanitizeMpegTsSegment(Uint8List raw) {
+    const int pkt = 188;
+    if (raw.length < pkt) return raw;
+    // Fast-path: ya empieza en 0x47 alineado
+    if (raw[0] == 0x47 &&
+        (raw.length < pkt * 2 || raw[pkt] == 0x47) &&
+        raw.length % pkt == 0) {
+      return raw;
+    }
+
+    int start = -1;
+    final maxScan = min(raw.length - pkt * 2, 4096);
+    for (int offset = 0; offset <= maxScan; offset++) {
+      if (raw[offset] == 0x47 &&
+          raw[offset + pkt] == 0x47 &&
+          (offset + pkt * 2 >= raw.length || raw[offset + pkt * 2] == 0x47)) {
+        start = offset;
+        break;
+      }
+    }
+    if (start < 0) return raw;
+
+    final usableLen = ((raw.length - start) ~/ pkt) * pkt;
+    if (usableLen <= 0) return raw;
+    return Uint8List.sublistView(raw, start, start + usableLen);
   }
 
   /// Proxy directo para MP4/MKV con soporte real de `HEAD`, `Range: bytes=...`,
@@ -1410,10 +1450,14 @@ class CastService {
           device.metadata['connectionManagerControlUrl'],
       locationUrl: 'http://${device.address.address}:${device.port}',
     );
+    final deviceSig =
+        '${device.name} ${device.metadata['manufacturer'] ?? ''} ${device.metadata['modelName'] ?? ''}'
+            .toLowerCase();
+    final isXbox = deviceSig.contains('xbox') || deviceSig.contains('microsoft');
     return dc.DlnaSession(
       device: device,
       description: description,
-      httpClient: _ThrottledDlnaHttpClient(),
+      httpClient: _ThrottledDlnaHttpClient(silentPassivePolling: isXbox),
       proxy: _PrefetchingMediaProxy(),
     );
   }

@@ -24,6 +24,7 @@ class _KidsPageState extends State<KidsPage> {
 
   KidsSectionData _data = const KidsSectionData();
   List<LiveChannel> _kidsChannels = const [];
+  List<Map<String, dynamic>> _continueWatching = const [];
   bool _loading = true;
   String _filter = 'all'; // 'all' | 'movie' | 'tv' | 'live'
   int _heroIndex = 0;
@@ -32,6 +33,14 @@ class _KidsPageState extends State<KidsPage> {
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  Future<void> _refreshContinueWatching() async {
+    try {
+      final hist = await AppDatabase.instance.getHistory(deduplicateSeries: true);
+      if (!mounted) return;
+      setState(() => _continueWatching = hist);
+    } catch (_) {}
   }
 
   Future<void> _loadData({bool forceRefresh = false}) async {
@@ -47,18 +56,22 @@ class _KidsPageState extends State<KidsPage> {
             .loadChannels(group: 'kids', forceRefresh: forceRefresh)
             .catchError((_) => <LiveChannel>[])
         : Future.value(<LiveChannel>[]);
+    final historyFuture = AppDatabase.instance
+        .getHistory(deduplicateSeries: true)
+        .catchError((_) => <Map<String, dynamic>>[]);
 
-    final results = await Future.wait([catalogFuture, channelsFuture]);
+    final results = await Future.wait([catalogFuture, channelsFuture, historyFuture]);
     if (!mounted) return;
     setState(() {
       _data = results[0] as KidsSectionData;
       _kidsChannels = results[1] as List<LiveChannel>;
+      _continueWatching = results[2] as List<Map<String, dynamic>>;
       _loading = false;
       _heroIndex = 0;
     });
   }
 
-  void _openItem(Map<String, dynamic> item) {
+  Future<void> _openItem(Map<String, dynamic> item) async {
     final title =
         (item['titulo'] ?? item['title'] ?? item['name'] ?? '').toString().trim();
     final tipo = canonicalMediaType(
@@ -69,7 +82,7 @@ class _KidsPageState extends State<KidsPage> {
     );
     if (tmdbId == null || tmdbId <= 0) return;
 
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => PageContenido(
@@ -80,6 +93,7 @@ class _KidsPageState extends State<KidsPage> {
         ),
       ),
     );
+    await _refreshContinueWatching();
   }
 
   void _openChannel(LiveChannel channel) {
@@ -96,7 +110,9 @@ class _KidsPageState extends State<KidsPage> {
       context,
       MaterialPageRoute(builder: (_) => const ProfileSelectionPage()),
     );
-    if (mounted) setState(() {});
+    if (mounted) {
+      await _refreshContinueWatching();
+    }
   }
 
   @override
@@ -174,6 +190,8 @@ class _KidsPageState extends State<KidsPage> {
                     _buildHeroBanner(),
                     const SizedBox(height: 20),
                   ],
+                  if (_filter == 'all' && _continueWatching.isNotEmpty)
+                    _buildContinueWatchingRow(),
                   if ((_filter == 'all' || _filter == 'live') &&
                       _kidsChannels.isNotEmpty)
                     _buildKidsChannelsRow(),
@@ -596,6 +614,151 @@ class _KidsPageState extends State<KidsPage> {
                             child: const Icon(Icons.movie_rounded,
                                 color: Colors.white24),
                           ),
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        itemTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 14),
+      ],
+    );
+  }
+
+  Widget _buildContinueWatchingRow() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 4, 16, 10),
+          child: Row(
+            children: [
+              Icon(Icons.play_circle_outline_rounded,
+                  color: _kKidsWarm, size: 18),
+              SizedBox(width: 6),
+              Text(
+                'Continuar viendo',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+        SizedBox(
+          height: 194,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _continueWatching.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (_, idx) {
+              final item = _continueWatching[idx];
+              final rawPoster =
+                  (item['poster_path'] ?? item['poster'] ?? '').toString().trim();
+              final posterUrl = rawPoster.startsWith('http')
+                  ? rawPoster
+                  : (rawPoster.isNotEmpty
+                      ? 'https://image.tmdb.org/t/p/w342$rawPoster'
+                      : '');
+              final itemTitle =
+                  (item['titulo'] ?? item['title'] ?? item['name'] ?? '')
+                      .toString();
+              final sec = (item['progreso_segundos'] as num?)?.toDouble() ??
+                  (item['segundo'] as num?)?.toDouble() ??
+                  0.0;
+              final dur = (item['duracion_segundos'] as num?)?.toDouble() ??
+                  (item['duracion'] as num?)?.toDouble() ??
+                  0.0;
+              final progress =
+                  dur > 0 ? (sec / dur).clamp(0.05, 0.98) : 0.35;
+              final temp = (item['temporada'] as num?)?.toInt();
+              final ep = (item['episodio'] as num?)?.toInt();
+
+              return GestureDetector(
+                onTap: () => _openItem(item),
+                child: SizedBox(
+                  width: 112,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Stack(
+                          children: [
+                            if (posterUrl.isNotEmpty)
+                              CachedNetworkImage(
+                                imageUrl: posterUrl,
+                                width: 112,
+                                height: 158,
+                                fit: BoxFit.cover,
+                                errorWidget: (_, __, ___) => Container(
+                                  width: 112,
+                                  height: 158,
+                                  color: const Color(0xFF151B2E),
+                                  child: const Icon(Icons.movie_rounded,
+                                      color: Colors.white24),
+                                ),
+                              )
+                            else
+                              Container(
+                                width: 112,
+                                height: 158,
+                                color: const Color(0xFF151B2E),
+                                child: const Icon(Icons.movie_rounded,
+                                    color: Colors.white24),
+                              ),
+                            if (temp != null && ep != null)
+                              Positioned(
+                                top: 6,
+                                left: 6,
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withValues(alpha: 0.72),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    'T$temp · E$ep',
+                                    style: const TextStyle(
+                                      color: _kKidsWarm,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                minHeight: 4,
+                                backgroundColor: Colors.black54,
+                                valueColor: const AlwaysStoppedAnimation<Color>(
+                                  _kKidsAccent,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 5),

@@ -19,6 +19,7 @@ import '../../../core/services/guardados_bus.dart';
 import '../../../core/storage/app_database.dart';
 import '../../../../core/services/server_prevalidation_service.dart';
 import '../../../../core/services/remote_config_service.dart';
+import '../../../supabase/supabase_reportes.dart';
 export '../../../core/services/guardados_bus.dart';
 
 const kAccentColor = Color(0xFFFF6B35);
@@ -928,6 +929,50 @@ class _PageContenidoState extends State<PageContenido>
                 ),
               ),
               const SizedBox(height: 10),
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.amberAccent,
+                    side: const BorderSide(color: Colors.amberAccent, width: 1),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.flag_outlined, size: 18),
+                  label: const Text(
+                    'Pedir servidor / Reportar',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    Navigator.pop(ctx);
+                    final ok = await SupabaseReportesService.enviarReporte(
+                      tmdbId: _resolvedTmdbId ?? widget.idcontenido,
+                      titulo: cleanTitle,
+                      mediaType: isMovie ? 'movie' : 'tv',
+                      temporada: seasonNum,
+                      episodio: episodeNum,
+                      tipoReporte: 'sin_servidores',
+                      plataforma: 'mobile',
+                    );
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          ok
+                              ? '¡Reporte enviado! Revisaremos este título pronto.'
+                              : 'No se pudo enviar el reporte en este momento.',
+                        ),
+                        backgroundColor: ok
+                            ? const Color(0xFF1E8E3E)
+                            : const Color(0xFFB3261E),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
               SizedBox(
                 width: double.infinity,
                 height: 44,

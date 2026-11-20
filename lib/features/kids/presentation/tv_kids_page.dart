@@ -28,6 +28,7 @@ class _KidsPageTvState extends State<KidsPageTv> {
 
   final FocusNode _firstFocusNode = FocusNode(debugLabel: 'tv_kids_first');
   KidsSectionData _data = const KidsSectionData();
+  List<Map<String, dynamic>> _continueWatching = const [];
   bool _loading = true;
   String _filter = 'all'; // 'all' | 'movie' | 'tv'
 
@@ -44,20 +45,33 @@ class _KidsPageTvState extends State<KidsPageTv> {
     super.dispose();
   }
 
+  Future<void> _refreshContinueWatching() async {
+    try {
+      final hist = await AppDatabase.instance.getHistory(deduplicateSeries: true);
+      if (!mounted) return;
+      setState(() => _continueWatching = hist);
+    } catch (_) {}
+  }
+
   Future<void> _loadData({bool forceRefresh = false}) async {
     if (mounted && _data.isEmpty) {
       setState(() => _loading = true);
     }
-    final data =
-        await TmdbKidsApi.instance.fetchKidsCatalog(forceRefresh: forceRefresh);
+    final results = await Future.wait([
+      TmdbKidsApi.instance.fetchKidsCatalog(forceRefresh: forceRefresh),
+      AppDatabase.instance
+          .getHistory(deduplicateSeries: true)
+          .catchError((_) => <Map<String, dynamic>>[]),
+    ]);
     if (!mounted) return;
     setState(() {
-      _data = data;
+      _data = results[0] as KidsSectionData;
+      _continueWatching = results[1] as List<Map<String, dynamic>>;
       _loading = false;
     });
   }
 
-  void _openItem(Map<String, dynamic> item) {
+  Future<void> _openItem(Map<String, dynamic> item) async {
     final title =
         (item['titulo'] ?? item['title'] ?? item['name'] ?? '').toString().trim();
     final tipo = canonicalMediaType(
@@ -68,7 +82,7 @@ class _KidsPageTvState extends State<KidsPageTv> {
     );
     if (tmdbId == null || tmdbId <= 0) return;
 
-    Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => PageContenido(
@@ -79,6 +93,7 @@ class _KidsPageTvState extends State<KidsPageTv> {
         ),
       ),
     );
+    await _refreshContinueWatching();
   }
 
   Future<void> _openProfiles() async {
@@ -86,7 +101,9 @@ class _KidsPageTvState extends State<KidsPageTv> {
       context,
       MaterialPageRoute(builder: (_) => const ProfileSelectionPage()),
     );
-    if (mounted) setState(() {});
+    if (mounted) {
+      await _refreshContinueWatching();
+    }
   }
 
   @override
@@ -95,6 +112,8 @@ class _KidsPageTvState extends State<KidsPageTv> {
     final isKidsProfile = profile?.esInfantil == true;
 
     final rows = <({String title, List<Map<String, dynamic>> items})>[
+      if (_filter == 'all' && _continueWatching.isNotEmpty)
+        (title: 'Continuar viendo', items: _continueWatching),
       if ((_filter == 'all' || _filter == 'movie') &&
           _data.animatedMovies.isNotEmpty)
         (title: 'Películas Animadas', items: _data.animatedMovies),
@@ -377,7 +396,21 @@ class _TvKidsPosterCardState extends State<_TvKidsPosterCard> {
 
   @override
   Widget build(BuildContext context) {
-    final poster = (widget.item['poster_path'] ?? '').toString();
+    final rawPoster =
+        (widget.item['poster_path'] ?? widget.item['poster'] ?? '').toString().trim();
+    final imageUrl = rawPoster.startsWith('http')
+        ? rawPoster
+        : (rawPoster.isNotEmpty
+            ? 'https://image.tmdb.org/t/p/w342$rawPoster'
+            : '');
+    final sec = (widget.item['progreso_segundos'] as num?)?.toDouble() ??
+        (widget.item['segundo'] as num?)?.toDouble() ??
+        0.0;
+    final dur = (widget.item['duracion_segundos'] as num?)?.toDouble() ??
+        (widget.item['duracion'] as num?)?.toDouble() ??
+        0.0;
+    final showProgress = sec > 5;
+    final progress = dur > 0 ? (sec / dur).clamp(0.05, 0.98) : 0.35;
     final title = (widget.item['titulo'] ??
             widget.item['title'] ??
             widget.item['name'] ??
@@ -423,14 +456,40 @@ class _TvKidsPosterCardState extends State<_TvKidsPosterCard> {
                   ),
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: CachedNetworkImage(
-                      imageUrl: 'https://image.tmdb.org/t/p/w342$poster',
-                      fit: BoxFit.cover,
-                      errorWidget: (_, __, ___) => Container(
-                        color: const Color(0xFF151B2E),
-                        child: const Icon(Icons.movie_rounded,
-                            color: Colors.white24),
-                      ),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (imageUrl.isNotEmpty)
+                          CachedNetworkImage(
+                            imageUrl: imageUrl,
+                            fit: BoxFit.cover,
+                            errorWidget: (_, __, ___) => Container(
+                              color: const Color(0xFF151B2E),
+                              child: const Icon(Icons.movie_rounded,
+                                  color: Colors.white24),
+                            ),
+                          )
+                        else
+                          Container(
+                            color: const Color(0xFF151B2E),
+                            child: const Icon(Icons.movie_rounded,
+                                color: Colors.white24),
+                          ),
+                        if (showProgress)
+                          Positioned(
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            child: LinearProgressIndicator(
+                              value: progress,
+                              minHeight: 4,
+                              backgroundColor: Colors.black54,
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                Color(0xFF00C2FF),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),

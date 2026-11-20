@@ -34,6 +34,7 @@ import '../../../live_tv/data/live_tv_service.dart';
 import '../../../../core/services/cast_service.dart';
 import '../../../../core/services/subtitle_auto_loader.dart';
 import '../../../../core/services/server_loader_shared.dart';
+import '../../../../supabase/supabase_reportes.dart';
 import '../widgets/dlna_casting_overlay.dart';
 class _SubtitleCue {
   final Duration start;
@@ -520,7 +521,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final FocusNode _fitFocusNode = FocusNode();
   final FocusNode _nextPromptFocusNode = FocusNode();
   final FocusNode _errorServersFocusNode = FocusNode();
+  final FocusNode _errorReportFocusNode = FocusNode();
   final FocusNode _errorBackFocusNode = FocusNode();
+  bool _tvReportSent = false;
   final FocusNode _exitContinueFocusNode = FocusNode();
   final FocusNode _exitConfirmFocusNode = FocusNode();
   final FocusNode _byProducirSiguienteFocusNode = FocusNode();
@@ -5066,6 +5069,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _errorNextChannelFocusNode.dispose();
     _errorChannelListFocusNode.dispose();
     _errorServersFocusNode.dispose();
+    _errorReportFocusNode.dispose();
     _errorBackFocusNode.dispose();
     _tryAnotherServerFocusNode.dispose();
     _exitContinueFocusNode.dispose();
@@ -6032,10 +6036,41 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   label: 'Cambiar servidor',
                   onTap: () => _showAudioLanguageSelectorTv(),
                   primary: true,
-                  other: _errorBackFocusNode,
+                  other: _errorReportFocusNode,
                   autofocus: true,
                 ),
-                const SizedBox(width: 16),
+                const SizedBox(width: 14),
+                errorBtn(
+                  node: _errorReportFocusNode,
+                  icon: _tvReportSent
+                      ? Icons.check_circle_outline_rounded
+                      : Icons.flag_outlined,
+                  label: _tvReportSent ? 'Reporte enviado' : 'Reportar / Pedir',
+                  onTap: () async {
+                    if (_tvReportSent) return;
+                    final ok = await SupabaseReportesService.enviarReporte(
+                      tmdbId: widget.tmdbId ?? widget.idcontenido,
+                      titulo: widget.titulo,
+                      mediaType: widget.tipo,
+                      temporada: widget.temporada,
+                      episodio: widget.capitulo,
+                      tipoReporte: (widget.servidorUrl == null ||
+                              widget.servidorUrl!.isEmpty)
+                          ? 'sin_servidores'
+                          : 'servidor_caido',
+                      servidorNombre: widget.servidorNombre,
+                      servidorUrl: widget.servidorUrl,
+                      detalle: _errorMessage,
+                      plataforma: 'tv',
+                    );
+                    if (mounted && ok) {
+                      setState(() => _tvReportSent = true);
+                    }
+                  },
+                  primary: false,
+                  other: _errorBackFocusNode,
+                ),
+                const SizedBox(width: 14),
                 errorBtn(
                   node: _errorBackFocusNode,
                   icon: Icons.arrow_back_rounded,

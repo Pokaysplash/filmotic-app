@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../data/aggregators/main_fuentes_servidores.dart';
 import '../../../../core/services/source_health_service.dart';
+import '../../../../supabase/supabase_reportes.dart';
 import 'extractor.dart';
 import 'player_screen.dart';
 const kAccentColor = Color(0xFFE50914);
@@ -474,7 +475,37 @@ class _ServidoresModalState extends State<ServidoresModal> {
             else if (_error != null && _servers.isEmpty)
               Expanded(child: _ErrorBody(error: _error!, onRetry: _reload))
             else if (_servers.isEmpty && !_loading)
-              Expanded(child: _EmptyBody(onReload: _reload))
+              Expanded(
+                child: _EmptyBody(
+                  onReload: _reload,
+                  onReport: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final ok = await SupabaseReportesService.enviarReporte(
+                      tmdbId: widget.tmdbId,
+                      titulo: widget.tituloOverride ??
+                          widget.titulo ??
+                          widget.tituloContenido,
+                      mediaType: widget.tipo,
+                      temporada: widget.temporada,
+                      episodio: widget.capitulo,
+                      tipoReporte: 'sin_servidores',
+                      plataforma: 'mobile',
+                    );
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          ok
+                              ? '¡Reporte enviado! Revisaremos este título pronto.'
+                              : 'No se pudo enviar el reporte en este momento.',
+                        ),
+                        backgroundColor: ok
+                            ? const Color(0xFF1E8E3E)
+                            : const Color(0xFFB3261E),
+                      ),
+                    );
+                  },
+                ),
+              )
             else
               Expanded(child: _buildList(isPortrait)),
           ],
@@ -954,7 +985,8 @@ class _LoadingBody extends StatelessWidget {
 
 class _EmptyBody extends StatelessWidget {
   final VoidCallback onReload;
-  const _EmptyBody({required this.onReload});
+  final VoidCallback? onReport;
+  const _EmptyBody({required this.onReload, this.onReport});
 
   @override
   Widget build(BuildContext context) {
@@ -974,6 +1006,18 @@ class _EmptyBody extends StatelessWidget {
               label: const Text('Recargar'),
               style: TextButton.styleFrom(foregroundColor: kOrange),
             ),
+            if (onReport != null) ...[
+              const SizedBox(height: 6),
+              OutlinedButton.icon(
+                onPressed: onReport,
+                icon: const Icon(Icons.flag_outlined, size: 18),
+                label: const Text('Pedir servidor / Reportar'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.amberAccent,
+                  side: const BorderSide(color: Colors.amberAccent),
+                ),
+              ),
+            ],
           ],
         ),
       ),

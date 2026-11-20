@@ -58,9 +58,9 @@
   },
   "app": {
     "min_version": "1.0.0-beta.1",
-    "latest_version": "1.0.0-beta.41",
-    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.41/filmotic.apk",
-    "update_message": "Filmotic v1.0.0-beta.41: Nuevas fuentes rápidas con subtítulos y audio Latino/Castellano (VidCore + Gnula), y Especial de Navidad y Fin de Año filtrado (Navidad, Santa, Acción de Gracias y Año Nuevo sin títulos ajenos ni terror).",
+    "latest_version": "1.0.0-beta.42",
+    "update_url": "https://github.com/Pokaysplash/filmotic-app/releases/download/v1.0.0-beta.42/filmotic.apk",
+    "update_message": "Filmotic v1.0.0-beta.42: Catálogo de Navidad más amplio con películas verificadas, Continuar viendo en Zona Infantil (Móvil y TV), transmisión más limpia a Xbox sin que aparezca el reproductor, limpieza de servidores caídos en HDToday y botón Reportar / Pedir servidor.",
     "force_update": false,
     "is_beta": true
   },
